@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { Board, PinnedImage, GridItem, Collection, PinSortOption, PinGroup } from '../../shared/types';
 import MasonryGrid from './MasonryGrid';
 import MapView from './MapView';
 import EditBoardModal from './EditBoardModal';
-import { ChevronLeft, Info, Trash2, LayoutGrid, Map as MapIcon, Edit, Globe, Lock, Link as LinkIcon, Folder, ArrowUpDown, Share2, Shuffle } from 'lucide-react';
+import { ChevronLeft, Info, Trash2, LayoutGrid, Map as MapIcon, Edit, Globe, Lock, Link as LinkIcon, ArrowUpDown, Share2, Shuffle, MoreHorizontal } from 'lucide-react';
 
 interface BoardDetailViewProps {
   board: Board;
-  collection?: Collection; // Optional specific parent context
-  allCollections?: Collection[]; // Needed for edit modal
+  collection?: Collection; 
+  allCollections?: Collection[]; 
   images: PinnedImage[];
   groups: PinGroup[];
   onDeleteImage: (id: string, isGroup?: boolean) => void;
@@ -21,7 +21,7 @@ interface BoardDetailViewProps {
   onToggleFavorite: (id: string) => void;
   isSelectionMode?: boolean;
   selectedIds?: Set<string>;
-  onSelect?: (id: string, isShift?: boolean) => void; // Fixed signature
+  onSelect?: (id: string, isShift?: boolean) => void; 
   onUpdateBoard: (updates: Partial<Board>) => void;
   isOwner?: boolean;
   onLoadMore?: () => void;
@@ -60,7 +60,7 @@ const BoardDetailView: React.FC<BoardDetailViewProps> = ({
 
     groups.forEach(group => {
        const groupImages = group.imageIds
-         .map(id => boardImages.find(img => img.id === id)) // Use boardImages here
+         .map(id => boardImages.find(img => img.id === id)) 
          .filter((img): img is PinnedImage => !!img);
 
        if (groupImages.length > 0) {
@@ -103,96 +103,126 @@ const BoardDetailView: React.FC<BoardDetailViewProps> = ({
     } catch (err) { console.error('Failed to copy', err); }
   };
 
+  const SortDropdown = () => {
+    // ... (Simple dropdown implementation for this view)
+    return (
+       <div className="flex items-center gap-1">
+          <button 
+            onClick={() => onPinSortChange && onPinSortChange(pinSort === 'newest' ? 'oldest' : 'newest')}
+            className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <ArrowUpDown className="w-3 h-3" />
+            {pinSort === 'newest' ? 'Newest' : 'Oldest'}
+          </button>
+       </div>
+    );
+  };
+
   return (
-    <div className="animate-in fade-in duration-500 h-full flex flex-col px-4 sm:px-6 lg:px-8 py-6">
-      <div className="flex items-center justify-between mb-4 flex-shrink-0">
-        <button 
-          onClick={onBack}
-          className="flex items-center gap-2 text-slate-500 hover:text-rose-500 transition-colors group"
-        >
-          <ChevronLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-          <span className="text-sm font-medium">Back to Boards</span>
-        </button>
-
-        <div className="flex gap-2">
-           <div className="relative">
-             <button 
-                onClick={handleShare}
-                className="text-slate-500 hover:text-blue-400 transition-colors flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg hover:bg-slate-800"
-              >
-                <Share2 className="w-4 h-4" />
-                Share
-              </button>
-              {showShareTooltip && (
-                <div className="absolute top-full right-0 mt-2 px-2 py-1 bg-blue-500 text-white text-xs rounded shadow-lg whitespace-nowrap z-50">
-                  Link Copied!
-                </div>
-              )}
-           </div>
-
-          {isOwner && (
-            <>
-              <button 
-                onClick={() => setIsEditModalOpen(true)}
-                className="text-slate-500 hover:text-slate-200 transition-colors flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg hover:bg-slate-800"
-              >
-                <Edit className="w-4 h-4" />
-                Edit
-              </button>
-              <button 
-                onClick={onDeleteBoard}
-                className="text-slate-500 hover:text-red-500 transition-colors flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg hover:bg-red-500/10"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8 border-b border-slate-900 pb-6 flex-shrink-0">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-4xl font-black text-slate-100">{board.name}</h1>
-            <div className="flex items-center gap-2">
-               {board.visibility === 'public' && <span title="Public"><Globe className="w-5 h-5 text-slate-600" /></span>}
-               {board.visibility === 'unlisted' && <span title="Unlisted"><LinkIcon className="w-5 h-5 text-slate-600" /></span>}
-               {board.visibility === 'private' && <span title="Private"><Lock className="w-5 h-5 text-slate-600" /></span>}
+    <div className="animate-in fade-in duration-500 h-full flex flex-col px-4 sm:px-6 lg:px-8 py-8">
+      
+      {/* HEADER SECTION */}
+      <div className="flex flex-col md:flex-row justify-between items-start gap-6 mb-8">
+        
+        {/* Left: Title & Info */}
+        <div className="flex-1 min-w-0 pt-1">
+          <div className="flex items-center gap-3 mb-3">
+            <h1 className="text-4xl md:text-5xl font-black text-slate-100 tracking-tight leading-none">{board.name}</h1>
+            
+            {/* Visibility Badge */}
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-900 border border-slate-800 text-slate-500">
+               {board.visibility === 'public' && <Globe className="w-4 h-4" title="Public" />}
+               {board.visibility === 'unlisted' && <LinkIcon className="w-4 h-4" title="Unlisted" />}
+               {board.visibility === 'private' && <Lock className="w-4 h-4" title="Private" />}
             </div>
           </div>
           
-          <p className="text-slate-400 max-w-2xl">{board.description || 'A curated collection of visual inspirations.'}</p>
+          <p className="text-lg text-slate-400 max-w-2xl leading-relaxed mb-4">
+            {board.description || 'A curated collection of visual inspirations.'}
+          </p>
+
+          <button 
+            onClick={onBack}
+            className="group flex items-center gap-2 text-sm font-bold text-rose-500 hover:text-rose-400 transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+            Back to Boards
+          </button>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Right: Action Pill */}
+        <div className="flex-shrink-0">
+          <div className="flex items-center gap-1 bg-slate-900 p-1.5 rounded-full border border-slate-800 shadow-lg shadow-black/20">
+             
+             {/* Share Button */}
+             <div className="relative">
+               <button 
+                  onClick={handleShare}
+                  className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors relative"
+                  title="Share Board"
+                >
+                  <Share2 className="w-4 h-4" />
+                  {showShareTooltip && (
+                    <div className="absolute top-full right-0 mt-2 px-2 py-1 bg-blue-500 text-white text-[10px] font-bold rounded shadow-lg whitespace-nowrap z-50">
+                      Link Copied!
+                    </div>
+                  )}
+               </button>
+             </div>
+
+            {isOwner && (
+              <>
+                <div className="w-px h-4 bg-slate-800 mx-1"></div>
+                
+                <button 
+                  onClick={() => setIsEditModalOpen(true)}
+                  className="p-2.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-full transition-colors"
+                  title="Edit Details"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+                
+                <button 
+                  onClick={onDeleteBoard}
+                  className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-slate-800 rounded-full transition-colors"
+                  title="Delete Board"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* VIEW CONTROLS (Secondary Toolbar) */}
+      <div className="flex items-center justify-between pb-4 border-b border-slate-900 mb-6">
+         <div className="text-sm font-bold text-slate-500">
+            {images.length} Pins
+         </div>
+
+         <div className="flex items-center gap-2">
             {onShuffle && (
               <button
                 onClick={onShuffle}
-                className={`flex items-center gap-2 px-3 py-1.5 border border-slate-800 rounded-md text-xs font-medium transition-colors ${
-                  shuffleSeed > 0 ? 'bg-rose-900/30 text-rose-400 border-rose-900/50' : 'bg-slate-900 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                className={`p-2 rounded-lg transition-colors ${
+                  shuffleSeed > 0 ? 'text-rose-500 bg-rose-500/10' : 'text-slate-500 hover:text-slate-300'
                 }`}
+                title="Shuffle View"
               >
-                <Shuffle className="w-3 h-3" />
-                <span className="hidden sm:inline">Shuffle</span>
+                <Shuffle className="w-4 h-4" />
               </button>
             )}
             
-            {onPinSortChange && (
-                 <button 
-                    onClick={() => onPinSortChange(pinSort === 'newest' ? 'oldest' : 'newest')}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-md text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors"
-                  >
-                    <ArrowUpDown className="w-3 h-3" />
-                    {pinSort === 'newest' ? 'Newest' : 'Oldest'}
-                  </button>
-            )}
+            {onPinSortChange && <SortDropdown />}
             
+            <div className="w-px h-4 bg-slate-800 mx-2"></div>
+
             <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800">
                 <button
                     onClick={() => setViewMode('grid')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors ${
-                    viewMode === 'grid' ? 'bg-slate-800 text-rose-500 shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-colors ${
+                    viewMode === 'grid' ? 'bg-slate-800 text-rose-500 shadow-sm' : 'text-slate-500 hover:text-slate-300'
                     }`}
                 >
                     <LayoutGrid className="w-4 h-4" />
@@ -200,17 +230,18 @@ const BoardDetailView: React.FC<BoardDetailViewProps> = ({
                 </button>
                 <button
                     onClick={() => setViewMode('map')}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors ${
-                    viewMode === 'map' ? 'bg-slate-800 text-rose-500 shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-colors ${
+                    viewMode === 'map' ? 'bg-slate-800 text-rose-500 shadow-sm' : 'text-slate-500 hover:text-slate-300'
                     }`}
                 >
                     <MapIcon className="w-4 h-4" />
                     Map
                 </button>
             </div>
-        </div>
+         </div>
       </div>
 
+      {/* CONTENT GRID */}
       <div className="flex-1 min-h-0">
         {gridItems.length > 0 ? (
           viewMode === 'grid' ? (

@@ -7,8 +7,8 @@ import { discoveryService } from './services/discoveryService';
 // Components
 import Sidebar from './components/Sidebar';
 import MasonryGrid from './components/MasonryGrid';
-import BoardView from './components/BoardView';         
-import BoardDetailView from './components/BoardDetailView'; 
+import BoardView from './components/BoardView';
+import BoardDetailView from './components/BoardDetailView';
 import CollectionDetailView from './components/CollectionDetailView'; // Super-Feed View
 import MapView from './components/MapView';
 import DiscoveryView from './components/DiscoveryView';
@@ -1014,7 +1014,11 @@ const AppContent: React.FC = () => {
               collection={allCollections.find(c => c.id === selectedCollectionId)!}
               boards={displayBoards}
               images={displayImages}
-              onBack={clearParams}
+              onBack={() => {
+                setSelectedBoardId(null);
+                setActiveView('boards'); // Forces view back to the My Boards dashboard
+                window.history.pushState({}, '', window.location.pathname); // Clears URL params
+              }}
               onDeleteCollection={handleDeleteCollection}
               onImageClick={setSelectedImageId}
               onTogglePin={togglePinToBoard}
@@ -1044,7 +1048,11 @@ const AppContent: React.FC = () => {
               allCollections={displayCollections}
               images={displayImages}
               groups={allGroups}
-              onBack={clearParams}
+              onBack={() => {
+                setSelectedBoardId(null);
+                setActiveView('boards'); // Forces view back to the My Boards dashboard
+                window.history.pushState({}, '', window.location.pathname); // Clears URL params
+              }}
               onDeleteImage={handleDeleteItem}
               boards={displayBoards}
               onTogglePin={togglePinToBoard}
