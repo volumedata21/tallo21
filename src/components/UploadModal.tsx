@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { PinnedImage, Visibility, Board } from '../../shared/types';
 import { storage } from '../services/storageService';
 import { authService } from '../services/authService';
-import { X, Upload, Check, Link as LinkIcon, Image as ImageIcon, MapPin, Search, Loader2, Trash2, Plus, Play, Film, Globe, Lock, Link, Folder, ArrowLeft } from 'lucide-react';
+import { X, Upload, Check, Link as LinkIcon, Image as ImageIcon, MapPin, Search, Loader2, Film, Globe, Lock, Link, Folder, Plus, Play } from 'lucide-react';
 import { generateId } from '../utils/helpers';
 
 interface UploadModalProps {
@@ -65,8 +65,11 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
   
   // Pending Uploads State
   const [uploads, setUploads] = useState<PendingUpload[]>([]);
-  const [urlInput, setUrlInput] = useState('');
   
+  // FIX: Track generated URLs in a Ref so they persist across renders and are cleaned up only on unmount
+  const generatedUrls = useRef<string[]>([]);
+
+  const [urlInput, setUrlInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   
   // Common Metadata State
@@ -97,7 +100,6 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
     if (boards.length > prevBoardsLength.current && isWaitingForBoard) {
        // Get the board with the latest createdAt
        if (boards.length > 0) {
-         // Assuming new boards are appended or we find the newest by creation time
          const newBoard = boards.reduce((prev, current) => (prev.createdAt > current.createdAt) ? prev : current);
          if (newBoard) {
            setSelectedBoardId(newBoard.id);
@@ -113,6 +115,13 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
   const [isLocating, setIsLocating] = useState(false);
   const [locationStatus, setLocationStatus] = useState<'none' | 'found' | 'not-found'>('none');
   const [searchResults, setSearchResults] = useState<LocationResult[]>([]);
+
+  // CLEANUP: Only runs once when the component unmounts
+  useEffect(() => {
+    return () => {
+      generatedUrls.current.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   const handleLookupLocation = async () => {
     if (!location) return;
@@ -207,13 +216,11 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
         }
       };
 
-      // Timeout fallback (8s for slower connections)
       const timeout = setTimeout(() => {
         safeResolve(''); 
       }, 8000);
 
       video.onloadeddata = () => {
-        // Seek to 1s or 20% of duration to get a representative frame
         const time = Math.min(1, video.duration > 0 ? video.duration * 0.2 : 0.5); 
         video.currentTime = time;
       };
@@ -221,7 +228,6 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
       video.onseeked = () => {
         const canvas = document.createElement('canvas');
         const MAX_WIDTH = 640;
-        // Default to 16:9 if video dims aren't available yet
         const width = video.videoWidth || 640;
         const height = video.videoHeight || 360;
         const scale = Math.min(1, MAX_WIDTH / width);
@@ -261,7 +267,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
     const validFiles: File[] = [];
     for (const file of filesToProcess) {
       if (file.size > maxBytes) {
-        alert(`File "${file.name}" exceeds the maximum upload size of ${(maxBytes / (1024 * 1024 * 1024)).toFixed(2)} GB.`);
+        alert(`File "${file.name}" exceeds the maximum upload size.`);
         continue;
       }
       validFiles.push(file);
@@ -270,13 +276,12 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
     const newUploads = await Promise.all(validFiles.map(async (file) => {
       const isVideo = file.type.startsWith('video/');
       let preview = '';
-      let originalUrl = '';
       
-      originalUrl = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.readAsDataURL(file);
-      });
+      // FIX: Use createObjectURL instead of FileReader (readAsDataURL)
+      const objectUrl = URL.createObjectURL(file);
+      
+      // Track the URL so we can revoke it later
+      generatedUrls.current.push(objectUrl);
 
       if (isVideo) {
         preview = await generateVideoThumbnail(file);
@@ -288,8 +293,8 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
       return {
         id: generateId(),
         file,
-        preview: preview || originalUrl, 
-        originalUrl,
+        preview: preview || objectUrl, 
+        originalUrl: objectUrl, // Store the pointer, not the data
         title: file.name.split('.')[0],
         mediaType: isVideo ? 'video' : 'image',
         videoMetadata: isVideo ? { type: 'native' } : undefined
@@ -298,7 +303,6 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
     
     setUploads(prev => [...prev, ...newUploads]);
     
-    // Only set common title if it's the very first upload batch and it's a single file
     if (validFiles.length === 1 && uploads.length === 0) {
       setCommonTitle(validFiles[0].name.split('.')[0]);
     }
@@ -385,7 +389,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
     setSelectedScrapedImages(new Set());
 
     try {
-      // Use our new Backend Endpoint (Proxies the request and parses lazy loaded images)
+      // Use our new Backend Endpoint
       const response = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -528,6 +532,7 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
         if (upload.file) {
             imageForServer.url = ''; 
             // Only clear thumbnail if it's auto-generated from the file (base64)
+            // If it's a URL (scraped), keep it.
             if (imageForServer.thumbnailUrl.startsWith('data:')) {
                 imageForServer.thumbnailUrl = ''; 
             }
