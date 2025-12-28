@@ -1,0 +1,26 @@
+services:
+  # 1. Frontend
+  tallo-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tallo-frontend
+    restart: unless-stopped
+    ports:
+      - "5521:80"
+    depends_on:
+      - tallo-backend
+
+  # 2. Backend (Node + TypeScript + SQLite)
+  tallo-backend:
+    build:
+      context: .                # CHANGED: Context is now root
+      dockerfile: server/Dockerfile
+    container_name: tallo-backend
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./data:/app/data    # Persist DB and Uploads
+    environment:
+      - NODE_ENV=production
