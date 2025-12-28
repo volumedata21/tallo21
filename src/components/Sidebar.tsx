@@ -1,5 +1,4 @@
-
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ViewType, Board, Collection, ItemSortOption } from '../../shared/types';
 import { LayoutGrid, FolderHeart, Heart, ChevronsUp, Plus, Folder, Settings, ChevronDown, ChevronRight, Layers, Users, X, Github, ArrowUpDown, Sparkles, GripVertical } from 'lucide-react';
 
@@ -57,9 +56,40 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [isCollectionsOpen, setIsCollectionsOpen] = useState(true);
   const [isBoardsOpen, setIsBoardsOpen] = useState(true);
   
+  // FIX 1: New state to track expanded collections independently of selection
+  const [expandedCollectionIds, setExpandedCollectionIds] = useState<Set<string>>(new Set());
+
   // Sort States
   const [collectionSort, setCollectionSort] = useState<ItemSortOption>('alpha');
   const [boardSort, setBoardSort] = useState<ItemSortOption>('alpha');
+
+  // FIX 2: Auto-expand parent collection when a board is selected
+  useEffect(() => {
+    if (selectedBoardId) {
+      // Find collections that contain this board
+      const parentCols = collections.filter(c => 
+        boards.find(b => b.id === selectedBoardId)?.collectionIds?.includes(c.id)
+      );
+      
+      if (parentCols.length > 0) {
+        setExpandedCollectionIds(prev => {
+          const next = new Set(prev);
+          parentCols.forEach(c => next.add(c.id));
+          return next;
+        });
+      }
+    }
+  }, [selectedBoardId, boards, collections]);
+
+  // Toggle helper
+  const toggleCollectionExpand = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setExpandedCollectionIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const navItems = [
     { id: 'all', label: 'My Tallos', icon: LayoutGrid },
@@ -124,6 +154,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     e.preventDefault();
     if (isReadOnly) return;
     setDragOverCollectionId(collectionId);
+    // Optional: Auto-expand on hover if needed, currently just visual feedback
   };
 
   const handleCollectionDragLeave = () => {
@@ -275,80 +306,98 @@ const Sidebar: React.FC<SidebarProps> = ({
                   {sortedCollections.length === 0 && (
                     <div className="px-4 py-2 text-xs text-slate-700 italic">No collections yet.</div>
                   )}
-                  {sortedCollections.map(col => (
-                    <div key={col.id}>
-                      <button
-                        onClick={() => {
-                          setSelectedCollectionId(col.id);
-                          setSelectedBoardId(null);
-                          setActiveView('collection-detail');
-                          onClose();
-                        }}
-                        onDragOver={(e) => handleCollectionDragOver(e, col.id)}
-                        onDragLeave={handleCollectionDragLeave}
-                        onDrop={(e) => handleCollectionDrop(e, col.id)}
-                        className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm transition-all ${
-                          activeView === 'collection-detail' && selectedCollectionId === col.id 
-                            ? 'text-slate-100 bg-slate-900/30 font-medium' 
-                            : 'text-slate-400 hover:bg-slate-900/50'
-                        } ${
-                          dragOverCollectionId === col.id ? 'bg-rose-900/20 border border-rose-900/50 text-rose-400' : ''
-                        }`}
-                      >
-                        <Layers className="w-4 h-4 text-rose-500/70" />
-                        <span className="truncate">{col.name}</span>
-                      </button>
-                      
-                      {/* Render Boards inside Collection */}
-                      {((activeView === 'collection-detail' && selectedCollectionId === col.id) || dragOverCollectionId === col.id) && (
-                          <div className="ml-4 pl-2 border-l border-slate-800 my-1 space-y-0.5">
-                             {sortItems(boards.filter(b => b.collectionIds && b.collectionIds.includes(col.id)), boardSort, boardLastUpdated).map(board => (
-                                <div
-                                  key={board.id}
-                                  className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs transition-colors group ${
-                                    activeView === 'board-detail' && selectedBoardId === board.id 
-                                      ? 'bg-rose-900/30 text-rose-400' 
-                                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-900/30'
-                                  } ${
-                                    dragOverBoardId === board.id ? 'bg-rose-900/30 text-rose-400' : ''
-                                  }`}
-                                >
-                                  {/* Drag Handle */}
-                                  {!isReadOnly && (
-                                    <div 
-                                      draggable 
-                                      onDragStart={(e) => handleBoardDragStart(e, board.id)}
-                                      className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 p-0.5"
-                                    >
-                                      <GripVertical className="w-3 h-3" />
-                                    </div>
-                                  )}
-                                  
-                                  {/* Click Target */}
-                                  <button
-                                    onClick={() => {
-                                      setSelectedBoardId(board.id);
-                                      setSelectedCollectionId(null);
-                                      setActiveView('board-detail');
-                                      onClose();
-                                    }}
-                                    onDragOver={(e) => handleBoardDragOver(e, board.id)}
-                                    onDragLeave={handleBoardDragLeave}
-                                    onDrop={(e) => handleBoardDrop(e, board.id)}
-                                    className="flex-1 text-left flex items-center gap-2 truncate"
-                                  >
-                                    <Folder className="w-3 h-3 flex-shrink-0" />
-                                    <span className="truncate">{board.name}</span>
-                                  </button>
-                                </div>
-                             ))}
-                             {boards.filter(b => b.collectionIds && b.collectionIds.includes(col.id)).length === 0 && (
-                               <div className="px-3 py-1 text-[10px] text-slate-700 italic">Empty collection</div>
-                             )}
+                  {sortedCollections.map(col => {
+                    const isExpanded = expandedCollectionIds.has(col.id);
+                    // Determine which boards belong to this collection
+                    const colBoards = sortItems(boards.filter(b => b.collectionIds && b.collectionIds.includes(col.id)), boardSort, boardLastUpdated);
+
+                    return (
+                      <div key={col.id}>
+                        <div 
+                          className={`w-full flex items-center justify-between px-2 py-2 rounded-lg text-sm transition-all cursor-pointer group/col ${
+                            activeView === 'collection-detail' && selectedCollectionId === col.id 
+                              ? 'text-slate-100 bg-slate-900/50 font-medium' 
+                              : 'text-slate-400 hover:bg-slate-900/30'
+                          } ${
+                            dragOverCollectionId === col.id ? 'bg-rose-900/20 border border-rose-900/50 text-rose-400' : ''
+                          }`}
+                          onClick={() => {
+                            setSelectedCollectionId(col.id);
+                            setSelectedBoardId(null);
+                            setActiveView('collection-detail');
+                            // Also ensure it is expanded when clicked
+                            setExpandedCollectionIds(prev => new Set(prev).add(col.id));
+                            onClose();
+                          }}
+                          onDragOver={(e) => handleCollectionDragOver(e, col.id)}
+                          onDragLeave={handleCollectionDragLeave}
+                          onDrop={(e) => handleCollectionDrop(e, col.id)}
+                        >
+                          <div className="flex items-center gap-2 overflow-hidden flex-1">
+                             <button
+                               onClick={(e) => toggleCollectionExpand(e, col.id)}
+                               className="p-0.5 hover:bg-slate-800 rounded transition-colors"
+                             >
+                                {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                             </button>
+                             <Layers className="w-4 h-4 text-rose-500/70" />
+                             <span className="truncate">{col.name}</span>
                           </div>
-                      )}
-                    </div>
-                  ))}
+                          {colBoards.length > 0 && <span className="text-[10px] text-slate-600">{colBoards.length}</span>}
+                        </div>
+                        
+                        {/* FIX 3: Render Boards based on 'isExpanded' state, not selection */}
+                        {isExpanded && (
+                            <div className="ml-4 pl-2 border-l border-slate-800 my-1 space-y-0.5 animate-in slide-in-from-left-2 duration-150">
+                               {colBoards.map(board => (
+                                  <div
+                                    key={board.id}
+                                    className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs transition-colors group ${
+                                      activeView === 'board-detail' && selectedBoardId === board.id 
+                                        ? 'bg-rose-900/30 text-rose-400 font-bold' 
+                                        : 'text-slate-500 hover:text-slate-300 hover:bg-slate-900/30'
+                                    } ${
+                                      dragOverBoardId === board.id ? 'bg-rose-900/30 text-rose-400' : ''
+                                    }`}
+                                  >
+                                    {/* Drag Handle */}
+                                    {!isReadOnly && (
+                                      <div 
+                                        draggable 
+                                        onDragStart={(e) => handleBoardDragStart(e, board.id)}
+                                        className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      >
+                                        <GripVertical className="w-3 h-3" />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Click Target */}
+                                    <button
+                                      onClick={() => {
+                                        setSelectedBoardId(board.id);
+                                        // Don't reset collection ID, so context remains if needed, or null it if you prefer independence
+                                        setSelectedCollectionId(null); 
+                                        setActiveView('board-detail');
+                                        onClose();
+                                      }}
+                                      onDragOver={(e) => handleBoardDragOver(e, board.id)}
+                                      onDragLeave={handleBoardDragLeave}
+                                      onDrop={(e) => handleBoardDrop(e, board.id)}
+                                      className="flex-1 text-left flex items-center gap-2 truncate"
+                                    >
+                                      <Folder className={`w-3 h-3 flex-shrink-0 ${selectedBoardId === board.id ? 'fill-current' : ''}`} />
+                                      <span className="truncate">{board.name}</span>
+                                    </button>
+                                  </div>
+                               ))}
+                               {colBoards.length === 0 && (
+                                 <div className="px-3 py-1 text-[10px] text-slate-700 italic">Empty collection</div>
+                               )}
+                            </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -387,7 +436,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                       key={board.id}
                       className={`flex items-center gap-1 px-4 py-2 rounded-lg text-sm transition-all group ${
                         activeView === 'board-detail' && selectedBoardId === board.id 
-                          ? 'text-slate-100 bg-slate-900/30' 
+                          ? 'text-slate-100 bg-slate-900/30 font-medium' 
                           : 'text-slate-400 hover:bg-slate-900/50'
                       } ${
                         dragOverBoardId === board.id 
@@ -400,7 +449,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                         <div 
                           draggable 
                           onDragStart={(e) => handleBoardDragStart(e, board.id)}
-                          className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 p-1 -ml-1"
+                          className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 p-1 -ml-1 opacity-0 group-hover:opacity-100 transition-opacity"
                         >
                           <GripVertical className="w-3.5 h-3.5" />
                         </div>
@@ -419,7 +468,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                         onDrop={(e) => handleBoardDrop(e, board.id)}
                         className="flex-1 text-left flex items-center gap-3 truncate"
                       >
-                        <Folder className={`w-4 h-4 transition-colors ${dragOverBoardId === board.id ? 'text-rose-500' : 'opacity-30'}`} />
+                        <Folder className={`w-4 h-4 transition-colors ${dragOverBoardId === board.id || selectedBoardId === board.id ? 'text-rose-500 fill-rose-500/20' : 'opacity-30'}`} />
                         <span className="truncate">{board.name}</span>
                       </button>
                     </div>
