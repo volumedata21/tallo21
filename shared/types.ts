@@ -25,6 +25,7 @@ export interface PinnedImage {
   groupId?: string;
   ownerId: string;
   visibility: Visibility;
+  boardIds: string[];
   mediaType?: 'image' | 'video';
   thumbnailUrl?: string;
   isCustomThumbnail?: boolean;
@@ -53,6 +54,7 @@ export interface Board {
   ownerId: string;
   collectionIds: string[]; 
   collectionId?: string; 
+  visibility: Visibility;
 }
 
 export interface Collection {
@@ -84,11 +86,11 @@ export interface AppState {
   selectedCollectionId: string | null;
 }
 
-// UPDATED: Added 'images' property to the group type so MasonryGrid works
 export type GridItem = 
   | { type: 'image'; data: PinnedImage }
   | { type: 'group'; data: PinGroup; images: PinnedImage[] };
 
-// UPDATED: Expanded sort options to match what Sidebar and App use
-export type PinSortOption = 'newest' | 'oldest' | 'date-desc' | 'date-asc' | 'alpha-asc' | 'alpha-desc';
-export type ItemSortOption = 'alpha' | 'newest-created' | 'oldest-created' | 'newest-updated' | 'oldest-updated' | 'newest' | 'oldest' | 'name-asc' | 'name-desc';
+export type PinSortOption = 'newest' | 'oldest';
+
+// UPDATED: Added all sort options used by Sidebar
+export type ItemSortOption = 'alpha' | 'newest-created' | 'oldest-created' | 'newest-updated' | 'oldest-updated';

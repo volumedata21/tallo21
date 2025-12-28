@@ -1,7 +1,7 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { PinnedImage, Board, Visibility } from '../types';
-import { X, Calendar, Hash, FolderPlus, Check, MapPin, ExternalLink, Edit2, Save, Loader2, Search, Heart, Share2, Link as LinkIcon, Globe, Plus, Trash2, ChevronLeft, ChevronRight, Layers, LayoutTemplate, Camera, RotateCcw, Lock, Link, User } from 'lucide-react';
+// FIXED: Added 'User' to imports
+import { PinnedImage, Board, Visibility, User } from '../../shared/types';
+import { X, Calendar, Hash, FolderPlus, Check, MapPin, ExternalLink, Edit2, Save, Loader2, Search, Heart, Share2, Link as LinkIcon, Globe, Plus, Trash2, ChevronLeft, ChevronRight, Layers, LayoutTemplate, Camera, RotateCcw, Lock, Link, User as UserIcon } from 'lucide-react';
 import { authService } from '../services/authService';
 
 interface ImageDetailModalProps {
@@ -29,15 +29,17 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
 }) => {
   // CRITICAL FIX: Ensure safe access to arrays to prevent "Blank Screen" crash
   const safeTags = image.tags || [];
-  const safeLikedBy = image.likedBy || [];
-  const safeBoardIds = image.boardIds || [];
+  
+  // FIX 1: Add State for Users
+  const [users, setUsers] = useState<User[]>([]);
 
   const currentUser = authService.getCurrentUser();
-  const users = authService.getUsers();
+  
+  // FIX 2: Look up owner from the STATE, not the service directly
   const owner = users.find(u => u.id === image.ownerId);
+  
   const isOwner = currentUser && image.ownerId === currentUser.id;
   const isLiked = currentUser && (image.likedBy || []).includes(currentUser.id);
-  const likeCount = (image.likedBy || []).length;
   const isFollowing = currentUser && owner && (currentUser.following || []).includes(owner.id);
 
   const [isEditing, setIsEditing] = useState(false);
@@ -76,6 +78,10 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
     setCoords(image.latitude && image.longitude ? { lat: image.latitude, lng: image.longitude } : null);
     setIsEditing(false); // Reset edit mode on image change
     setCaptureSuccess(false);
+    
+    // FIX 3: Fetch users asynchronously and update state
+    authService.getUsers().then(setUsers).catch(() => setUsers([]));
+    
   }, [image]);
 
   const handleLookupLocation = async () => {
@@ -241,10 +247,6 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
   };
 
   const handleRemoveThumbnail = async () => {
-    // Just revert to default behavior (which might be placeholder or re-generate if file is local)
-    // For local files we can re-generate, for external we might lose the thumbnail if we can't capture.
-    // Ideally we should store the original thumbnail if it was generated on upload.
-    // For now, let's just clear the custom flag and thumbnailUrl.
     onUpdate({ ...image, thumbnailUrl: undefined, isCustomThumbnail: false });
   };
 
@@ -512,13 +514,12 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
             <div className="flex items-center justify-between pb-4 border-b border-slate-900">
               <div className="flex items-center gap-3">
                  <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold">
-                   {owner ? owner.username.substring(0, 2).toUpperCase() : <User className="w-6 h-6" />}
+                   {owner ? owner.username.substring(0, 2).toUpperCase() : <UserIcon className="w-6 h-6" />}
                  </div>
                  <div>
                    <p className="text-sm font-bold text-slate-200">{owner ? owner.username : 'Unknown User'}</p>
                    {owner && (
                      <p className="text-xs text-slate-500">
-                       {/* This could show follower count if we had it fully implemented across all users */}
                        Community Member
                      </p>
                    )}
@@ -527,8 +528,6 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
               
               {!isOwner && owner && (
                 <button
-                   // In a real app this would toggle follow state, passed via props
-                   // For now it's visual to show the UI
                    className={`px-4 py-2 rounded-full text-xs font-bold transition-all ${
                      isFollowing 
                        ? 'bg-slate-900 text-slate-300 border border-slate-800 hover:bg-slate-800'

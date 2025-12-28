@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { PinnedImage, Board, DiscoverySource, GridItem } from '../types';
+import { PinnedImage, Board, DiscoverySource, GridItem } from '../../shared/types';
 import MasonryGrid from './MasonryGrid';
 import ManageSourcesModal from './ManageSourcesModal';
 import { Sparkles, Settings2, RefreshCw, Filter } from 'lucide-react';

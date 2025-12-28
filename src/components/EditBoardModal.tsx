@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { X, FolderPlus, Globe, Lock, Link as LinkIcon, Folder, Check } from 'lucide-react';
-import { Board, Visibility, Collection } from '../types';
+import { Board, Visibility, Collection } from '../../shared/types';
 
 interface EditBoardModalProps {
   board: Board;

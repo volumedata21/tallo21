@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Board, PinnedImage, GridItem, Collection, PinSortOption, PinGroup } from '../types';
+import { Board, PinnedImage, GridItem, Collection, PinSortOption, PinGroup } from '../../shared/types';
 import MasonryGrid from './MasonryGrid';
 import MapView from './MapView';
 import EditBoardModal from './EditBoardModal';

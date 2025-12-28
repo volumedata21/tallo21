@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { X, FolderPlus, Globe, Lock, Link as LinkIcon } from 'lucide-react';
-import { Visibility } from '../types';
+import { Visibility } from '../../shared/types';
 
 interface CreateBoardModalProps {
   onClose: () => void;

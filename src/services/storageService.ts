@@ -1,152 +1,168 @@
-import { PinnedImage, Board, PinGroup, Collection, DiscoverySource } from '../types';
+import { PinnedImage, Board, PinGroup, Collection, DiscoverySource } from '../../shared/types';
 
-const API = '/api'; // Proxied by Nginx to the backend container
+const API = '/api';
 
-class StorageService {
-  async init(): Promise<void> {
-    // Backend handles database initialization automatically.
-    return Promise.resolve();
+// Helper to log and validate server responses
+const fetchAndLog = async (url: string, name: string) => {
+  try {
+    console.log(`[Storage] Fetching ${name}...`);
+    const res = await fetch(url);
+    
+    if (!res.ok) {
+      console.error(`[Storage] Server Error on ${name}: ${res.status} ${res.statusText}`);
+      const text = await res.text();
+      console.error(`[Storage] Raw Response:`, text);
+      return []; // Return empty array on error to prevent crash
+    }
+
+    const data = await res.json();
+    console.log(`[Storage] Received ${name}:`, data);
+    
+    // CRITICAL FIX: If server returns null/undefined, force it to []
+    if (!Array.isArray(data)) {
+      console.warn(`[Storage] WARNING: ${name} expected Array but got:`, typeof data, data);
+      return []; 
+    }
+    
+    return data;
+  } catch (e) {
+    console.error(`[Storage] Network Crash on ${name}:`, e);
+    return [];
   }
+};
+
+export const storage = {
+  async init(): Promise<void> {
+    return Promise.resolve();
+  },
 
   // --- Images ---
 
   async getAllImages(): Promise<PinnedImage[]> {
-    const res = await fetch(`${API}/images`);
-    if (!res.ok) throw new Error('Failed to fetch images');
-    return res.json();
-  }
+    return await fetchAndLog(`${API}/images`, 'Images');
+  },
 
   async saveImage(image: PinnedImage, file?: File): Promise<PinnedImage> {
-    let res;
-    if (file) {
-      const formData = new FormData();
-      formData.append('file', file);
-      // We send the metadata as a JSON string field named 'data'
-      formData.append('data', JSON.stringify(image));
-      
-      res = await fetch(`${API}/images`, {
-        method: 'POST',
-        body: formData,
-      });
-    } else {
-      // For metadata-only updates (like pinning to a board, changing description)
-      const res = await fetch(`${API}/images`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: JSON.stringify(image) })
-      });
-    }
+    let res: Response;
+    
+    console.log("[Storage] Uploading image...", image.id);
 
-    if (!res.ok) throw new Error('Failed to save image');
-    return await res.json();
-  }
+    try {
+      if (file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('data', JSON.stringify(image));
+        
+        res = await fetch(`${API}/images`, {
+          method: 'POST',
+          body: formData,
+        });
+      } else {
+        res = await fetch(`${API}/images`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: JSON.stringify(image) })
+        });
+      }
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("[Storage] Upload Failed:", errText);
+        throw new Error(`Upload failed: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      console.log("[Storage] Upload Success:", data);
+      return data;
+    } catch (e) {
+      console.error("[Storage] Save Image Error:", e);
+      throw e;
+    }
+  },
 
   async updateImage(image: PinnedImage): Promise<void> {
-    // Our backend UPSERT logic handles updates via the same POST endpoint
-    return this.saveImage(image);
-  }
+    await this.saveImage(image);
+  },
 
   async deleteImage(id: string): Promise<void> {
-    const res = await fetch(`${API}/images/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete image');
-  }
+    await fetch(`${API}/images/${id}`, { method: 'DELETE' });
+  },
 
   // --- Boards ---
 
   async getAllBoards(): Promise<Board[]> {
-    const res = await fetch(`${API}/boards`);
-    if (!res.ok) throw new Error('Failed to fetch boards');
-    return res.json();
-  }
+    return await fetchAndLog(`${API}/boards`, 'Boards');
+  },
 
   async saveBoard(board: Board): Promise<void> {
-    const res = await fetch(`${API}/boards`, {
+    await fetch(`${API}/boards`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(board)
     });
-    if (!res.ok) throw new Error('Failed to save board');
-  }
+  },
 
   async updateBoard(board: Board): Promise<void> {
-    return this.saveBoard(board);
-  }
+    await this.saveBoard(board);
+  },
 
   async deleteBoard(id: string): Promise<void> {
-    const res = await fetch(`${API}/boards/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete board');
-  }
+    await fetch(`${API}/boards/${id}`, { method: 'DELETE' });
+  },
 
-  // --- Groups (Pin Groups) ---
+  // --- Groups ---
 
   async getAllGroups(): Promise<PinGroup[]> {
-    const res = await fetch(`${API}/groups`);
-    if (!res.ok) throw new Error('Failed to fetch groups');
-    return res.json();
-  }
+    return await fetchAndLog(`${API}/groups`, 'Groups');
+  },
 
   async saveGroup(group: PinGroup): Promise<void> {
-    const res = await fetch(`${API}/groups`, {
+    await fetch(`${API}/groups`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(group)
     });
-    if (!res.ok) throw new Error('Failed to save group');
-  }
+  },
 
   async deleteGroup(id: string): Promise<void> {
-    const res = await fetch(`${API}/groups/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete group');
-  }
+    await fetch(`${API}/groups/${id}`, { method: 'DELETE' });
+  },
 
   // --- Collections ---
 
   async getAllCollections(): Promise<Collection[]> {
-    const res = await fetch(`${API}/collections`);
-    if (!res.ok) throw new Error('Failed to fetch collections');
-    return res.json();
-  }
+    return await fetchAndLog(`${API}/collections`, 'Collections');
+  },
 
   async saveCollection(collection: Collection): Promise<void> {
-    const res = await fetch(`${API}/collections`, {
+    await fetch(`${API}/collections`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(collection)
     });
-    if (!res.ok) throw new Error('Failed to save collection');
-  }
+  },
 
-  async deleteCollection(id: string): Promise<void> {
-    const res = await fetch(`${API}/collections/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete collection');
-  }
-
-  // --- Discovery Sources ---
+  // --- Discovery ---
 
   async getAllDiscoverySources(): Promise<DiscoverySource[]> {
-    const res = await fetch(`${API}/discovery`);
-    if (!res.ok) throw new Error('Failed to fetch discovery sources');
-    return res.json();
-  }
+    return await fetchAndLog(`${API}/discovery`, 'Discovery');
+  },
 
   async saveDiscoverySource(source: DiscoverySource): Promise<void> {
-    const res = await fetch(`${API}/discovery`, {
+    await fetch(`${API}/discovery`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(source)
     });
-    if (!res.ok) throw new Error('Failed to save discovery source');
-  }
+  },
 
   async deleteDiscoverySource(id: string): Promise<void> {
-    const res = await fetch(`${API}/discovery/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('Failed to delete discovery source');
-  }
+    await fetch(`${API}/discovery/${id}`, { method: 'DELETE' });
+  },
 
-  // --- Backup & Restore (Restored for Build) ---
+  // --- Import/Export ---
 
   async exportData(): Promise<string> {
-    // Client-side aggregation
     const [images, boards, collections, groups, discovery] = await Promise.all([
         this.getAllImages(),
         this.getAllBoards(),
@@ -164,34 +180,19 @@ class StorageService {
         groups,
         discovery
     }, null, 2);
-  }
+  },
 
   async importData(jsonString: string): Promise<void> {
     try {
       const data = JSON.parse(jsonString);
-      
-      // We process serially to avoid overloading the backend
-      if (data.collections) {
-          for (const c of data.collections) await this.saveCollection(c);
-      }
-      if (data.boards) {
-          for (const b of data.boards) await this.saveBoard(b);
-      }
-      if (data.images) {
-          // Note: This only restores metadata. Actual files must be manually migrated in Docker.
-          for (const img of data.images) await this.saveImage(img);
-      }
-      if (data.groups) {
-          for (const g of data.groups) await this.saveGroup(g);
-      }
-      if (data.discovery) {
-          for (const d of data.discovery) await this.saveDiscoverySource(d);
-      }
+      if (data.collections) for (const c of data.collections) await this.saveCollection(c);
+      if (data.boards) for (const b of data.boards) await this.saveBoard(b);
+      if (data.images) for (const img of data.images) await this.saveImage(img);
+      if (data.groups) for (const g of data.groups) await this.saveGroup(g);
+      if (data.discovery) for (const d of data.discovery) await this.saveDiscoverySource(d);
     } catch (e) {
       console.error("Import failed", e);
-      throw new Error("Failed to parse backup file");
+      throw new Error('Invalid backup file');
     }
   }
-}
-
-export const storage = new StorageService();
+};

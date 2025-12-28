@@ -1,7 +1,7 @@
 
-import { DiscoverySource, PinnedImage } from '../types';
+import { DiscoverySource, PinnedImage } from '../../shared/types';
 
-const PROXY_URL = 'https://api.allorigins.win/get?url=';
+const PROXY_URL = '/api/rss?url=';
 
 interface ParsedItem {
   title: string;

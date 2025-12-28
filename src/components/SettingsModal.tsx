@@ -3,7 +3,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { X, Download, Upload, Database, AlertTriangle, Check, Globe, Lock, Link as LinkIcon, Eye, Shield } from 'lucide-react';
 import { storage } from '../services/storageService';
 import { authService } from '../services/authService';
-import { Visibility } from '../types';
+import { Visibility } from '../../shared/types';
 
 interface SettingsModalProps {
   onClose: () => void;

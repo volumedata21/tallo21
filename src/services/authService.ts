@@ -1,148 +1,95 @@
+import { User } from '../shared/types';
 
-import { User } from '../types';
-
-const SALT = 'pinspire-secure-salt'; 
-const USERS_KEY = 'pinspire_users';
-const SESSION_KEY = 'pinspire_session_user';
-const CONFIG_KEY = 'pinspire_server_config';
-
-interface ServerConfig {
-  signupCodeHash: string | null;
-  isConfigured: boolean;
-  maxFileSize?: number; // Size in bytes
-}
+const API = '/api/auth';
+const SESSION_KEY = 'tallo_session_user';
 
 export const authService = {
-  async hashPassword(password: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password + SALT);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  },
+  // REMOVED: hashPassword function is no longer needed here
 
-  getUsers(): User[] {
-    const usersStr = localStorage.getItem(USERS_KEY);
-    return usersStr ? JSON.parse(usersStr) : [];
-  },
-
-  getCurrentUser(): User | null {
-    const userId = sessionStorage.getItem(SESSION_KEY);
-    if (!userId) return null;
-    const users = this.getUsers();
-    return users.find(u => u.id === userId) || null;
-  },
-
-  getServerConfig(): ServerConfig {
-    const configStr = localStorage.getItem(CONFIG_KEY);
-    const defaults: ServerConfig = { 
-      signupCodeHash: null, 
-      isConfigured: false, 
-      maxFileSize: 2 * 1024 * 1024 * 1024 // Default 2GB
-    };
-    
-    if (configStr) {
-      const stored = JSON.parse(configStr);
-      return { ...defaults, ...stored };
-    }
-    return defaults;
-  },
-
-  async updateServerConfig(updates: Partial<ServerConfig>): Promise<void> {
-    const current = this.getServerConfig();
-    const newConfig = { ...current, ...updates };
-    localStorage.setItem(CONFIG_KEY, JSON.stringify(newConfig));
-  },
-
-  async setSignupCode(code: string): Promise<void> {
-    const hash = await this.hashPassword(code);
-    await this.updateServerConfig({ signupCodeHash: hash, isConfigured: true });
-  },
-
-  async verifySignupCode(code: string): Promise<boolean> {
-    const config = this.getServerConfig();
-    // If no code is set, allow (first run scenario handled by register logic usually)
-    if (!config.signupCodeHash) return true;
-    
-    const inputHash = await this.hashPassword(code);
-    return inputHash === config.signupCodeHash;
-  },
-
-  async register(username: string, password: string, inviteCode?: string): Promise<User> {
-    const users = this.getUsers();
-    const config = this.getServerConfig();
-
-    if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
-      throw new Error('Username already exists');
-    }
-
-    // If it's NOT the first user, and a code is configured, check it
-    if (config.isConfigured && users.length > 0) {
-      if (!inviteCode) throw new Error('Invite code is required to join this server');
-      const validCode = await this.verifySignupCode(inviteCode);
-      if (!validCode) throw new Error('Invalid invite code');
-    }
-
-    // If it IS the first user, and they provided a code, set it as the server code
-    if (users.length === 0 && inviteCode) {
-      await this.setSignupCode(inviteCode);
-    }
-
-    const passwordHash = await this.hashPassword(password);
-    const newUser: User = {
+  async register(username: string, password: string): Promise<User> {
+    // Send raw password to server
+    const newUserPayload = {
       id: crypto.randomUUID(),
       username,
-      passwordHash,
+      password, // CHANGED: Sending raw password
       createdAt: Date.now(),
-      isAdmin: users.length === 0 // First user is Admin
+      isAdmin: false 
     };
 
-    users.push(newUser);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    
-    // Auto login
-    this.startSession(newUser.id);
+    // Check if this is the first user (Admin)
+    const existingUsers = await this.getUsers();
+    if (existingUsers.length === 0) {
+      newUserPayload.isAdmin = true;
+    }
+
+    const res = await fetch(`${API}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newUserPayload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Registration failed');
+    }
+
+    // The server doesn't return the password, so we construct the session user without it
+    const newUser: User = {
+        id: newUserPayload.id,
+        username: newUserPayload.username,
+        passwordHash: '', // Don't keep this in session storage
+        createdAt: newUserPayload.createdAt,
+        isAdmin: newUserPayload.isAdmin
+    };
+
+    this.startSession(newUser);
     return newUser;
   },
 
-  async login(userId: string, password: string): Promise<boolean> {
-    const users = this.getUsers();
-    const user = users.find(u => u.id === userId);
-    
-    if (!user) return false;
-    
-    const inputHash = await this.hashPassword(password);
-    if (inputHash === user.passwordHash) {
-      this.startSession(user.id);
+  async login(username: string, password: string): Promise<boolean> {
+    // CHANGED: Send raw password, no hashing
+    const res = await fetch(`${API}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+
+    if (res.ok) {
+      const user = await res.json();
+      this.startSession(user);
       return true;
     }
     return false;
   },
 
-  startSession(userId: string) {
-    sessionStorage.setItem(SESSION_KEY, userId);
+  // ... keep getUsers, startSession, logout, getCurrentUser, migrateLegacyAuth, getServerConfig as they were
+  
+  async getUsers(): Promise<User[]> {
+    try {
+      const res = await fetch('/api/users');
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      return [];
+    }
+  },
+
+  startSession(user: User) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
   },
 
   logout() {
     sessionStorage.removeItem(SESSION_KEY);
   },
 
-  migrateLegacyAuth() {
-    const legacyHash = localStorage.getItem('pinspire_auth_hash');
-    const users = this.getUsers();
-    
-    if (legacyHash && users.length === 0) {
-      const defaultUser: User = {
-        id: crypto.randomUUID(),
-        username: 'Admin',
-        passwordHash: legacyHash,
-        createdAt: Date.now(),
-        isAdmin: true // Legacy user is Admin
-      };
-      localStorage.setItem(USERS_KEY, JSON.stringify([defaultUser]));
-      localStorage.removeItem('pinspire_auth_hash'); 
-      return defaultUser;
-    }
-    return null;
+  getCurrentUser(): User | null {
+    const stored = sessionStorage.getItem(SESSION_KEY);
+    return stored ? JSON.parse(stored) : null;
+  },
+
+  async migrateLegacyAuth() {},
+  
+  getServerConfig() {
+     return { isConfigured: true };
   }
 };

@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { ViewType, Board, Collection, ItemSortOption } from '../types';
+import { ViewType, Board, Collection, ItemSortOption } from '../../shared/types';
 import { LayoutGrid, FolderHeart, Heart, ChevronsUp, Plus, Folder, Settings, ChevronDown, ChevronRight, Layers, Users, X, Github, ArrowUpDown, Sparkles, GripVertical } from 'lucide-react';
 
 interface SidebarProps {

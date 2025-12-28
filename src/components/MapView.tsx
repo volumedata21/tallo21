@@ -1,6 +1,6 @@
 
 import React, { useEffect, useRef, useState } from 'react';
-import { PinnedImage } from '../types';
+import { PinnedImage } from '../../shared/types';
 import { MapPin, X, ChevronRight, Calendar } from 'lucide-react';
 
 // Declaration for Leaflet attached to window

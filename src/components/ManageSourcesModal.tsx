@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { X, Plus, Trash2, Rss, Loader2 } from 'lucide-react';
-import { DiscoverySource } from '../types';
+import { DiscoverySource } from '../../shared/types';
 
 interface ManageSourcesModalProps {
   sources: DiscoverySource[];

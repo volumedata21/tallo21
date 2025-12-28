@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PinnedImage, Visibility, Board } from '../types';
+import { PinnedImage, Visibility, Board } from '../../shared/types';
 import { storage } from '../services/storageService';
 import { authService } from '../services/authService';
 import { X, Upload, Check, Link as LinkIcon, Image as ImageIcon, MapPin, Search, Loader2, Trash2, Plus, Play, Film, Globe, Lock, Link, Folder, ArrowLeft } from 'lucide-react';
@@ -497,14 +497,13 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
     
     try {
       const rawTags = tags.split(',').map(t => t.trim()).filter(t => t !== '');
-      const uniqueTags = Array.from(new Set(rawTags)); // Unique tags
+      const uniqueTags = Array.from(new Set(rawTags));
       
       const newImages: PinnedImage[] = [];
 
       for (const upload of uploads) {
         const newImage: PinnedImage = {
           id: crypto.randomUUID(),
-          // Note: Backend will update 'url' to the server file path if a file is present
           url: upload.originalUrl || upload.preview, 
           thumbnailUrl: upload.preview, 
           title: commonTitle.trim() || upload.title || 'Untitled Tallo',
@@ -522,16 +521,28 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload, ownerId, b
           sourceUrl: commonSourceUrl.trim() || (upload as any).sourceUrl
         };
         
-        // --- CRITICAL CHANGE: Pass the file object here ---
-        await storage.saveImage(newImage, upload.file);
+        // --- OPTIMIZATION START ---
+        // Create a lightweight copy for the server (remove massive base64 strings)
+        // The server will generate the correct 'url' from the file.
+        const imageForServer = { ...newImage };
+        if (upload.file) {
+            imageForServer.url = ''; 
+            // Only clear thumbnail if it's auto-generated from the file (base64)
+            if (imageForServer.thumbnailUrl.startsWith('data:')) {
+                imageForServer.thumbnailUrl = ''; 
+            }
+        }
+        // --- OPTIMIZATION END ---
+
+        await storage.saveImage(imageForServer, upload.file);
         
         newImages.push(newImage);
       }
 
-      onUpload(newImages); // Update UI
+      onUpload(newImages);
     } catch (err) {
       console.error(err);
-      alert('Failed to save content. Server might be unreachable or file too large.');
+      alert('Failed to save content. Please try fewer items or smaller files.');
     } finally {
       setIsSaving(false);
     }

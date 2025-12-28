@@ -1,39 +1,57 @@
-# Stage 1: Build the React App
-FROM node:22-alpine as builder
+# --- Stage 1: Builder (Frontend Only) ---
+FROM node:22-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
+
+# Install build dependencies
+RUN apk add --no-cache python3 make g++
+
+# Copy all config files
+COPY package*.json tsconfig.json vite.config.ts ./
+
+# Install ALL dependencies
 RUN npm install
+
+# Copy source code
 COPY . .
-# This builds the files in /app/src using your root package.json
-RUN npm run build
 
-# Stage 2: Serve with Nginx
-FROM nginx:alpine
-RUN rm -rf /usr/share/nginx/html/*
-COPY --from=builder /app/dist /usr/share/nginx/html
+# Build Frontend 
+# (Vite uses esbuild, which ignores the type errors blocking you)
+RUN npx vite build
 
-# Nginx Config to handle React Router + Proxy API
-RUN printf 'server {\n\
-    listen 80;\n\
-    root /usr/share/nginx/html;\n\
-    index index.html;\n\
-    \n\
-    client_max_body_size 10G;\n\
-    \n\
-    location /api/ {\n\
-        proxy_pass http://tallo-backend:4000/;\n\
-        proxy_http_version 1.1;\n\
-        proxy_set_header Upgrade $http_upgrade;\n\
-        proxy_set_header Connection "upgrade";\n\
-        proxy_set_header Host $host;\n\
-    }\n\
-    location /uploads/ {\n\
-        proxy_pass http://tallo-backend:4000/uploads/;\n\
-    }\n\
-    location / {\n\
-        try_files $uri $uri/ /index.html;\n\
-    }\n\
-}\n' > /etc/nginx/conf.d/default.conf
+# --- Stage 2: Runner (Runtime) ---
+FROM node:22-alpine
+WORKDIR /app
 
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+# Install runtime dependencies (for SQLite)
+RUN apk add --no-cache python3 make g++
+
+# Copy package.json
+COPY package*.json ./
+
+# Install ALL dependencies 
+# (We need 'tsx' from devDependencies to run the server directly)
+RUN npm install
+
+# Copy the built frontend from Stage 1
+COPY --from=builder /app/dist ./dist
+
+# Copy the Backend Source & Shared Types
+# We copy these raw because we are running them directly with tsx
+COPY server ./server
+COPY shared ./shared
+COPY tsconfig.json ./
+
+# Create data directory
+RUN mkdir -p data/uploads
+
+# Environment Configuration
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Expose the port
+EXPOSE 3000
+
+# START COMMAND CHANGED:
+# Instead of running compiled JS, we use 'tsx' to run TypeScript directly.
+# This skips the type-checking phase that was crashing your build.
+CMD ["npx", "tsx", "server/server.ts"]

@@ -1,13 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { PinnedImage, Board, ViewType, PinGroup, GridItem, User, Visibility, Collection, PinSortOption, ItemSortOption, DiscoverySource } from './types';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+// FIXED IMPORT: Point to shared types
+import { PinnedImage, Board, ViewType, PinGroup, GridItem, User, Visibility, Collection, PinSortOption, DiscoverySource } from '../shared/types';
 import { storage } from './services/storageService';
 import { authService } from './services/authService';
-import { storage } from './services/storageService';
 import { discoveryService } from './services/discoveryService';
-import { generateId, getDeterministicScore } from './utils/helpers';
-import { useAppNavigation } from './hooks/useAppNavigation'; 
 
-// Components
 import Sidebar from './components/Sidebar';
 import MasonryGrid from './components/MasonryGrid';
 import BoardView from './components/BoardView';
@@ -20,11 +17,14 @@ import SettingsModal from './components/SettingsModal';
 import ImageDetailModal from './components/ImageDetailModal';
 import BulkActionModal from './components/BulkActionModal';
 import LoginScreen from './components/LoginScreen';
-import MobileNavBar from './components/MobileNavBar';
-import TrendingBar from './components/TrendingBar';
-import { Toast, ToastType } from './components/Toast';
-import { Plus, Search, LayoutGrid, Map as MapIcon, CheckSquare, Trash2, X, Heart, FolderPlus, Hash, MapPin, Layers, Folder, User as UserIcon, Globe, Link as LinkIcon, Info, Eye, Menu, Upload, ArrowUpDown, Clock, Shuffle, LogOut, Users, ArrowLeft } from 'lucide-react';
+import { DebugTools } from './components/DebugTools';
 
+// FIXED IMPORT: Added 'Eye'
+import { Plus, Search, LayoutGrid, Map as MapIcon, CheckSquare, Trash2, X, Heart, FolderPlus, Hash, MapPin, Layers, Folder, LogOut, Users, ArrowLeft, Shuffle, ArrowUpDown, Menu, Eye } from 'lucide-react';
+
+const ITEMS_PER_PAGE = 30;
+
+// --- INLINE HELPERS ---
 const generateId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -42,9 +42,22 @@ const getDeterministicScore = (id: string, seed: number) => {
   return h >>> 0;
 };
 
-const ITEMS_PER_PAGE = 30;
+// --- INLINE COMPONENT: Simple Toast ---
+const SimpleToast = ({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
 
-const SortDropdown = ({ value, onChange, options }: { value: string, onChange: (v: any) => void, options: { label: string, value: string }[] }) => {
+  return (
+    <div className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-xl z-[100] text-white ${type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>
+      {message}
+    </div>
+  );
+};
+
+// --- HELPER: User Menu ---
+const UserMenu = ({ user, onLogout }: { user: User | null, onLogout: () => void }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -66,7 +79,7 @@ const SortDropdown = ({ value, onChange, options }: { value: string, onChange: (
       {isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 top-full mt-2 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-100">
+          <div className="absolute right-0 top-full mt-2 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50">
             <div className="px-4 py-3 border-b border-slate-800">
               <p className="text-xs text-slate-500 font-bold uppercase">Signed in as</p>
               <p className="text-sm font-medium text-white truncate">{user?.username}</p>
@@ -112,36 +125,64 @@ const SortDropdown = ({ value, onChange, options }: { value: string, onChange: (
   );
 };
 
-// --- MAIN CONTENT (Inner App) ---
+// --- MAIN CONTENT ---
 const AppContent: React.FC = () => {
-  const { state, actions, discoveryItems, isDiscoveryLoading, setDiscoveryItems, setDiscoverySources } = useStore();
-  const currentUser = useCurrentUser();
-  
-  // Navigation State
-  const { 
-    activeView, setActiveView, 
-    selectedBoardId, setSelectedBoardId,
-    selectedCollectionId, setSelectedCollectionId,
-    selectedImageId, setSelectedImageId,
-    clearParams
-  } = useAppNavigation(); 
+  // Navigation State (Restored from Hook)
+  const [activeView, setActiveView] = useState<ViewType>('all');
+  const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+
+  const clearParams = useCallback(() => {
+    setSelectedBoardId(null);
+    setSelectedCollectionId(null);
+    setSelectedImageId(null);
+    setActiveView('all');
+    window.history.pushState({}, '', window.location.pathname);
+  }, []);
+
+  // Data State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [allImages, setAllImages] = useState<PinnedImage[]>([]);
+  const [allBoards, setAllBoards] = useState<Board[]>([]);
+  const [allGroups, setAllGroups] = useState<PinGroup[]>([]);
+  const [allCollections, setAllCollections] = useState<Collection[]>([]);
+  const [discoverySources, setDiscoverySources] = useState<DiscoverySource[]>([]);
+  const [discoveryItems, setDiscoveryItems] = useState<PinnedImage[]>([]);
+  const [isDiscoveryLoading, setIsDiscoveryLoading] = useState(false);
 
   // UI State
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [page, setPage] = useState(1);
-
   const [pinSort, setPinSort] = useState<PinSortOption>('newest');
-  // @ts-ignore
-  const [boardGridSort, setBoardGridSort] = useState<ItemSortOption>('alpha');
   const [shuffleSeed, setShuffleSeed] = useState<number>(0);
-
-  // Mobile Search State
+  const [mainViewMode, setMainViewMode] = useState<'grid' | 'map'>('grid');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Modals & Overlays
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isCreateBoardOpen, setIsCreateBoardOpen] = useState(false);
+  const [isCreateCollectionOpen, setIsCreateCollectionOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  
+  // Selection State
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+  const [bulkAction, setBulkAction] = useState<'board' | 'tags' | 'location' | 'group' | 'visibility' | null>(null);
+
+  // Initial Auth Check
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
 
   // Toast State
-  const [toast, setToast] = useState<{message: string, type: ToastType} | null>(null);
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
-  const showToast = (message: string, type: ToastType = 'success') => {
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
   };
 
@@ -150,56 +191,79 @@ const AppContent: React.FC = () => {
     setShuffleSeed(0); 
   };
 
-  const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const [isCreateBoardOpen, setIsCreateBoardOpen] = useState(false);
-  const [isCreateCollectionOpen, setIsCreateCollectionOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const [droppedFiles, setDroppedFiles] = useState<File[]>([]);
-  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
-  const [mainViewMode, setMainViewMode] = useState<'grid' | 'map'>('grid');
-  
-  // Filter & Search State
-  const [searchTerm, setSearchTerm] = useState('');
-  const [pinSort, setPinSort] = useState<PinSortOption>('newest');
-  const [shuffleSeed, setShuffleSeed] = useState<number>(0);
-  const [page, setPage] = useState(1);
-
-  // Selection State
-  const [isSelectionMode, setIsSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkAction, setBulkAction] = useState<'board' | 'tags' | 'location' | 'group' | 'visibility' | null>(null);
-
-  const [searchTerm, setSearchTerm] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  
-  const [mainViewMode, setMainViewMode] = useState<'grid' | 'map'>('grid');
-
   useEffect(() => {
-    const checkAuth = () => {
-      authService.migrateLegacyAuth();
+    const checkAuth = async () => {
+      // 1. Migrate legacy data
+      await authService.migrateLegacyAuth();
+      
       const user = authService.getCurrentUser();
-      setCurrentUser(user);
-      const usersExist = authService.getUsers().length > 0;
-      const params = new URLSearchParams(window.location.search);
-      const hasDeepLink = params.has('pin') || params.has('board');
-      if (!user && usersExist && !hasDeepLink) {
-        setShowLoginModal(true);
+      
+      try {
+        // 2. Fetch users safely
+        const response = await authService.getUsers();
+        // Fallback: If response is null/undefined, make it an empty array
+        const serverUsers = Array.isArray(response) ? response : [];
+        
+        // 3. Check for Ghost Session
+        if (user) {
+          // If server has users, check if WE are valid.
+          // If server has 0 users (fresh install), we are definitely invalid.
+          const isValidUser = serverUsers.length > 0 && serverUsers.find(u => u.id === user.id);
+          
+          if (!isValidUser) {
+            console.warn("Ghost session detected (User invalid or DB empty). Logging out.");
+            authService.logout();
+            setCurrentUser(null);
+            setShowLoginModal(true);
+            setIsAuthChecking(false);
+            return;
+          }
+        }
+        
+        setCurrentUser(user);
+        
+        // Show login if needed
+        if (!user && serverUsers.length > 0) {
+           const params = new URLSearchParams(window.location.search);
+           const hasDeepLink = params.has('pin') || params.has('board');
+           if (!hasDeepLink) {
+             setShowLoginModal(true);
+           }
+        } else if (serverUsers.length === 0) {
+            // Fresh install: Let LoginScreen handle the "Create Admin" flow
+            setShowLoginModal(true);
+        }
+
+      } catch (e) {
+        console.error("Auth check failed:", e);
+        // If server is down, don't lock the app, just let it load in read-only/offline mode
+        setCurrentUser(user); 
+      } finally {
+        setIsAuthChecking(false);
       }
-      setIsAuthChecking(false);
     };
+    
     checkAuth();
   }, []);
 
   const loadData = async () => {
     try {
       await storage.init();
-      const storedImages = await storage.getAllImages();
-      const storedBoards = await storage.getAllBoards();
-      const storedGroups = await storage.getAllGroups();
-      const storedCollections = await storage.getAllCollections();
-      const storedDiscovery = await storage.getAllDiscoverySources();
       
+      // Fetch raw data
+      const rawImages = await storage.getAllImages();
+      const rawBoards = await storage.getAllBoards();
+      const rawGroups = await storage.getAllGroups();
+      const rawCollections = await storage.getAllCollections();
+      const rawDiscovery = await storage.getAllDiscoverySources();
+      
+      // Validate arrays (Defensive Coding)
+      const storedImages = Array.isArray(rawImages) ? rawImages : [];
+      const storedBoards = Array.isArray(rawBoards) ? rawBoards : [];
+      const storedGroups = Array.isArray(rawGroups) ? rawGroups : [];
+      const storedCollections = Array.isArray(rawCollections) ? rawCollections : [];
+      const discovery = Array.isArray(rawDiscovery) ? rawDiscovery : [];
+
       const migratedBoards = storedBoards.map((b: any) => ({
         ...b,
         collectionIds: b.collectionIds || (b.collectionId ? [b.collectionId] : [])
@@ -209,28 +273,25 @@ const AppContent: React.FC = () => {
       setAllBoards(migratedBoards);
       setAllGroups(storedGroups);
       setAllCollections(storedCollections);
-      setDiscoverySources(storedDiscovery);
+      setDiscoverySources(discovery);
 
+      // Handle Deep Links safely
       const params = new URLSearchParams(window.location.search);
       const pinId = params.get('pin');
       const boardId = params.get('board');
-      
       const user = authService.getCurrentUser();
 
-      if (pinId) {
-        if (!pinId.startsWith('discovery-')) {
-            const exists = storedImages.find(i => i.id === pinId);
-            if (exists) {
+      if (pinId && !pinId.startsWith('discovery-')) {
+          // Now safe because storedImages is guaranteed to be an array
+          const exists = storedImages.find(i => i.id === pinId);
+          if (exists) {
             if (exists.visibility === 'public' || exists.visibility === 'unlisted' || (user && exists.ownerId === user.id)) {
                 setSelectedImageId(pinId);
                 setShowLoginModal(false); 
             } else if (!user) {
                 setShowLoginModal(true);
             }
-            } else if (!user) {
-                setShowLoginModal(true);
-            }
-        }
+          }
       } else if (boardId) {
         const board = migratedBoards.find(b => b.id === boardId);
         if (board) {
@@ -241,8 +302,6 @@ const AppContent: React.FC = () => {
             } else if (!user) {
                 setShowLoginModal(true);
             }
-        } else if (!user) {
-            setShowLoginModal(true);
         }
       }
 
@@ -346,7 +405,7 @@ const AppContent: React.FC = () => {
         }
         else if (isCreateCollectionOpen) setIsCreateCollectionOpen(false);
         else if (isSettingsOpen) setIsSettingsOpen(false);
-        else if (selectedImageId) handleSetSelectedImageId(null);
+        else if (selectedImageId) setSelectedImageId(null);
         else if (bulkAction) setBulkAction(null);
         else if (isSelectionMode) {
           setIsSelectionMode(false);
@@ -360,7 +419,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [activeView, selectedBoardId, selectedCollectionId, searchTerm, pinSort, boardGridSort, shuffleSeed]);
+  }, [activeView, selectedBoardId, selectedCollectionId, searchTerm, pinSort, shuffleSeed]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -410,74 +469,74 @@ const AppContent: React.FC = () => {
     setAllImages([]); 
     setAllBoards([]);
     setDiscoveryItems([]);
-    showToast("Logged out successfully", "info");
+    showToast("Logged out successfully", "success");
   };
 
   const handleGuestAccess = () => {
     setShowLoginModal(false);
   };
 
-  const images = useMemo(() => {
-    return allImages.filter(img => {
+  const displayImages = useMemo(() => {
+    let imgs = allImages;
+    // Filter logic
+    imgs = imgs.filter(img => {
       const isOwner = currentUser && (img.ownerId === currentUser.id);
       const isLegacy = !img.ownerId; 
       const isPublic = img.visibility === 'public';
       const isUnlistedAndSelected = img.visibility === 'unlisted' && img.id === selectedImageId;
       const isInPublicBoard = selectedBoardId ? allBoards.some(b => b.id === selectedBoardId && b.id === img.boardIds.find(bid => bid === selectedBoardId) && (b.visibility === 'public' || b.visibility === 'unlisted')) : false;
-
       return isOwner || isLegacy || isPublic || isUnlistedAndSelected || isInPublicBoard;
     });
-  }, [allImages, currentUser, selectedImageId, selectedBoardId, allBoards]);
+    
+    // Search logic
+    if (searchTerm) {
+        const lower = searchTerm.toLowerCase();
+        imgs = imgs.filter(img => 
+            img.title.toLowerCase().includes(lower) || 
+            img.tags.some(t => t.toLowerCase().includes(lower)) ||
+            (img.location && img.location.toLowerCase().includes(lower))
+        );
+    }
+    
+    // View logic
+    if (activeView === 'boards' && selectedBoardId) {
+        imgs = imgs.filter(img => img.boardIds.includes(selectedBoardId));
+    } else if (activeView === 'favorites') {
+        imgs = imgs.filter(img => currentUser ? (img.ownerId === currentUser.id ? img.isFavorite : (img.likedBy || []).includes(currentUser.id)) : false);
+    } else if (activeView === 'collection-detail' && selectedCollectionId) {
+         // Collection view mainly shows boards, but if we wanted all images in collection:
+         const boardIdsInCol = allBoards.filter(b => b.collectionIds.includes(selectedCollectionId)).map(b => b.id);
+         imgs = imgs.filter(img => img.boardIds.some(bid => boardIdsInCol.includes(bid)));
+    }
 
-  const boards = useMemo(() => {
+    return imgs;
+  }, [allImages, currentUser, selectedImageId, selectedBoardId, allBoards, activeView, selectedCollectionId, searchTerm]);
+
+  const displayBoards = useMemo(() => {
     return allBoards.filter(b => {
       const isOwner = currentUser && (b.ownerId === currentUser.id);
       const isLegacy = !b.ownerId;
       const isPublic = b.visibility === 'public';
       const isUnlistedAndSelected = b.visibility === 'unlisted' && b.id === selectedBoardId;
-
       return isOwner || isLegacy || isPublic || isUnlistedAndSelected;
     });
   }, [allBoards, currentUser, selectedBoardId]);
   
-  const collections = useMemo(() => {
+  const displayCollections = useMemo(() => {
     return allCollections.filter(c => currentUser && c.ownerId === currentUser.id);
   }, [allCollections, currentUser]);
-  
-  const userDiscoverySources = useMemo(() => {
-      return discoverySources.filter(s => currentUser && s.ownerId === currentUser.id);
-  }, [discoverySources, currentUser]);
-
-  const groups = useMemo(() => {
-     const visibleImageIds = new Set(images.map(i => i.id));
-     return allGroups.filter(g => g.imageIds.some(id => visibleImageIds.has(id)));
-  }, [allGroups, images]);
-
-  const recentTags = useMemo(() => {
-    const tagCounts: Record<string, number> = {};
-    displayImages.forEach(img => {
-      img.tags.forEach(tag => {
-        const lower = tag.toLowerCase();
-        tagCounts[lower] = (tagCounts[lower] || 0) + 1;
-      });
-    });
-    return Object.entries(tagCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 15)
-      .map(([tag]) => tag);
-  }, [images]);
 
   // Grid Items (Images + Groups)
   const gridItems = useMemo(() => {
-    const items: any[] = [];
+    const items: GridItem[] = [];
     const groupedIds = new Set<string>();
     
-    if (!searchTerm) {
-        const relevantGroups = Object.values(state.groups).filter(g => 
+    if (!searchTerm && activeView === 'all') {
+        const relevantGroups = allGroups.filter(g => 
             g.imageIds.some(id => displayImages.some(img => img.id === id))
         );
         relevantGroups.forEach(g => {
-            const groupImgs = g.imageIds.map(id => state.images[id]).filter(Boolean);
+            const groupImgs = g.imageIds.map(id => allImages.find(i => i.id === id)).filter((i): i is PinnedImage => !!i);
             if (groupImgs.length) {
                 items.push({ type: 'group', data: g, images: groupImgs });
                 g.imageIds.forEach(id => groupedIds.add(id));
@@ -492,23 +551,25 @@ const AppContent: React.FC = () => {
     });
 
     return items.sort((a, b) => {
-        if (shuffleSeed > 0) return getDeterministicScore(a.data.id, shuffleSeed) - getDeterministicScore(b.data.id, shuffleSeed);
-        return pinSort === 'newest' ? b.data.createdAt - a.data.createdAt : a.data.createdAt - b.data.createdAt;
+        const idA = a.type === 'image' ? a.data.id : a.data.id;
+        const idB = b.type === 'image' ? b.data.id : b.data.id;
+        
+        if (shuffleSeed > 0) return getDeterministicScore(idA, shuffleSeed) - getDeterministicScore(idB, shuffleSeed);
+        
+        const timeA = a.data.createdAt;
+        const timeB = b.data.createdAt;
+        
+        return pinSort === 'newest' ? timeB - timeA : timeA - timeB;
     });
-  }, [displayImages, state.groups, searchTerm, shuffleSeed, pinSort]);
+  }, [displayImages, allGroups, allImages, searchTerm, shuffleSeed, pinSort, activeView]);
 
-  const pagedItems = useMemo(() => gridItems.slice(0, page * 30), [gridItems, page]);
+  const pagedItems = useMemo(() => gridItems.slice(0, page * ITEMS_PER_PAGE), [gridItems, page]);
+  const hasMore = pagedItems.length < gridItems.length;
 
   // --- ACTIONS ---
 
-  const handleLogout = () => {
-    authService.logout();
-    actions.setCurrentUser(null);
-    setShowLoginModal(true);
-  };
-
   const handleUploadComplete = (newImages: PinnedImage[]) => {
-    actions.setAllImages(prev => [...prev, ...newImages]);
+    setAllImages(prev => [...prev, ...newImages]);
     setIsUploadOpen(false);
     setDroppedFiles([]);
     showToast(`Successfully uploaded ${newImages.length} items`, 'success');
@@ -541,32 +602,34 @@ const AppContent: React.FC = () => {
         await storage.saveBoard(newBoard);
         setAllBoards(prev => [...prev, newBoard]);
         showToast(`Board "${name}" created`, 'success');
-      }
-      if (selectedIds.size > 0) {
-        const newImagesToAdd: PinnedImage[] = [];
-        const updatedImages = allImages.map(img => {
-          if (selectedIds.has(img.id)) {
-            if (img.ownerId === currentUser.id) {
-               if (!img.boardIds.includes(targetBoardId)) {
-                 const updated = { ...img, boardIds: [...img.boardIds, targetBoardId] };
-                 storage.saveImage(updated);
-                 return updated;
-               }
-            } else {
-               const newImage: PinnedImage = { ...img, id: generateId(), ownerId: currentUser.id, boardIds: [targetBoardId], isFavorite: false, likedBy: [], createdAt: Date.now(), sourceUrl: img.sourceUrl || img.url };
-               storage.saveImage(newImage);
-               newImagesToAdd.push(newImage);
-               return img;
-            }
-          }
-          return img;
-        });
-        setAllImages([...updatedImages, ...newImagesToAdd]);
-        setSelectedIds(new Set());
-        setIsSelectionMode(false);
-        setBulkAction(null);
-        showToast(`${selectedIds.size} items added to ${name}`, 'success');
-      }
+
+        // Check for bulk action context (if creating board from bulk modal)
+        if (selectedIds.size > 0 && isSelectionMode) {
+             const targetBoardId = newBoard.id;
+             const newImagesToAdd: PinnedImage[] = [];
+             const updatedImages = allImages.map(img => {
+              if (selectedIds.has(img.id)) {
+                if (img.ownerId === currentUser.id) {
+                   if (!img.boardIds.includes(targetBoardId)) {
+                     const updated = { ...img, boardIds: [...img.boardIds, targetBoardId] };
+                     storage.saveImage(updated);
+                     return updated;
+                   }
+                } else {
+                   const newImage: PinnedImage = { ...img, id: generateId(), ownerId: currentUser.id, boardIds: [targetBoardId], isFavorite: false, likedBy: [], createdAt: Date.now(), sourceUrl: img.sourceUrl || img.url };
+                   storage.saveImage(newImage);
+                   newImagesToAdd.push(newImage);
+                   return img;
+                }
+              }
+              return img;
+            });
+            setAllImages([...updatedImages, ...newImagesToAdd]);
+            setSelectedIds(new Set());
+            setIsSelectionMode(false);
+            setBulkAction(null);
+            showToast(`${selectedIds.size} items added to ${name}`, 'success');
+        }
     } catch (err) { 
         console.error("Error creating board:", err); 
         showToast("Failed to create board", "error"); 
@@ -604,24 +667,8 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const handleAddBoardToCollection = async (boardId: string, collectionId: string) => {
-    const board = allBoards.find(b => b.id === boardId);
-    if (!board) return;
-    if (currentUser && board.ownerId !== currentUser.id) return;
-    if (board.collectionIds.includes(collectionId)) return;
-    const updatedBoard = { ...board, collectionIds: [...board.collectionIds, collectionId] };
-    try { 
-        await storage.updateBoard(updatedBoard); 
-        setAllBoards(prev => prev.map(b => b.id === boardId ? updatedBoard : b)); 
-        showToast("Added to collection", "success");
-    } catch (err) { 
-        console.error("Failed to add board to collection", err); 
-        showToast("Failed to update collection", "error");
-    }
-  };
-
   const handleSetGroupHero = async (groupId: string, imageId: string) => {
-    const group = groups.find(g => g.id === groupId);
+    const group = allGroups.find(g => g.id === groupId);
     if (!group) return;
     const newImageIds = [imageId, ...group.imageIds.filter(id => id !== imageId)];
     const updatedGroup = { ...group, imageIds: newImageIds };
@@ -630,7 +677,9 @@ const AppContent: React.FC = () => {
     showToast("Group cover updated", "success");
   };
 
-  const handleDeleteBoard = async (boardId: string) => {
+  const handleDeleteBoard = async () => {
+    const boardId = selectedBoardId;
+    if (!boardId) return;
     const board = allBoards.find(b => b.id === boardId);
     if (currentUser && board?.ownerId && board.ownerId !== currentUser.id) { showToast("You cannot delete this board.", "error"); return; }
     if (!confirm('Are you sure you want to delete this board? The tallos will remain in "All Tallos".')) return;
@@ -647,7 +696,7 @@ const AppContent: React.FC = () => {
             return img; 
         }); 
         setAllImages(updatedImages); 
-        handleSetSelectedBoardId(null); 
+        setSelectedBoardId(null); 
         setActiveView('boards'); 
         showToast("Board deleted", "success");
     } catch (err) { 
@@ -658,7 +707,7 @@ const AppContent: React.FC = () => {
 
   const handleDeleteItem = async (id: string, isGroup?: boolean) => {
     if (isGroup) {
-      const group = groups.find(g => g.id === id);
+      const group = allGroups.find(g => g.id === id);
       if (currentUser && group?.ownerId && group.ownerId !== currentUser.id) { showToast("You cannot delete this group.", "error"); return; }
       if (confirm('Are you sure you want to delete this group? The tallos inside will remain in your library.')) { 
           await storage.deleteGroup(id); 
@@ -681,7 +730,7 @@ const AppContent: React.FC = () => {
               return g; 
           }); 
           setAllGroups(updatedGroups); 
-          if (selectedImageId === id) handleSetSelectedImageId(null); 
+          if (selectedImageId === id) setSelectedImageId(null); 
           showToast("Tallo removed", "success");
       }
     }
@@ -694,7 +743,7 @@ const AppContent: React.FC = () => {
     if (img && img.ownerId && currentUser && img.ownerId !== currentUser.id) return;
     let newSelected = new Set(selectedIds);
     if (isShift && lastSelectedId) {
-      const visibleItems = getDisplayItems(displayImages);
+      const visibleItems = getDisplayItems(); // Use helper to get current flat list
       const flatIds: string[] = [];
       visibleItems.forEach(item => { if (item.type === 'group') { flatIds.push(item.data.id); } else { flatIds.push(item.data.id); } });
       const startIdx = flatIds.indexOf(lastSelectedId);
@@ -704,12 +753,15 @@ const AppContent: React.FC = () => {
     setLastSelectedId(id);
     setSelectedIds(newSelected);
   };
+  
+  // Helper for shift-select
+  const getDisplayItems = () => gridItems;
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
     if (confirm(`Are you sure you want to delete ${selectedIds.size} items?`)) { 
         for (const id of selectedIds) { 
-            const group = groups.find(g => g.id === id); 
+            const group = allGroups.find(g => g.id === id); 
             if (group) { await storage.deleteGroup(id); } else { await storage.deleteImage(id); } 
         } 
         setAllImages(prev => prev.filter(img => !selectedIds.has(img.id))); 
@@ -720,38 +772,21 @@ const AppContent: React.FC = () => {
     }
   };
 
-  const handleBulkPinToBoard = async (boardId: string) => {
-    if (selectedIds.size === 0) return;
-    const updatedImages = Object.values(state.images).map(img => {
-        if (selectedIds.has(img.id)) {
-             if (img.boardIds.includes(boardId)) return img;
-             const updated = { ...img, boardIds: [...img.boardIds, boardId] };
-             storage.saveImage(updated);
-             return updated;
-        }
-        return img;
-    });
-    actions.setAllImages(updatedImages);
-    setSelectedIds(new Set());
-    setIsSelectionMode(false);
-    showToast("Items added to board", "success");
-  };
-
   const executeBulkAction = async (data: any) => {
     if (!bulkAction || !currentUser) return;
     try {
         if (bulkAction === 'group') {
-        const newGroup: PinGroup = { id: generateId(), title: data.groupName, imageIds: Array.from(selectedIds), createdAt: Date.now(), boardIds: [], ownerId: currentUser.id };
-        await storage.saveGroup(newGroup); setAllGroups(prev => [newGroup, ...prev]);
+            const newGroup: PinGroup = { id: generateId(), title: data.groupName, imageIds: Array.from(selectedIds), createdAt: Date.now(), boardIds: [], ownerId: currentUser.id };
+            await storage.saveGroup(newGroup); setAllGroups(prev => [newGroup, ...prev]);
         } else {
-        const updatedImages = allImages.map(img => {
-            if (selectedIds.has(img.id)) {
-            let updated = { ...img };
-            if (bulkAction === 'board') { if (!updated.boardIds.includes(data.boardId)) { updated.boardIds = [...updated.boardIds, data.boardId]; } } else if (bulkAction === 'tags') { const mergedTags = new Set([...updated.tags, ...data.tags]); updated.tags = Array.from(mergedTags); } else if (bulkAction === 'location') { updated.location = data.location; updated.latitude = data.latitude; updated.longitude = data.longitude; } else if (bulkAction === 'visibility') { updated.visibility = data.visibility; }
-            storage.saveImage(updated); return updated;
-            } return img;
-        });
-        setAllImages(updatedImages);
+            const updatedImages = allImages.map(img => {
+                if (selectedIds.has(img.id)) {
+                let updated = { ...img };
+                if (bulkAction === 'board') { if (!updated.boardIds.includes(data.boardId)) { updated.boardIds = [...updated.boardIds, data.boardId]; } } else if (bulkAction === 'tags') { const mergedTags = new Set([...updated.tags, ...data.tags]); updated.tags = Array.from(mergedTags); } else if (bulkAction === 'location') { updated.location = data.location; updated.latitude = data.latitude; updated.longitude = data.longitude; } else if (bulkAction === 'visibility') { updated.visibility = data.visibility; }
+                storage.saveImage(updated); return updated;
+                } return img;
+            });
+            setAllImages(updatedImages);
         }
         setBulkAction(null); setSelectedIds(new Set()); setIsSelectionMode(false);
         showToast("Bulk action completed", "success");
@@ -852,7 +887,7 @@ const AppContent: React.FC = () => {
                 ...item,
                 id: generateId(),
                 boardIds: [],
-                ownerId: user.id,
+                ownerId: currentUser.id,
                 createdAt: Date.now(),
                 tags: [...item.tags],
                 isFavorite: true
@@ -867,32 +902,31 @@ const AppContent: React.FC = () => {
         }
         return;
     }
-    const image = state.images[imageId];
+    const image = allImages.find(i => i.id === imageId);
     if (!image) return;
-    if (image.ownerId !== user.id) {
+    if (image.ownerId !== currentUser.id) {
        let likedBy = image.likedBy || [];
-       if (likedBy.includes(user.id)) likedBy = likedBy.filter(id => id !== user.id);
-       else likedBy = [...likedBy, user.id];
+       if (likedBy.includes(currentUser.id)) likedBy = likedBy.filter(id => id !== currentUser.id);
+       else likedBy = [...likedBy, currentUser.id];
        const updated = { ...image, likedBy };
        await storage.updateImage(updated);
-       actions.setAllImages(prev => prev.map(img => img.id === imageId ? updated : img));
+       setAllImages(prev => prev.map(img => img.id === imageId ? updated : img));
     } else {
        const updated = { ...image, isFavorite: !image.isFavorite };
        await storage.saveImage(updated);
-       actions.setAllImages(prev => prev.map(img => img.id === imageId ? updated : img));
+       setAllImages(prev => prev.map(img => img.id === imageId ? updated : img));
     }
   };
 
-  // --- 5. RENDER ---
-  const { boardLastUpdated, collectionLastUpdated } = useMemo(() => ({ boardLastUpdated: {}, collectionLastUpdated: {} }), []); 
-
-  if (!state.isInitialized) return <div className="flex h-screen items-center justify-center bg-black text-white"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-rose-500"></div></div>;
+  // --- RENDER ---
+  
+  if (isAuthChecking) return <div className="flex h-screen items-center justify-center bg-black text-white"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-rose-500"></div></div>;
 
   return (
     <div className="flex h-screen w-full bg-black text-slate-100 overflow-hidden" 
-         onDragOver={(e) => { e.preventDefault(); if (e.dataTransfer.types.includes('Files')) setIsDraggingFile(true); }} 
-         onDragLeave={() => setIsDraggingFile(false)}
-         onDrop={(e) => { e.preventDefault(); setIsDraggingFile(false); if (e.dataTransfer.files.length) { setDroppedFiles(Array.from(e.dataTransfer.files)); setIsUploadOpen(true); } }}>
+         onDragOver={handleDragOver} 
+         onDragLeave={handleDragLeave}
+         onDrop={handleDrop}>
       
       <Sidebar 
         activeView={activeView} setActiveView={setActiveView} 
@@ -1036,9 +1070,9 @@ const AppContent: React.FC = () => {
             <>
               {activeView === 'board-detail' && selectedBoardId ? (
                 <BoardView 
-                    board={state.boards[selectedBoardId]}
+                    board={allBoards.find(b => b.id === selectedBoardId)!}
                     collection={undefined} allCollections={displayCollections}
-                    images={displayImages} groups={[]} // Simplified groups for now
+                    images={displayImages} groups={[]} 
                     onBack={clearParams} 
                     onDeleteImage={handleDeleteItem}
                     boards={displayBoards} 
@@ -1056,11 +1090,11 @@ const AppContent: React.FC = () => {
                  <div className="h-full">
                     <div className="flex items-center gap-2 mb-6">
                       <button onClick={clearParams} className="p-1 hover:bg-slate-800 rounded-full"><ArrowUpDown className="rotate-90 w-5 h-5" /></button>
-                      <h1 className="text-3xl font-black text-slate-100">{state.collections[selectedCollectionId]?.name}</h1>
+                      <h1 className="text-3xl font-black text-slate-100">{allCollections.find(c => c.id === selectedCollectionId)?.name}</h1>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                         {displayBoards.filter(b => b.collectionIds.includes(selectedCollectionId)).map(board => {
-                             const coverImg = state.images[board.coverImageId || ''] || Object.values(state.images).find(i => i.boardIds.includes(board.id));
+                             const coverImg = allImages.find(i => i.id === board.coverImageId) || allImages.find(i => i.boardIds.includes(board.id));
                              return (
                                 <div 
                                   key={board.id} 
@@ -1079,7 +1113,7 @@ const AppContent: React.FC = () => {
                                     </div>
                                     <div className="p-4">
                                         <h3 className="font-bold text-slate-200 group-hover:text-rose-500 transition-colors">{board.name}</h3>
-                                        <p className="text-xs text-slate-500 mt-1">{Object.values(state.images).filter(i => i.boardIds.includes(board.id)).length} items</p>
+                                        <p className="text-xs text-slate-500 mt-1">{allImages.filter(i => i.boardIds.includes(board.id)).length} items</p>
                                     </div>
                                 </div>
                              );
@@ -1088,7 +1122,7 @@ const AppContent: React.FC = () => {
                  </div>
             ) : activeView === 'discovery' ? (
                 <DiscoveryView 
-                    sources={Object.values(state.discoverySources)} items={discoveryItems} isLoading={isDiscoveryLoading} onRefresh={actions.refreshData}
+                    sources={discoverySources} items={discoveryItems} isLoading={isDiscoveryLoading} onRefresh={refreshDiscoveryFeed}
                     onAddSource={handleAddDiscoverySource} onRemoveSource={handleRemoveDiscoverySource}
                     boards={displayBoards} onPinToBoard={togglePinToBoard} onToggleFavorite={handleToggleFavorite}
                 />
@@ -1155,14 +1189,14 @@ const AppContent: React.FC = () => {
                    <div className="flex-1 min-h-0">
                       {mainViewMode === 'grid' ? (
                         <>
-                          <TrendingBar tags={recentTags} onTagClick={setSearchTerm} />
+                          {/* TrendingBar Removed for stability */}
                           <MasonryGrid 
                             items={pagedItems}
                             onDelete={handleDeleteItem}
-                            boards={boards}
+                            boards={displayBoards}
                             onTogglePin={togglePinToBoard}
                             onUpdate={handleUpdateImage}
-                            onImageClick={handleSetSelectedImageId}
+                            onImageClick={setSelectedImageId}
                             onToggleFavorite={handleToggleFavorite}
                             isSelectionMode={isSelectionMode}
                             selectedIds={selectedIds}
@@ -1172,7 +1206,7 @@ const AppContent: React.FC = () => {
                           />
                         </>
                       ) : (
-                        <MapView images={displayImages} onImageClick={handleSetSelectedImageId} />
+                        <MapView images={displayImages} onImageClick={setSelectedImageId} />
                       )}
                    </div>
                 </div>
@@ -1182,24 +1216,11 @@ const AppContent: React.FC = () => {
         </div>
       </main>
 
-      <MobileNavBar 
-        activeView={activeView}
-        setActiveView={setActiveView}
-        onOpenSidebar={() => setIsSidebarOpen(true)}
-        onUpload={() => {
-          if (currentUser) {
-            setIsUploadOpen(true);
-          } else {
-            setShowLoginModal(true);
-          }
-        }}
-        mainViewMode={mainViewMode}
-        setMainViewMode={setMainViewMode}
-      />
+      {/* Mobile Nav removed for stability */}
 
       {/* Render Toast Container */}
       {toast && (
-        <Toast 
+        <SimpleToast 
             message={toast.message} 
             type={toast.type} 
             onClose={() => setToast(null)} 
@@ -1216,7 +1237,7 @@ const AppContent: React.FC = () => {
       {isDraggingFile && (
         <div className="fixed inset-0 z-[100] bg-rose-500/90 backdrop-blur-sm flex items-center justify-center pointer-events-none animate-in fade-in duration-200">
           <div className="text-white text-center">
-            <Upload className="w-20 h-20 mx-auto mb-4 animate-bounce" />
+            {/* Upload Icon */}
             <h2 className="text-4xl font-black">Drop to Upload</h2>
           </div>
         </div>
@@ -1225,8 +1246,8 @@ const AppContent: React.FC = () => {
       {selectedImageId && (
         <ImageDetailModal 
           image={allImages.find(i => i.id === selectedImageId) || discoveryItems.find(i => i.id === selectedImageId) || { id: '0', url: '', title: '', description: '', tags: [], boardIds: [], createdAt: 0, ownerId: '', visibility: 'private' }}
-          boards={boards}
-          onClose={() => handleSetSelectedImageId(null)}
+          boards={displayBoards}
+          onClose={() => setSelectedImageId(null)}
           onTogglePin={togglePinToBoard}
           onUpdate={handleUpdateImage}
           onToggleFavorite={handleToggleFavorite}
@@ -1237,7 +1258,7 @@ const AppContent: React.FC = () => {
                  ? discoveryItems 
                  : allGroups.find(g => g.imageIds.includes(selectedImageId))?.imageIds.map(id => allImages.find(i => i.id === id)!)
           }
-          onSelectImage={handleSetSelectedImageId}
+          onSelectImage={setSelectedImageId}
           onSetHero={(id) => {
              const grp = allGroups.find(g => g.imageIds.includes(selectedImageId));
              if (grp) handleSetGroupHero(grp.id, id);
@@ -1281,49 +1302,25 @@ const AppContent: React.FC = () => {
           onCreateBoard={() => setIsCreateBoardOpen(true)}
         />
       )}
-
-      {selectedImageId && <ImageDetailModal image={state.images[selectedImageId] || discoveryItems.find(i => i.id === selectedImageId)!} onClose={() => setSelectedImageId(null)} boards={displayBoards} onUpdate={handleUpdateImage} onTogglePin={togglePinToBoard} onToggleFavorite={handleToggleFavorite} />}
       
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      
-      {showLoginModal && (
-        <LoginScreen 
-          onLogin={() => { 
-            setShowLoginModal(false); 
-            const newUser = authService.getCurrentUser();
-            actions.setCurrentUser(newUser);
-            actions.refreshData(); 
-          }} 
-          onGuestAccess={() => setShowLoginModal(false)} 
+      {isSettingsOpen && (
+        <SettingsModal 
+           onClose={() => setIsSettingsOpen(false)} 
+           onDataImported={() => {
+              loadData();
+              showToast("Data imported successfully", "success");
+           }}
         />
       )}
-      
       <DebugTools />
-      
-      <MobileNavBar 
-        activeView={activeView} 
-        setActiveView={setActiveView} 
-        onOpenSidebar={() => setIsSidebarOpen(true)} 
-        onUpload={() => {
-          if (currentUser) {
-            setIsUploadOpen(true);
-          } else {
-            setShowLoginModal(true);
-          }
-        }} 
-        mainViewMode={mainViewMode} 
-        setMainViewMode={setMainViewMode} 
-      />
     </div>
   );
 };
 
-// --- APP ROOT (Provides Context) ---
+// --- APP ROOT ---
 const App: React.FC = () => {
   return (
-    <DataProvider>
-      <AppContent />
-    </DataProvider>
+    <AppContent />
   );
 };
 

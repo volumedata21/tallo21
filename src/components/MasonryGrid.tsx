@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { PinnedImage, Board, GridItem, PinGroup } from '../types';
+import { PinnedImage, Board, GridItem, PinGroup, User } from '../../shared/types';
 import { Trash2, ChevronsUp, Info, Heart, Check, Circle, Layers, ChevronLeft, ChevronRight, Play, Loader2 } from 'lucide-react';
 import { authService } from '../services/authService';
 
@@ -187,9 +186,25 @@ const MasonryGrid: React.FC<MasonryGridProps> = ({
   isSelectionMode = false, selectedIds = new Set(), onSelect, onLoadMore, hasMore
 }) => {
   const [columnCount, setColumnCount] = useState(2);
-  const users = authService.getUsers();
+  // FIX: Store users in state instead of treating the Promise as an array
+  const [users, setUsers] = useState<User[]>([]); 
   const currentUser = authService.getCurrentUser();
   const observerTarget = useRef(null);
+
+  // FIX: Fetch users asynchronously on mount
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const fetchedUsers = await authService.getUsers();
+        if (Array.isArray(fetchedUsers)) {
+          setUsers(fetchedUsers);
+        }
+      } catch (error) {
+        console.error("Failed to load users for grid:", error);
+      }
+    };
+    fetchUsers();
+  }, []);
 
   const getOwnerName = (ownerId: string) => {
     const user = users.find(u => u.id === ownerId);
@@ -199,7 +214,7 @@ const MasonryGrid: React.FC<MasonryGridProps> = ({
   useEffect(() => {
     const updateColumns = () => {
       const width = window.innerWidth;
-      if (width >= 1280) setColumnCount(4); // Capped at 4 columns
+      if (width >= 1280) setColumnCount(4); 
       else if (width >= 1024) setColumnCount(4);
       else if (width >= 768) setColumnCount(3);
       else setColumnCount(2);
@@ -295,9 +310,6 @@ const MasonryGrid: React.FC<MasonryGridProps> = ({
               const ownerName = getOwnerName(img.ownerId);
               const likeCount = (img.likedBy || []).length;
               
-              // Updated Logic: Check isFavorite for Discovery items (which are effectively owned by 'discovery-bot')
-              // For normal community items, !isOwner relies on likedBy.
-              // For Discovery items, we want to show 'filled' if we locally favorited it (isFavorite=true on the ephemeral item).
               const isDiscoveryItem = img.id.startsWith('discovery-');
               const isLiked = (currentUser && (img.likedBy || []).includes(currentUser.id)) || (isDiscoveryItem && img.isFavorite);
               

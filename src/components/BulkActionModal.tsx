@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { X, Search, Loader2, MapPin, Hash, FolderPlus, Check, Layers, Plus, Eye, Globe, Lock, Link as LinkIcon } from 'lucide-react';
-import { Board, Visibility } from '../types';
+import { Board, Visibility } from '../../shared/types';
 
 interface BulkActionModalProps {
   action: 'board' | 'tags' | 'location' | 'group' | 'visibility';
