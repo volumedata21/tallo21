@@ -9,7 +9,7 @@ import Sidebar from './components/Sidebar';
 import MasonryGrid from './components/MasonryGrid';
 import BoardView from './components/BoardView';
 import BoardDetailView from './components/BoardDetailView';
-import CollectionDetailView from './components/CollectionDetailView'; // Super-Feed View
+import CollectionDetailView from './components/CollectionDetailView';
 import MapView from './components/MapView';
 import DiscoveryView from './components/DiscoveryView';
 import UploadModal from './components/UploadModal';
@@ -20,6 +20,7 @@ import ImageDetailModal from './components/ImageDetailModal';
 import BulkActionModal from './components/BulkActionModal';
 import LoginScreen from './components/LoginScreen';
 import { DebugTools } from './components/DebugTools';
+import TrendingBar from './components/TrendingBar';
 
 // Icons
 import { Plus, Search, LayoutGrid, Map as MapIcon, CheckSquare, Trash2, X, Heart, FolderPlus, Hash, MapPin, Layers, Folder, LogOut, Users, ArrowLeft, Shuffle, ArrowUpDown, Menu, Eye } from 'lucide-react';
@@ -187,6 +188,42 @@ const AppContent: React.FC = () => {
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
   };
+
+  // --- TRENDING LOGIC START ---
+  const [filterTag, setFilterTag] = useState<string | null>(null);
+
+  const trendingTags = useMemo(() => {
+    const tagCounts: Record<string, number> = {};
+    
+    allImages.forEach(img => {
+      // Visibility check
+      const isVisible = img.visibility === 'public' || (currentUser && img.ownerId === currentUser.id);
+      
+      if (isVisible && img.tags) {
+         img.tags.forEach(tag => {
+            const normalized = tag.toLowerCase().trim();
+            if (normalized) {
+                tagCounts[normalized] = (tagCounts[normalized] || 0) + 1;
+            }
+         });
+      }
+    });
+
+    return Object.entries(tagCounts)
+      .sort(([, countA], [, countB]) => countB - countA)
+      .slice(0, 15)
+      .map(([tag]) => tag);
+  }, [allImages, currentUser]);
+
+  const handleTagClick = (tag: string) => {
+      if (filterTag === tag) {
+          setFilterTag(null);
+      } else {
+          setFilterTag(tag);
+      }
+      setPage(1);
+  };
+  // --- TRENDING LOGIC END ---
 
   const handlePinSortChange = (sort: PinSortOption) => {
     setPinSort(sort);
@@ -429,7 +466,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [activeView, selectedBoardId, selectedCollectionId, searchTerm, pinSort, shuffleSeed]);
+  }, [activeView, selectedBoardId, selectedCollectionId, searchTerm, pinSort, shuffleSeed, filterTag]); 
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -509,9 +546,14 @@ const AppContent: React.FC = () => {
       const boardIdsInCol = allBoards.filter(b => b.collectionIds.includes(selectedCollectionId)).map(b => b.id);
       imgs = imgs.filter(img => img.boardIds.some(bid => boardIdsInCol.includes(bid)));
     }
+    
+    // Tag Filter
+    if (filterTag) {
+        imgs = imgs.filter(img => img.tags.some(t => t.toLowerCase() === filterTag));
+    }
 
     return imgs;
-  }, [allImages, currentUser, selectedImageId, selectedBoardId, allBoards, activeView, selectedCollectionId, searchTerm]);
+  }, [allImages, currentUser, selectedImageId, selectedBoardId, allBoards, activeView, selectedCollectionId, searchTerm, filterTag]);
 
   const displayBoards = useMemo(() => {
     return allBoards.filter(b => {
@@ -532,7 +574,7 @@ const AppContent: React.FC = () => {
     const items: GridItem[] = [];
     const groupedIds = new Set<string>();
 
-    if (!searchTerm && activeView === 'all') {
+    if (!searchTerm && !filterTag && activeView === 'all') {
       const relevantGroups = allGroups.filter(g =>
         g.imageIds.some(id => displayImages.some(img => img.id === id))
       );
@@ -559,7 +601,7 @@ const AppContent: React.FC = () => {
       const timeB = b.data.createdAt;
       return pinSort === 'newest' ? timeB - timeA : timeA - timeB;
     });
-  }, [displayImages, allGroups, allImages, searchTerm, shuffleSeed, pinSort, activeView]);
+  }, [displayImages, allGroups, allImages, searchTerm, shuffleSeed, pinSort, activeView, filterTag]);
 
   const pagedItems = useMemo(() => gridItems.slice(0, page * ITEMS_PER_PAGE), [gridItems, page]);
   const hasMore = pagedItems.length < gridItems.length;
@@ -1132,6 +1174,13 @@ const AppContent: React.FC = () => {
               <div className="flex-1 min-h-0">
                 {mainViewMode === 'grid' ? (
                   <>
+                    {(activeView === 'all' || activeView === 'community') && !searchTerm && (
+                      <TrendingBar
+                        tags={trendingTags}
+                        activeTag={filterTag}
+                        onTagClick={handleTagClick}
+                      />
+                    )}
                     <MasonryGrid
                       items={pagedItems}
                       onDelete={handleDeleteItem}
