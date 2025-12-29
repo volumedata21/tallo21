@@ -46,7 +46,8 @@ db.exec(`
     created_at INTEGER,
     owner_id TEXT,
     collection_ids TEXT,
-    visibility TEXT
+    visibility TEXT,
+    cover_image_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS collections (

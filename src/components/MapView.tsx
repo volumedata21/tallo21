@@ -1,10 +1,22 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { PinnedImage } from '../../shared/types';
 import { MapPin, X, ChevronRight, Calendar } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
-// Declaration for Leaflet attached to window
-declare const L: any;
+// --- LEAFLET ICON FIX ---
+// This ensures that if you ever use a default marker, it won't be broken.
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+
+let DefaultIcon = L.icon({
+    iconUrl: icon,
+    shadowUrl: iconShadow,
+    iconSize: [25, 41],
+    iconAnchor: [12, 41]
+});
+L.Marker.prototype.options.icon = DefaultIcon;
+// ------------------------
 
 interface MapViewProps {
   images: PinnedImage[];
@@ -13,8 +25,8 @@ interface MapViewProps {
 
 const MapView: React.FC<MapViewProps> = ({ images, onImageClick }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.Marker[]>([]);
   
   // State for handling clusters
   const [activeCluster, setActiveCluster] = useState<{
@@ -80,40 +92,40 @@ const MapView: React.FC<MapViewProps> = ({ images, onImageClick }) => {
       const count = group.length;
 
       // Custom HTML for the marker
-      // We wrap the standard marker-pin in a relative div to position the badge
       const markerHtml = `
-        <div class="relative w-[40px] h-[40px] group">
-          <div class="marker-pin w-full h-full">
-            <img src="${coverImage.url}" class="w-full h-full object-cover" />
+        <div class="relative w-[40px] h-[40px] group transition-transform hover:scale-110">
+          <div class="w-full h-full rounded-lg overflow-hidden border-2 border-white shadow-lg bg-slate-900">
+            <img src="${coverImage.thumbnailUrl || coverImage.url}" class="w-full h-full object-cover" />
           </div>
           ${count > 1 ? `
-            <div class="absolute -top-1 -right-1 bg-rose-600 text-white text-[10px] font-bold h-5 w-5 flex items-center justify-center rounded-full border-2 border-slate-950 shadow-md z-50">
+            <div class="absolute -top-2 -right-2 bg-rose-600 text-white text-[10px] font-bold h-5 w-5 flex items-center justify-center rounded-full border-2 border-slate-950 shadow-md z-50">
               ${count}
             </div>
           ` : ''}
+          <div class="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-white"></div>
         </div>
       `;
 
       const icon = L.divIcon({
-        className: 'custom-map-marker-container', // Empty class to avoid default styles interfering
+        className: 'custom-map-marker-container', // Empty class to avoid default styles
         html: markerHtml,
         iconSize: [40, 40],
-        iconAnchor: [20, 20],
-        popupAnchor: [0, -20]
+        iconAnchor: [20, 45], // Adjusted anchor for the "pin" effect
+        popupAnchor: [0, -45]
       });
 
-      const marker = L.marker([coverImage.latitude, coverImage.longitude], { icon })
+      const marker = L.marker([coverImage.latitude!, coverImage.longitude!], { icon })
         .addTo(map);
 
-      // Tooltip logic
+      // Tooltip
       const tooltipText = count > 1 
         ? `${count} pins at ${coverImage.location || 'this location'}`
         : coverImage.title;
 
       marker.bindTooltip(tooltipText, { 
-        direction: 'bottom',
-        offset: [0, 20],
-        className: 'bg-slate-900 text-slate-100 border-slate-800 px-2 py-1 rounded text-xs shadow-xl'
+        direction: 'top',
+        offset: [0, -40],
+        className: 'bg-slate-900 text-slate-100 border-slate-800 px-2 py-1 rounded text-xs shadow-xl font-medium'
       });
       
       // Click Handler
@@ -124,8 +136,7 @@ const MapView: React.FC<MapViewProps> = ({ images, onImageClick }) => {
             location: coverImage.location || 'Unknown Location',
             images: group
           });
-          // Center map on cluster
-          map.setView([coverImage.latitude, coverImage.longitude], Math.max(map.getZoom(), 12));
+          map.setView([coverImage.latitude!, coverImage.longitude!], Math.max(map.getZoom(), 12));
         } else {
           // Open global detail modal directly
           if (onImageClick) {
@@ -135,7 +146,7 @@ const MapView: React.FC<MapViewProps> = ({ images, onImageClick }) => {
       });
       
       markersRef.current.push(marker);
-      bounds.extend([coverImage.latitude, coverImage.longitude]);
+      bounds.extend([coverImage.latitude!, coverImage.longitude!]);
     });
 
     // Fit bounds if we have markers and aren't currently focusing on a cluster
@@ -193,7 +204,7 @@ const MapView: React.FC<MapViewProps> = ({ images, onImageClick }) => {
                 className="group flex gap-3 p-2 rounded-xl hover:bg-slate-800/50 cursor-pointer transition-colors border border-transparent hover:border-slate-700"
               >
                 <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-950 border border-slate-800 flex-shrink-0">
-                  <img src={img.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
+                  <img src={img.thumbnailUrl || img.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col justify-center">
                   <h4 className="text-sm font-medium text-slate-200 truncate group-hover:text-rose-400 transition-colors">{img.title}</h4>

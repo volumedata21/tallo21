@@ -19,6 +19,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "rss-parser": "^3.13.0",
+    "react-router-dom": "^6.20.0",
+    "leaflet": "^1.9.4",
     "bcryptjs": "^2.4.3"
   },
   "devDependencies": {
