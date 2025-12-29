@@ -410,7 +410,7 @@ const MasonryGrid: React.FC<MasonryGridProps> = ({
       if (width >= 1280) setColumnCount(4); 
       else if (width >= 1024) setColumnCount(4);
       else if (width >= 768) setColumnCount(3);
-      else setColumnCount(1); // Mobile: 1 column
+      else setColumnCount(2);
       setIsMobile(width < 768);
     };
 
@@ -454,9 +454,10 @@ const MasonryGrid: React.FC<MasonryGridProps> = ({
 
   return (
     <>
-      <div className="flex gap-5 w-full items-start">
+      {/* Changed gap-5 to gap-2 md:gap-5 for responsive spacing */}
+      <div className="flex gap-2 md:gap-5 w-full items-start">
         {columns.map((colItems, colIndex) => (
-          <div key={colIndex} className="flex-1 flex flex-col gap-5 min-w-0">
+          <div key={colIndex} className="flex-1 flex flex-col gap-2 md:gap-5 min-w-0">
             {colItems.map((item) => {
               if (item.type === 'group') {
                 return (
