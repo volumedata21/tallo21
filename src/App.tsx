@@ -1236,7 +1236,33 @@ const AppContent: React.FC = () => {
       {isDraggingFile && <div className="fixed inset-0 z-[100] bg-rose-500/90 backdrop-blur-sm flex items-center justify-center pointer-events-none animate-in fade-in duration-200"><div className="text-white text-center"><h2 className="text-4xl font-black">Drop to Upload</h2></div></div>}
       
       {/* FIX: onClose uses handleCloseModal to ensure history sync */}
-      {selectedImageId && <ImageDetailModal image={allImages.find(i => i.id === selectedImageId) || discoveryItems.find(i => i.id === selectedImageId) || { id: '0', url: '', title: '', description: '', tags: [], boardIds: [], createdAt: 0, ownerId: '', visibility: 'private' }} boards={displayBoards} onClose={handleCloseModal} onTogglePin={togglePinToBoard} onUpdate={handleUpdateImage} onToggleFavorite={handleToggleFavorite} groupImages={activeView === 'board-detail' ? displayImages : activeView === 'discovery' ? discoveryItems : allGroups.find(g => g.imageIds.includes(selectedImageId))?.imageIds.map(id => allImages.find(i => i.id === id)!)} onSelectImage={setSelectedImageId} onSetHero={(id) => { const grp = allGroups.find(g => g.imageIds.includes(selectedImageId)); if (grp) handleSetGroupHero(grp.id, id); }} />}
+      {selectedImageId && (
+        <ImageDetailModal
+          image={
+            allImages.find(i => i.id === selectedImageId) || 
+            discoveryItems.find(i => i.id === selectedImageId) || 
+            { id: '0', url: '', title: '', description: '', tags: [], boardIds: [], createdAt: 0, ownerId: '', visibility: 'private', mediaType: 'image' }
+          }
+          boards={displayBoards}
+          onClose={handleCloseModal}
+          onTogglePin={togglePinToBoard}
+          onUpdate={handleUpdateImage}
+          onToggleFavorite={handleToggleFavorite}
+          onDelete={(id) => handleDeleteItem(id, false)}
+          
+          // FIX 1: Pass the full feed for Next/Prev navigation
+          contextImages={activeView === 'discovery' ? discoveryItems : displayImages}
+          
+          // FIX 2: Only pass group images if this specific image belongs to a group
+          groupImages={allGroups.find(g => g.imageIds.includes(selectedImageId))?.imageIds.map(id => allImages.find(i => i.id === id)!).filter(Boolean)}
+          
+          onSelectImage={setSelectedImageId}
+          onSetHero={(id) => { 
+            const grp = allGroups.find(g => g.imageIds.includes(selectedImageId)); 
+            if (grp) handleSetGroupHero(grp.id, id); 
+          }} 
+        />
+      )}
       {isUploadOpen && currentUser && <UploadModal onClose={() => { setIsUploadOpen(false); setDroppedFiles([]); }} onUpload={handleUploadComplete} ownerId={currentUser.id} boards={displayBoards} initialBoardId={selectedBoardId} onCreateBoard={() => setIsCreateBoardOpen(true)} initialFiles={droppedFiles} />}
       {isCreateBoardOpen && <CreateBoardModal onClose={() => setIsCreateBoardOpen(false)} onCreate={handleCreateBoard} />}
       {isCreateCollectionOpen && <CreateCollectionModal onClose={() => setIsCreateCollectionOpen(false)} onCreate={handleCreateCollection} />}
