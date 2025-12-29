@@ -17,6 +17,7 @@ interface ImageDetailModalProps {
   onToggleFavorite: (id: string) => void;
   onDelete: (id: string) => void;
   groupImages?: PinnedImage[];
+  contextImages?: PinnedImage[]; // NEW: The full list of images in the current view
   onSelectImage?: (id: string) => void;
   onSetHero?: (id: string) => void;
 }
@@ -29,27 +30,28 @@ interface LocationResult {
 }
 
 // --- HELPER: Safe Domain Extraction ---
-// Prevents app crash if URL is invalid (e.g. missing https://)
 const getDomain = (url: string) => {
   try {
-    // Attempt to parse properly
     const domain = new URL(url).hostname;
     return domain.replace('www.', '');
   } catch (e) {
-    // Fallback: just return the string if it's not a valid URL object
     return url;
   }
 };
 
 const ImageDetailModal: React.FC<ImageDetailModalProps> = ({ 
   image, onClose, boards, onTogglePin, onUpdate, onToggleFavorite, onDelete,
-  groupImages, onSelectImage, onSetHero
+  groupImages, contextImages, onSelectImage, onSetHero
 }) => {
   // --- STATE ---
   const safeTags = image.tags || [];
   const [users, setUsers] = useState<User[]>([]);
   const currentUser = authService.getCurrentUser();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+
+  // Swipe State
+  const [touchStart, setTouchStart] = useState<number | null>(null);
+  const [touchEnd, setTouchEnd] = useState<number | null>(null);
 
   // Look up owner
   const owner = users.find(u => u.id === image.ownerId);
@@ -94,6 +96,63 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
   }, [image]);
 
   // --- HANDLERS ---
+  
+  // NAVIGATION LOGIC (UPDATED)
+  // Priority: 1. Group Images (if inside a group) -> 2. Context Images (Feed/Board)
+  const navigationList = (groupImages && groupImages.length > 0) ? groupImages : (contextImages || []);
+  
+  const currentIndex = navigationList.findIndex(i => i.id === image.id);
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex !== -1 && currentIndex < navigationList.length - 1;
+
+  const handleNext = () => {
+    if (hasNext && onSelectImage) {
+      onSelectImage(navigationList[currentIndex + 1].id);
+    }
+  };
+
+  const handlePrev = () => {
+    if (hasPrev && onSelectImage) {
+      onSelectImage(navigationList[currentIndex - 1].id);
+    }
+  };
+
+  // Keyboard Navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isEditing) return; 
+      if (e.key === 'ArrowRight') handleNext();
+      if (e.key === 'ArrowLeft') handlePrev();
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleNext, handlePrev, onClose, isEditing]);
+
+  // Swipe Handlers
+  const onTouchStart = (e: React.TouchEvent) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    setTouchEnd(e.targetTouches[0].clientX);
+  };
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > 50;
+    const isRightSwipe = distance < -50;
+
+    if (isLeftSwipe && hasNext) {
+        handleNext();
+    }
+    if (isRightSwipe && hasPrev) {
+        handlePrev();
+    }
+  };
+
   const handleLookupLocation = async () => {
     if (!location.trim()) return;
     setIsLocating(true);
@@ -104,7 +163,7 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
       const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`, {
         headers: { 'User-Agent': 'PinSpireApp/1.0' }
       });
-      const data: LocationResult[] = await res.json();
+      const data: any[] = await res.json();
       if (data && data.length > 0) setSearchResults(data.slice(0, 5));
       else setLocationStatus('not-found');
     } catch (e) {
@@ -115,7 +174,7 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
     }
   };
 
-  const selectLocation = (result: LocationResult) => {
+  const selectLocation = (result: any) => {
     setCoords({ lat: parseFloat(result.lat), lng: parseFloat(result.lon) });
     setLocation(result.display_name.split(',')[0]);
     setLocationStatus('found');
@@ -123,21 +182,13 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
   };
 
   const handleSave = () => {
-    // FIX: Auto-correct URL if missing protocol
     let safeSourceUrl = sourceUrl.trim();
     if (safeSourceUrl && !/^https?:\/\//i.test(safeSourceUrl)) {
         safeSourceUrl = 'https://' + safeSourceUrl;
     }
-
     const updatedImage: PinnedImage = {
-      ...image, 
-      title: title.trim() || 'Untitled', 
-      description: description.trim(), 
-      sourceUrl: safeSourceUrl,
-      location: location.trim(), 
-      latitude: coords?.lat, 
-      longitude: coords?.lng, 
-      visibility: visibility
+      ...image, title: title.trim() || 'Untitled', description: description.trim(), sourceUrl: safeSourceUrl,
+      location: location.trim(), latitude: coords?.lat, longitude: coords?.lng, visibility: visibility
     };
     onUpdate(updatedImage);
     setIsEditing(false);
@@ -222,24 +273,6 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
 
   const handleRemoveThumbnail = async () => onUpdate({ ...image, thumbnailUrl: undefined, isCustomThumbnail: false });
 
-  // Navigation Logic
-  const currentIndex = groupImages ? groupImages.findIndex(i => i.id === image.id) : -1;
-  const hasPrev = currentIndex > 0;
-  const hasNext = groupImages ? currentIndex < groupImages.length - 1 : false;
-  const handleNext = () => { if (hasNext && groupImages && onSelectImage) onSelectImage(groupImages[currentIndex + 1].id); };
-  const handlePrev = () => { if (hasPrev && groupImages && onSelectImage) onSelectImage(groupImages[currentIndex - 1].id); };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (isEditing) return; 
-      if (e.key === 'ArrowRight') handleNext();
-      if (e.key === 'ArrowLeft') handlePrev();
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleNext, handlePrev, onClose, isEditing]);
-
   const renderMedia = () => {
     if (image.mediaType === 'video') {
       const { type, id } = image.videoMetadata || {};
@@ -302,8 +335,32 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
           </button>
         </div>
 
-        {/* Media */}
-        <div className="flex-1 relative flex items-center justify-center bg-black h-full" onClick={() => setIsSheetOpen(false)}>
+        {/* Media (with Touch Handlers) */}
+        <div 
+          className="flex-1 relative flex items-center justify-center bg-black h-full" 
+          onClick={() => setIsSheetOpen(false)}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+        >
+           {/* Mobile Navigation Arrows (Visible) */}
+           {hasPrev && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); handlePrev(); }}
+                className="absolute left-2 top-1/2 -translate-y-1/2 z-10 p-2 bg-black/30 backdrop-blur-sm text-white/70 rounded-full border border-white/10"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+           )}
+           {hasNext && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); handleNext(); }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 z-10 p-2 bg-black/30 backdrop-blur-sm text-white/70 rounded-full border border-white/10"
+              >
+                <ChevronRight className="w-6 h-6" />
+              </button>
+           )}
+
            {renderMedia()}
         </div>
 
@@ -397,8 +454,7 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
              ) : (
                 image.sourceUrl && (
                   <a href={image.sourceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-rose-400 hover:text-rose-300 text-sm font-medium py-2">
-                    <ExternalLink className="w-4 h-4" />
-                    {/* SAFE DOMAIN DISPLAY (FIXED CRASH) */}
+                    <ExternalLink className="w-4 h-4" /> 
                     {getDomain(image.sourceUrl)}
                   </a>
                 )
@@ -471,12 +527,24 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
       ======================================================================== */}
       <div className="fixed inset-0 z-[60] flex items-center justify-center p-8 bg-black/80 backdrop-blur-md animate-in fade-in duration-300 hidden md:flex" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <div className="bg-slate-900 w-full max-w-6xl rounded-[40px] overflow-hidden shadow-2xl flex h-[90vh] border border-slate-900 relative" onClick={(e) => e.stopPropagation()}>
-          {groupImages && (
-            <>
-              {hasPrev && <button onClick={handlePrev} className="absolute left-4 top-1/2 -translate-y-1/2 z-50 p-2 bg-black/50 hover:bg-black/80 text-white rounded-full transition-colors"><ChevronLeft className="w-8 h-8" /></button>}
-              {hasNext && <button onClick={handleNext} className="absolute right-[42%] top-1/2 -translate-y-1/2 z-50 p-2 bg-black/50 hover:bg-black/80 text-white rounded-full transition-colors"><ChevronRight className="w-8 h-8" /></button>}
-            </>
+          {/* DESKTOP NAVIGATION ARROWS (Both Group & Context) */}
+          {hasPrev && (
+            <button 
+              onClick={handlePrev}
+              className="absolute left-4 top-1/2 -translate-y-1/2 z-50 p-2 bg-black/50 hover:bg-black/80 text-white rounded-full transition-colors"
+            >
+              <ChevronLeft className="w-8 h-8" />
+            </button>
           )}
+          {hasNext && (
+            <button 
+              onClick={handleNext}
+              className="absolute right-[42%] top-1/2 -translate-y-1/2 z-50 p-2 bg-black/50 hover:bg-black/80 text-white rounded-full transition-colors"
+            >
+              <ChevronRight className="w-8 h-8" />
+            </button>
+          )}
+
           <div className="w-3/5 h-full bg-black flex items-center justify-center overflow-hidden relative group flex-shrink-0">
             {renderMedia()}
             {image.mediaType !== 'video' && <div className="absolute bottom-4 left-4 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full text-xs text-white/70 font-mono opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">{image.url.startsWith('data:') ? 'Local Image' : 'External URL'}</div>}
@@ -513,10 +581,7 @@ const ImageDetailModal: React.FC<ImageDetailModalProps> = ({
                   <>
                     <h2 className="text-xl md:text-xl font-black text-slate-100 leading-tight">{image.title || 'Untitled'}</h2>
                     {image.description && <p className="text-slate-400 leading-relaxed">{image.description}</p>}
-                    {image.sourceUrl && <a href={image.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm text-rose-500 hover:text-rose-400 font-medium hover:underline"><Globe className="w-4 h-4" />
-                    {/* SAFE DOMAIN DISPLAY (FIXED CRASH) */}
-                    {getDomain(image.sourceUrl)}
-                    </a>}
+                    {image.sourceUrl && <a href={image.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-sm text-rose-500 hover:text-rose-400 font-medium hover:underline"><Globe className="w-4 h-4" />{getDomain(image.sourceUrl)}</a>}
                     <div className="flex items-center gap-4 text-slate-500 text-sm font-medium pt-2"><div className="flex items-center gap-2"><Calendar className="w-4 h-4 text-slate-600" />{image.createdAt ? new Date(image.createdAt).toLocaleDateString() : 'Unknown Date'}</div>{isOwner ? <button onClick={handleCycleVisibility} className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-xs hover:border-rose-500 hover:text-rose-500 transition-colors cursor-pointer group">{image.visibility === 'public' && <Globe className="w-3 h-3 group-hover:text-rose-500" />}{image.visibility === 'unlisted' && <Link className="w-3 h-3 group-hover:text-rose-500" />}{(!image.visibility || image.visibility === 'private') && <Lock className="w-3 h-3 group-hover:text-rose-500" />}<span className="capitalize">{image.visibility || 'Private'}</span></button> : <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-xs">{image.visibility === 'public' && <Globe className="w-3 h-3" />}{image.visibility === 'unlisted' && <Link className="w-3 h-3" />}{(!image.visibility || image.visibility === 'private') && <Lock className="w-3 h-3" />}<span className="capitalize">{image.visibility || 'Private'}</span></div>}</div>
                   </>
                 )}
