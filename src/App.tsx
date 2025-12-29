@@ -53,7 +53,7 @@ const SimpleToast = ({ message, type, onClose }: { message: string, type: 'succe
   }, [onClose]);
 
   return (
-    <div className={`fixed bottom-20 md:bottom-4 right-4 px-6 py-3 rounded-lg shadow-xl z-[100] text-white ${type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>
+    <div className={`fixed bottom-4 right-4 px-6 py-3 rounded-lg shadow-xl z-[100] text-white ${type === 'error' ? 'bg-red-600' : 'bg-green-600'}`}>
       {message}
     </div>
   );
@@ -128,18 +128,6 @@ const SortDropdown = ({ value, onChange, options }: { value: string, onChange: (
   );
 };
 
-// --- COMPONENT: Action Button for Bottom Bar ---
-const SelectionActionButton = ({ icon: Icon, label, onClick, disabled, danger = false }: any) => (
-  <button 
-    onClick={onClick}
-    disabled={disabled}
-    className={`flex flex-col items-center gap-1 min-w-[3.5rem] p-2 rounded-xl transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed ${danger ? 'text-red-500 hover:bg-red-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
-  >
-    <Icon className="w-6 h-6" />
-    <span className="text-[10px] font-medium">{label}</span>
-  </button>
-);
-
 // --- MAIN CONTENT ---
 const AppContent: React.FC = () => {
   // Navigation State
@@ -147,6 +135,14 @@ const AppContent: React.FC = () => {
   const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+
+  const clearParams = useCallback(() => {
+    setSelectedBoardId(null);
+    setSelectedCollectionId(null);
+    setSelectedImageId(null);
+    setActiveView('all');
+    window.history.pushState({}, '', window.location.pathname);
+  }, []);
 
   // Data State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -228,29 +224,6 @@ const AppContent: React.FC = () => {
       setPage(1);
   };
   // --- TRENDING LOGIC END ---
-
-  // --- NAVIGATION HELPERS (HISTORY SYNC) ---
-  
-  // FIX: Push state to URL when image opens
-  const handleImageClick = (id: string) => {
-    const newUrl = new URL(window.location.href);
-    newUrl.searchParams.set('pin', id);
-    window.history.pushState({ pinId: id }, '', newUrl.toString());
-    setSelectedImageId(id);
-  };
-
-  // FIX: Go 'back' in history to close modal (if history present), or force reset
-  const handleCloseModal = () => {
-    if (window.history.state && window.history.state.pinId) {
-       window.history.back(); // This triggers handlePopState, which sets selectedImageId(null)
-    } else {
-       // Deep link or fresh load case
-       const newUrl = new URL(window.location.href);
-       newUrl.searchParams.delete('pin');
-       window.history.replaceState(null, '', newUrl.toString());
-       setSelectedImageId(null);
-    }
-  };
 
   const handlePinSortChange = (sort: PinSortOption) => {
     setPinSort(sort);
@@ -387,7 +360,6 @@ const AppContent: React.FC = () => {
     }
   };
 
-  // --- NAVIGATION LISTENER ---
   useEffect(() => {
     if (!isAuthChecking) {
       loadData();
@@ -480,7 +452,7 @@ const AppContent: React.FC = () => {
         }
         else if (isCreateCollectionOpen) setIsCreateCollectionOpen(false);
         else if (isSettingsOpen) setIsSettingsOpen(false);
-        else if (selectedImageId) handleCloseModal(); // Use smart close
+        else if (selectedImageId) setSelectedImageId(null);
         else if (bulkAction) setBulkAction(null);
         else if (isSelectionMode) {
           setIsSelectionMode(false);
@@ -808,10 +780,6 @@ const AppContent: React.FC = () => {
   const handleSelectImage = (id: string, isShift?: boolean) => {
     const img = allImages.find(i => i.id === id);
     if (img && img.ownerId && currentUser && img.ownerId !== currentUser.id) return;
-    
-    // --- Auto-Activate Selection Mode ---
-    if (!isSelectionMode) setIsSelectionMode(true); 
-
     let newSelected = new Set(selectedIds);
     if (isShift && lastSelectedId) {
       const visibleItems = gridItems;
@@ -961,90 +929,121 @@ const AppContent: React.FC = () => {
 
       <main className="flex-1 flex flex-col h-full min-w-0 bg-black relative">
         <header className="h-16 border-b border-slate-900 flex items-center justify-between px-4 md:px-8 gap-4 flex-shrink-0 z-20 bg-black/80 backdrop-blur-md">
-          {/* HEADER CONTENT: Switch based on Selection Mode */}
-          {isSelectionMode ? (
-             <div className="flex items-center justify-between w-full animate-in slide-in-from-top-2 duration-300">
-                <div className="flex items-center gap-3">
-                   <div className="w-8 h-8 rounded-full bg-rose-600 flex items-center justify-center font-bold text-white shadow-lg shadow-rose-900/40">
-                      {selectedIds.size}
-                   </div>
-                   <span className="text-lg font-bold text-white">Selected</span>
-                </div>
-                <button 
-                  onClick={() => { setIsSelectionMode(false); setSelectedIds(new Set()); }}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-full font-bold text-sm transition-colors"
-                >
-                  Done
+          <div className="flex items-center gap-4 flex-1">
+            <button className="md:hidden text-slate-400" onClick={() => setIsSidebarOpen(true)}>
+              <Menu className="w-6 h-6" />
+            </button>
+            <div className={`relative flex-1 max-w-md group ${isMobileSearchOpen ? 'block absolute left-0 right-0 top-0 h-16 bg-slate-900 z-50 px-4 flex items-center' : 'hidden md:block'}`}>
+              {isMobileSearchOpen && (
+                <button onClick={() => setIsMobileSearchOpen(false)} className="mr-3 text-slate-400">
+                  <ArrowLeft className="w-5 h-5" />
                 </button>
-             </div>
-          ) : (
-             /* STANDARD HEADER (Search, Menu, User) */
-             <>
-                <div className="flex items-center gap-4 flex-1">
-                    <button className="md:hidden text-slate-400" onClick={() => setIsSidebarOpen(true)}>
-                    <Menu className="w-6 h-6" />
-                    </button>
-                    <div className={`relative flex-1 max-w-md group ${isMobileSearchOpen ? 'block absolute left-0 right-0 top-0 h-16 bg-slate-900 z-50 px-4 flex items-center' : 'hidden md:block'}`}>
-                    {isMobileSearchOpen && (
-                        <button onClick={() => setIsMobileSearchOpen(false)} className="mr-3 text-slate-400">
-                        <ArrowLeft className="w-5 h-5" />
-                        </button>
-                    )}
-                    <Search className="absolute left-3 md:left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <input
-                        type="text"
-                        placeholder="Search..."
-                        className="w-full bg-slate-900 md:bg-slate-900 border border-slate-800 rounded-full pl-10 pr-4 py-2 text-sm text-slate-200"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        autoFocus={isMobileSearchOpen}
-                    />
-                    {searchTerm && (
-                        <button
-                        onClick={() => setSearchTerm('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                        >
-                        <X className="w-3 h-3" />
-                        </button>
-                    )}
-                    </div>
-                </div>
-                <div className="flex items-center gap-3">
-                    {currentUser ? (
-                    <>
-                        <button onClick={() => setIsMobileSearchOpen(true)} className="md:hidden text-slate-400 p-2">
-                        <Search className="w-5 h-5" />
-                        </button>
-                        
-                        {/* Desktop Select Trigger */}
-                        <button
-                            onClick={toggleSelectionMode}
-                            className="p-2 text-slate-500 hover:text-slate-200 hover:bg-slate-900 rounded-full transition-colors"
-                            title="Select Items"
-                        >
-                            <CheckSquare className="w-5 h-5" />
-                        </button>
-
-                        <button
-                        onClick={() => setIsUploadOpen(true)}
-                        className="bg-rose-600 hover:bg-rose-500 text-white p-2 rounded-full transition-all shadow-lg shadow-rose-900/40 hover:scale-105 active:scale-95"
-                        title="Upload New Tallo"
-                        >
-                        <Plus className="w-5 h-5" />
-                        </button>
-                        <UserMenu user={currentUser} onLogout={handleLogout} />
-                    </>
-                    ) : (
+              )}
+              <Search className="absolute left-3 md:left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Search..."
+                className="w-full bg-slate-900 md:bg-slate-900 border border-slate-800 rounded-full pl-10 pr-4 py-2 text-sm text-slate-200"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                autoFocus={isMobileSearchOpen}
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {currentUser ? (
+              <>
+                <button onClick={() => setIsMobileSearchOpen(true)} className="md:hidden text-slate-400 p-2">
+                  <Search className="w-5 h-5" />
+                </button>
+                {!isSelectionMode ? (
+                  <button
+                    onClick={toggleSelectionMode}
+                    className="p-2 text-slate-500 hover:text-slate-200 hover:bg-slate-900 rounded-full transition-colors"
+                    title="Select Multiple"
+                  >
+                    <CheckSquare className="w-5 h-5" />
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2 animate-in slide-in-from-right-4 fade-in">
+                    <span className="text-sm font-bold text-rose-500 mr-2">{selectedIds.size} Selected</span>
                     <button
-                        onClick={() => setShowLoginModal(true)}
-                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-bold transition-colors"
+                      onClick={() => setBulkAction('board')}
+                      disabled={selectedIds.size === 0}
+                      className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-950/30 rounded-full transition-colors disabled:opacity-30"
+                      title="Add to Board"
                     >
-                        Log In
+                      <FolderPlus className="w-5 h-5" />
                     </button>
-                    )}
-                </div>
-             </>
-          )}
+                    <button
+                      onClick={() => setBulkAction('tags')}
+                      disabled={selectedIds.size === 0}
+                      className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-950/30 rounded-full transition-colors disabled:opacity-30"
+                      title="Add Tags"
+                    >
+                      <Hash className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => setBulkAction('location')}
+                      disabled={selectedIds.size === 0}
+                      className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-950/30 rounded-full transition-colors disabled:opacity-30"
+                      title="Set Location"
+                    >
+                      <MapPin className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => setBulkAction('group')}
+                      disabled={selectedIds.size === 0}
+                      className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-950/30 rounded-full transition-colors disabled:opacity-30"
+                      title="Group Items"
+                    >
+                      <Layers className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => setBulkAction('visibility')}
+                      disabled={selectedIds.size === 0}
+                      className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-950/30 rounded-full transition-colors disabled:opacity-30"
+                      title="Set Visibility"
+                    >
+                      <Eye className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={handleBulkDelete}
+                      disabled={selectedIds.size === 0}
+                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-950/30 rounded-full transition-colors disabled:opacity-30"
+                      title="Delete Selected"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                    <button onClick={toggleSelectionMode} className="ml-2 text-xs font-bold text-slate-500 hover:text-slate-300">Cancel</button>
+                  </div>
+                )}
+                <button
+                  onClick={() => setIsUploadOpen(true)}
+                  className="bg-rose-600 hover:bg-rose-500 text-white p-2 rounded-full transition-all shadow-lg shadow-rose-900/40 hover:scale-105 active:scale-95"
+                  title="Upload New Tallo"
+                >
+                  <Plus className="w-5 h-5" />
+                </button>
+                <UserMenu user={currentUser} onLogout={handleLogout} />
+              </>
+            ) : (
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-bold transition-colors"
+              >
+                Log In
+              </button>
+            )}
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-8 relative pb-24 md:pb-8">
@@ -1059,11 +1058,11 @@ const AppContent: React.FC = () => {
               images={displayImages}
               onBack={() => {
                 setSelectedBoardId(null);
-                setActiveView('boards'); 
-                window.history.pushState({}, '', window.location.pathname);
+                setActiveView('boards'); // Forces view back to the My Boards dashboard
+                window.history.pushState({}, '', window.location.pathname); // Clears URL params
               }}
               onDeleteCollection={handleDeleteCollection}
-              onImageClick={handleImageClick} // FIX: Use history pusher
+              onImageClick={setSelectedImageId}
               onTogglePin={togglePinToBoard}
               onToggleFavorite={handleToggleFavorite}
               onUpdate={handleUpdateImage}
@@ -1093,8 +1092,8 @@ const AppContent: React.FC = () => {
               groups={allGroups}
               onBack={() => {
                 setSelectedBoardId(null);
-                setActiveView('boards'); 
-                window.history.pushState({}, '', window.location.pathname); 
+                setActiveView('boards'); // Forces view back to the My Boards dashboard
+                window.history.pushState({}, '', window.location.pathname); // Clears URL params
               }}
               onDeleteImage={handleDeleteItem}
               boards={displayBoards}
@@ -1102,7 +1101,7 @@ const AppContent: React.FC = () => {
               onDeleteBoard={handleDeleteBoard}
               onUpdate={handleUpdateImage}
               onUpdateBoard={handleUpdateBoard}
-              onImageClick={handleImageClick} // FIX: Use history pusher
+              onImageClick={setSelectedImageId}
               onToggleFavorite={handleToggleFavorite}
               isOwner={true}
               isSelectionMode={isSelectionMode} selectedIds={selectedIds}
@@ -1188,7 +1187,7 @@ const AppContent: React.FC = () => {
                       boards={displayBoards}
                       onTogglePin={togglePinToBoard}
                       onUpdate={handleUpdateImage}
-                      onImageClick={handleImageClick} // FIX: Use history pusher
+                      onImageClick={setSelectedImageId}
                       onToggleFavorite={handleToggleFavorite}
                       isSelectionMode={isSelectionMode}
                       selectedIds={selectedIds}
@@ -1198,26 +1197,12 @@ const AppContent: React.FC = () => {
                     />
                   </>
                 ) : (
-                  <MapView images={displayImages} onImageClick={handleImageClick} />
+                  <MapView images={displayImages} onImageClick={setSelectedImageId} />
                 )}
               </div>
             </div>
           )}
         </div>
-        
-        {/* NEW: Bottom Toolbar for Selection Actions */}
-        {isSelectionMode && (
-           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-full duration-300 w-full max-w-sm px-4">
-              <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-2xl shadow-2xl p-2 flex justify-between items-center">
-                 <SelectionActionButton icon={FolderPlus} label="Board" onClick={() => setBulkAction('board')} disabled={selectedIds.size === 0} />
-                 <SelectionActionButton icon={Hash} label="Tag" onClick={() => setBulkAction('tags')} disabled={selectedIds.size === 0} />
-                 <SelectionActionButton icon={MapPin} label="Loc" onClick={() => setBulkAction('location')} disabled={selectedIds.size === 0} />
-                 <SelectionActionButton icon={Layers} label="Group" onClick={() => setBulkAction('group')} disabled={selectedIds.size === 0} />
-                 <div className="w-px h-8 bg-slate-800 mx-1"></div>
-                 <SelectionActionButton icon={Trash2} label="Delete" onClick={handleBulkDelete} disabled={selectedIds.size === 0} danger />
-              </div>
-           </div>
-        )}
       </main>
 
       {/* Render Toast Container */}
@@ -1231,43 +1216,106 @@ const AppContent: React.FC = () => {
         )
       }
 
-      {/* ... Modals ... */}
-      {showLoginModal && <LoginScreen onLogin={handleLogin} onGuestAccess={handleGuestAccess} />}
-      {isDraggingFile && <div className="fixed inset-0 z-[100] bg-rose-500/90 backdrop-blur-sm flex items-center justify-center pointer-events-none animate-in fade-in duration-200"><div className="text-white text-center"><h2 className="text-4xl font-black">Drop to Upload</h2></div></div>}
-      
-      {/* FIX: onClose uses handleCloseModal to ensure history sync */}
-      {selectedImageId && (
-        <ImageDetailModal
-          image={
-            allImages.find(i => i.id === selectedImageId) || 
-            discoveryItems.find(i => i.id === selectedImageId) || 
-            { id: '0', url: '', title: '', description: '', tags: [], boardIds: [], createdAt: 0, ownerId: '', visibility: 'private', mediaType: 'image' }
-          }
-          boards={displayBoards}
-          onClose={handleCloseModal}
-          onTogglePin={togglePinToBoard}
-          onUpdate={handleUpdateImage}
-          onToggleFavorite={handleToggleFavorite}
-          onDelete={(id) => handleDeleteItem(id, false)}
-          
-          // FIX 1: Pass the full feed for Next/Prev navigation
-          contextImages={activeView === 'discovery' ? discoveryItems : displayImages}
-          
-          // FIX 2: Only pass group images if this specific image belongs to a group
-          groupImages={allGroups.find(g => g.imageIds.includes(selectedImageId))?.imageIds.map(id => allImages.find(i => i.id === id)!).filter(Boolean)}
-          
-          onSelectImage={setSelectedImageId}
-          onSetHero={(id) => { 
-            const grp = allGroups.find(g => g.imageIds.includes(selectedImageId)); 
-            if (grp) handleSetGroupHero(grp.id, id); 
-          }} 
-        />
-      )}
-      {isUploadOpen && currentUser && <UploadModal onClose={() => { setIsUploadOpen(false); setDroppedFiles([]); }} onUpload={handleUploadComplete} ownerId={currentUser.id} boards={displayBoards} initialBoardId={selectedBoardId} onCreateBoard={() => setIsCreateBoardOpen(true)} initialFiles={droppedFiles} />}
-      {isCreateBoardOpen && <CreateBoardModal onClose={() => setIsCreateBoardOpen(false)} onCreate={handleCreateBoard} />}
-      {isCreateCollectionOpen && <CreateCollectionModal onClose={() => setIsCreateCollectionOpen(false)} onCreate={handleCreateCollection} />}
-      {bulkAction && <BulkActionModal action={bulkAction} count={selectedIds.size} onClose={() => setBulkAction(null)} onSubmit={executeBulkAction} boards={displayBoards} onCreateBoard={() => setIsCreateBoardOpen(true)} />}
-      {isSettingsOpen && <SettingsModal onClose={() => setIsSettingsOpen(false)} onDataImported={() => { loadData(); showToast("Data imported successfully", "success"); }} />}
+      {
+        showLoginModal && (
+          <LoginScreen
+            onLogin={handleLogin}
+            onGuestAccess={handleGuestAccess}
+          />
+        )
+      }
+
+      {
+        isDraggingFile && (
+          <div className="fixed inset-0 z-[100] bg-rose-500/90 backdrop-blur-sm flex items-center justify-center pointer-events-none animate-in fade-in duration-200">
+            <div className="text-white text-center">
+              <h2 className="text-4xl font-black">Drop to Upload</h2>
+            </div>
+          </div>
+        )
+      }
+
+      {
+        selectedImageId && (
+          <ImageDetailModal
+            image={allImages.find(i => i.id === selectedImageId) || discoveryItems.find(i => i.id === selectedImageId) || { id: '0', url: '', title: '', description: '', tags: [], boardIds: [], createdAt: 0, ownerId: '', visibility: 'private' }}
+            boards={displayBoards}
+            onClose={() => setSelectedImageId(null)}
+            onTogglePin={togglePinToBoard}
+            onUpdate={handleUpdateImage}
+            onToggleFavorite={handleToggleFavorite}
+            groupImages={
+              activeView === 'board-detail'
+                ? displayImages
+                : activeView === 'discovery'
+                  ? discoveryItems
+                  : allGroups.find(g => g.imageIds.includes(selectedImageId))?.imageIds.map(id => allImages.find(i => i.id === id)!)
+            }
+            onSelectImage={setSelectedImageId}
+            onSetHero={(id) => {
+              const grp = allGroups.find(g => g.imageIds.includes(selectedImageId));
+              if (grp) handleSetGroupHero(grp.id, id);
+            }}
+          />
+        )
+      }
+
+      {
+        isUploadOpen && currentUser && (
+          <UploadModal
+            onClose={() => { setIsUploadOpen(false); setDroppedFiles([]); }}
+            onUpload={handleUploadComplete}
+            ownerId={currentUser.id}
+            boards={displayBoards}
+            initialBoardId={selectedBoardId}
+            onCreateBoard={() => setIsCreateBoardOpen(true)}
+            initialFiles={droppedFiles}
+          />
+        )
+      }
+
+      {
+        isCreateBoardOpen && (
+          <CreateBoardModal
+            onClose={() => setIsCreateBoardOpen(false)}
+            onCreate={handleCreateBoard}
+          />
+        )
+      }
+
+      {
+        isCreateCollectionOpen && (
+          <CreateCollectionModal
+            onClose={() => setIsCreateCollectionOpen(false)}
+            onCreate={handleCreateCollection}
+          />
+        )
+      }
+
+      {
+        bulkAction && (
+          <BulkActionModal
+            action={bulkAction}
+            count={selectedIds.size}
+            onClose={() => setBulkAction(null)}
+            onSubmit={executeBulkAction}
+            boards={displayBoards}
+            onCreateBoard={() => setIsCreateBoardOpen(true)}
+          />
+        )
+      }
+
+      {
+        isSettingsOpen && (
+          <SettingsModal
+            onClose={() => setIsSettingsOpen(false)}
+            onDataImported={() => {
+              loadData();
+              showToast("Data imported successfully", "success");
+            }}
+          />
+        )
+      }
       <DebugTools />
     </div>
   );
