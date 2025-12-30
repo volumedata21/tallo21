@@ -14,7 +14,7 @@ import { Sliders, Plus, ArrowUpDown, ChevronDown, Check, MousePointer2, Shuffle,
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null); // New Error State
+  const [error, setError] = useState<string | null>(null); 
   
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -80,9 +80,7 @@ function App() {
       console.error("Failed to load user", e);
       setError(e.message || "Failed to connect to server");
     } finally {
-      // Keep loading true if we succeeded so the second fetch can happen, 
-      // or set false if we failed so we can show the error.
-      // Actually, let's let refreshData handle the rest of loading.
+      // Handled in refreshData
     }
   };
 
@@ -136,7 +134,7 @@ function App() {
     }
   }, [activeFilter, currentUser?.id, sortBy, isShuffle, searchQuery, currentUser]);
 
-  // --- Handlers (Same as before) ---
+  // --- Handlers ---
   const showToast = (message: string, onUndo: () => void) => {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       setToast({ message, onUndo });
@@ -198,6 +196,15 @@ function App() {
   };
 
   const resetFilters = () => { setActiveFilter({ type: 'all', id: '' }); setSearchQuery(''); };
+
+  // --- Toggle Trending Tag Logic ---
+  const toggleTrendingTag = (tag: string) => {
+      if (activeFilter.type === 'tag' && activeFilter.id === tag) {
+          resetFilters(); // Clicked again -> Deactivate
+      } else {
+          setActiveFilter({ type: 'tag', id: tag });
+      }
+  };
 
   const SortButton = ({ value, label, current }: { value: SortOption, label: string, current: SortOption }) => (
       <button 
@@ -347,16 +354,17 @@ function App() {
                </div>
             )}
 
+            {/* TRENDING TAGS BAR - Updated size & toggle logic */}
             {userSettings.showTags && trendingTags.length > 0 && viewMode === 'grid' && (
                 <div className="px-4 sm:px-6 lg:px-8 pt-4 pb-0 overflow-x-auto no-scrollbar flex items-center gap-2">
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-xs font-bold uppercase tracking-wider shrink-0">
-                        <TagIcon size={12} /> Trending
+                    <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-[10px] font-bold uppercase tracking-wider shrink-0">
+                        <TagIcon size={10} /> Trending
                     </div>
                     {trendingTags.map(tag => (
                         <button
                             key={tag}
-                            onClick={() => setActiveFilter({ type: 'tag', id: tag })}
-                            className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors border ${activeFilter.type === 'tag' && activeFilter.id === tag ? 'bg-teal-500/10 border-teal-500/50 text-teal-400' : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+                            onClick={() => toggleTrendingTag(tag)}
+                            className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${activeFilter.type === 'tag' && activeFilter.id === tag ? 'bg-teal-500/10 border-teal-500/50 text-teal-400' : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'}`}
                         >
                             #{tag}
                         </button>
