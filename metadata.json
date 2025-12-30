@@ -1,0 +1,8 @@
+{
+  "name": "Tallo",
+  "description": "A sleek, dark-mode masonry board for collecting and organizing visual ideas with location tracking.",
+  "requestFramePermissions": [
+    "geolocation",
+    "camera"
+  ]
+}
