@@ -48,21 +48,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
       });
   };
 
-  const handleCreateItem = () => {
+  const handleCreateItem = async () => {
     if (!creationName.trim()) {
         setCreationMode(null);
         return;
     }
     
-    if (creationMode === 'collection') {
-        dataService.createCollection(creationName, currentUser.id);
-    } else if (creationMode === 'board') {
-        dataService.createBoard(creationName, undefined, currentUser.id);
+    try {
+        if (creationMode === 'collection') {
+            // Add 'await'
+            await dataService.createCollection(creationName, currentUser.id);
+        } else if (creationMode === 'board') {
+            // Add 'await'
+            await dataService.createBoard(creationName, undefined, currentUser.id);
+        }
+        
+        setCreationName('');
+        setCreationMode(null);
+        onUpdate(); // This will now fetch the new list from the server
+    } catch (e) {
+        console.error("Failed to create item", e);
     }
-    
-    setCreationName('');
-    setCreationMode(null);
-    onUpdate();
   };
 
   const handlePinDropOnBoard = (pinId: string, boardId: string) => {
