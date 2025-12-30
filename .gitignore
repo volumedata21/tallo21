@@ -1,6 +1,60 @@
-# Ignore data folder
-data/
-server/
+# =====================
+# OS / Editor junk
+# =====================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
 
-# Ignore  Node modules
+# =====================
+# Node dependencies
+# =====================
 node_modules/
+server/node_modules/
+
+# =====================
+# Build outputs
+# =====================
+dist/
+build/
+.vite/
+out/
+
+# =====================
+# Environment files
+# =====================
+.env
+.env.*
+!.env.example
+
+# =====================
+# Logs
+# =====================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =====================
+# Runtime / local data
+# =====================
+data/tallo.db
+data/images/
+server/data/
+
+# =====================
+# Docker
+# =====================
+docker-compose.override.yml
+
+# =====================
+# TypeScript cache
+# =====================
+*.tsbuildinfo
+
+# =====================
+# Misc
+# =====================
+coverage/
