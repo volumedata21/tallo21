@@ -102,18 +102,16 @@ export const PinCard: React.FC<PinCardProps> = ({
                         className="p-2 bg-slate-900/80 backdrop-blur rounded-full text-white hover:bg-teal-600 transition-colors"
                         title="Open Source Link"
                     >
-                        <ExternalLink size={16} />
+                        <ExternalLink size={12} />
                     </button>
                 )}
                 <button 
                   onClick={toggleFav}
                   className={`p-2 backdrop-blur rounded-full transition-colors ${isFavorite ? 'bg-red-500 text-white' : 'bg-slate-900/80 text-white hover:bg-slate-800'}`}
                 >
-                  <Heart size={16} fill={isFavorite ? "currentColor" : "none"} />
+                  <Heart size={12} fill={isFavorite ? "currentColor" : "none"} />
                 </button>
-                <button className="p-2 bg-slate-900/80 backdrop-blur rounded-full text-white hover:bg-teal-600 transition-colors">
-                  <Maximize2 size={16} />
-                </button>
+                
              </div>
              
              {pin.location && (
