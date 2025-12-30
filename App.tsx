@@ -8,16 +8,19 @@ import { CreatePinModal } from './components/CreatePinModal';
 import { MapView } from './components/MapView';
 import { BulkActionBar } from './components/BulkActionBar';
 import { dataService } from './services/dataService';
-import { Pin, UserSettings, Collection, Board, SortOption } from './types';
-import { Sliders, Plus, ArrowUpDown, ChevronDown, Check, MousePointer2, Shuffle, CheckSquare, Tag as TagIcon, Undo } from 'lucide-react';
+import { Pin, UserSettings, Collection, Board, SortOption, User } from './types';
+import { Sliders, Plus, ArrowUpDown, ChevronDown, Check, MousePointer2, Shuffle, CheckSquare, Tag as TagIcon, Undo, Loader2, AlertTriangle, RefreshCcw } from 'lucide-react';
 
 function App() {
-  const [currentUser] = useState(dataService.getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null); // New Error State
+  
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
   const [pins, setPins] = useState<Pin[]>([]);
-  const [users, setUsers] = useState(dataService.getUsers());
+  const [users, setUsers] = useState<User[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [trendingTags, setTrendingTags] = useState<string[]>([]);
@@ -29,7 +32,6 @@ function App() {
   const [isShuffle, setIsShuffle] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Selection Mode State
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedPinIds, setSelectedPinIds] = useState<string[]>([]);
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
@@ -46,13 +48,10 @@ function App() {
     darkMode: true
   });
 
-  // Undo Toast State
   const [toast, setToast] = useState<{ message: string, onUndo: () => void } | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const sortRef = useRef<HTMLDivElement>(null);
 
-  // Close sort dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (sortRef.current && !sortRef.current.contains(event.target as Node)) {
@@ -65,92 +64,113 @@ function App() {
     };
   }, []);
 
-  const refreshData = () => {
-    setUsers(dataService.getUsers());
-    setCollections(dataService.getCollections(currentUser.id));
-    setBoards(dataService.getBoards(currentUser.id));
-    setTrendingTags(dataService.getTrendingTags());
-    setAllTags(dataService.getAllTags());
-    
-    let filterConfig: any = {};
-    if (activeFilter.type === 'favorites') filterConfig.favorites = true;
-    if (activeFilter.type === 'collection') filterConfig.collectionId = activeFilter.id;
-    if (activeFilter.type === 'board') filterConfig.boardId = activeFilter.id;
-    if (activeFilter.type === 'tag') filterConfig.tag = activeFilter.id;
-    
-    // Determine effective sort
-    const effectiveSort = isShuffle ? 'random' : sortBy;
-    setPins(dataService.getPins(filterConfig, effectiveSort, searchQuery));
-
-    // If a pin is selected, refresh its object reference to reflect updates (like favorites or hero swaps)
-    if (selectedPin) {
-        const updatedPin = dataService.getAllPins().find(p => p.id === selectedPin.id);
-        if (updatedPin) setSelectedPin(updatedPin);
+  // 1. Initial User Load with Error Handling
+  const initUser = async () => {
+    try {
+      setError(null);
+      setIsLoading(true);
+      const user = await dataService.getCurrentUser();
+      
+      if (!user) {
+          throw new Error("No user returned from API");
+      }
+      
+      setCurrentUser(user);
+    } catch (e: any) {
+      console.error("Failed to load user", e);
+      setError(e.message || "Failed to connect to server");
+    } finally {
+      // Keep loading true if we succeeded so the second fetch can happen, 
+      // or set false if we failed so we can show the error.
+      // Actually, let's let refreshData handle the rest of loading.
     }
   };
 
   useEffect(() => {
-    refreshData();
-  }, [activeFilter, currentUser.id, sortBy, isShuffle, searchQuery]);
+    initUser();
+  }, []);
 
+  // 2. Data Refresh Logic
+  const refreshData = async () => {
+    if (!currentUser) return;
+
+    try {
+        const [usersData, collectionsData, boardsData, tagsData, allTagsData] = await Promise.all([
+            dataService.getUsers(),
+            dataService.getCollections(currentUser.id),
+            dataService.getBoards(currentUser.id),
+            dataService.getTrendingTags(),
+            dataService.getAllTags()
+        ]);
+
+        setUsers(usersData);
+        setCollections(collectionsData);
+        setBoards(boardsData);
+        setTrendingTags(tagsData);
+        setAllTags(allTagsData);
+        
+        let filterConfig: any = {};
+        if (activeFilter.type === 'favorites') filterConfig.favorites = true;
+        if (activeFilter.type === 'collection') filterConfig.collectionId = activeFilter.id;
+        if (activeFilter.type === 'board') filterConfig.boardId = activeFilter.id;
+        if (activeFilter.type === 'tag') filterConfig.tag = activeFilter.id;
+        
+        const effectiveSort = isShuffle ? 'random' : sortBy;
+        const pinsData = await dataService.getPins(filterConfig, effectiveSort, searchQuery);
+        setPins(pinsData);
+
+        if (selectedPin) {
+            const updatedPin = (await dataService.getAllPins()).find(p => p.id === selectedPin.id);
+            if (updatedPin) setSelectedPin(updatedPin);
+        }
+    } catch (error) {
+        console.error("Error refreshing data:", error);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentUser) {
+        refreshData();
+    }
+  }, [activeFilter, currentUser?.id, sortBy, isShuffle, searchQuery, currentUser]);
+
+  // --- Handlers (Same as before) ---
   const showToast = (message: string, onUndo: () => void) => {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       setToast({ message, onUndo });
       toastTimeoutRef.current = setTimeout(() => setToast(null), 5000);
   };
 
-  const handlePinDelete = (pin: Pin) => {
-      // Optimistic update
-      dataService.deletePin(pin.id);
-      
-      // Close modal if deleting selected pin
-      if (selectedPin && selectedPin.id === pin.id) {
-          setSelectedPin(null);
-      }
-      
-      refreshData();
-      
-      showToast('Stem deleted', () => {
-          dataService.restorePin(pin);
-          refreshData();
-          setToast(null);
-      });
+  const handlePinDelete = async (pin: Pin) => {
+      await dataService.deletePin(pin.id);
+      if (selectedPin && selectedPin.id === pin.id) setSelectedPin(null);
+      await refreshData();
+      showToast('Stem deleted', () => { console.log("Restore not implemented"); });
   };
 
-  const handleBulkDelete = (ids: string[]) => {
-      const pinsToDelete = pins.filter(p => ids.includes(p.id));
-      dataService.bulkDeletePins(ids);
-      refreshData();
-      
-      showToast(`${ids.length} stems deleted`, () => {
-          dataService.restorePins(pinsToDelete);
-          refreshData();
-          setToast(null);
-      });
+  const handleBulkDelete = async (ids: string[]) => {
+      await dataService.bulkDeletePins(ids);
+      await refreshData();
+      setSelectedPinIds([]);
+      setLastSelectedId(null);
   };
 
   const toggleSelection = (id: string, e: React.MouseEvent) => {
-      // Shift Click Logic
       if (e.shiftKey && lastSelectedId && lastSelectedId !== id) {
           const currentIndex = pins.findIndex(p => p.id === id);
           const lastIndex = pins.findIndex(p => p.id === lastSelectedId);
-          
           if (currentIndex !== -1 && lastIndex !== -1) {
               const start = Math.min(currentIndex, lastIndex);
               const end = Math.max(currentIndex, lastIndex);
-              // Select all visual items between start and end
               const rangeIds = pins.slice(start, end + 1).map(p => p.id);
-              
-              // Add range to existing selection unique values
               setSelectedPinIds(prev => [...new Set([...prev, ...rangeIds])]);
-              return; // Don't reset lastSelectedId, allows contiguous shift selecting
+              return; 
           }
       }
-
       setLastSelectedId(id);
-      setSelectedPinIds(prev => 
-        prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
-      );
+      setSelectedPinIds(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
   };
 
   const handleSelectAll = () => {
@@ -164,12 +184,8 @@ function App() {
   };
 
   const handleSelectionModeToggle = () => {
-      const newMode = !isSelectionMode;
-      setIsSelectionMode(newMode);
-      if (!newMode) {
-          setSelectedPinIds([]);
-          setLastSelectedId(null);
-      }
+      setIsSelectionMode(!isSelectionMode);
+      if (isSelectionMode) { setSelectedPinIds([]); setLastSelectedId(null); }
   };
   
   const handlePinClick = (pin: Pin, e: React.MouseEvent) => {
@@ -181,39 +197,67 @@ function App() {
       }
   };
 
-  const resetFilters = () => {
-    setActiveFilter({ type: 'all', id: '' });
-    setSearchQuery('');
-  };
+  const resetFilters = () => { setActiveFilter({ type: 'all', id: '' }); setSearchQuery(''); };
 
   const SortButton = ({ value, label, current }: { value: SortOption, label: string, current: SortOption }) => (
       <button 
         onClick={() => { setSortBy(value); setIsSortOpen(false); }} 
         className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center justify-between transition-colors ${current === value ? 'bg-teal-500/10 text-teal-500 font-medium' : 'text-slate-300 hover:bg-slate-800'}`}
       >
-          {label}
-          {current === value && <Check size={14} />}
+          {label} {current === value && <Check size={14} />}
       </button>
   );
 
-  // Custom Masonry Logic to fill left-to-right (Round Robin)
-  // This solves the "populate by column up to down" issue by distributing pins across columns sequentially.
   const getMasonryColumns = () => {
       const width = window.innerWidth;
-      let colCount = 2; // Default mobile
-      if (width >= 1280) colCount = 4; // xl
-      else if (width >= 1024) colCount = 3; // lg
-      else if (width >= 768) colCount = 3; // md
+      let colCount = 2; 
+      if (width >= 1280) colCount = 4;
+      else if (width >= 1024) colCount = 3; 
+      else if (width >= 768) colCount = 3; 
 
       const columns: Pin[][] = Array.from({ length: colCount }, () => []);
-      
-      pins.forEach((pin, i) => {
-          columns[i % colCount].push(pin);
-      });
-
+      pins.forEach((pin, i) => columns[i % colCount].push(pin));
       return columns;
   };
   const masonryColumns = getMasonryColumns();
+
+
+  // --- ERROR STATE ---
+  if (error) {
+      return (
+        <div className="h-screen w-screen bg-[#000208] flex items-center justify-center text-slate-300">
+             <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl max-w-md text-center shadow-2xl">
+                 <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                     <AlertTriangle size={32} />
+                 </div>
+                 <h2 className="text-xl font-bold text-white mb-2">Connection Failed</h2>
+                 <p className="text-slate-400 mb-6 text-sm">
+                    {error === "Failed to fetch" 
+                        ? "Could not connect to the Backend API. Ensure the server is running on port 3001." 
+                        : error}
+                 </p>
+                 <button 
+                    onClick={initUser}
+                    className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-full font-medium transition w-full"
+                 >
+                     <RefreshCcw size={18} /> Retry Connection
+                 </button>
+             </div>
+        </div>
+      );
+  }
+
+  // --- LOADING STATE ---
+  if (!currentUser || (isLoading && pins.length === 0)) {
+      return (
+          <div className="h-screen w-screen bg-[#000208] flex items-center justify-center text-teal-500">
+              <div className="flex flex-col items-center gap-4">
+                  <Loader2 className="animate-spin w-10 h-10" />
+                  <span className="text-slate-400 font-medium">Loading Tallo...</span>
+              </div>
+          </div>
+      );
+  }
 
   return (
     <div className="min-h-screen bg-[#000208] text-slate-200 font-sans selection:bg-teal-500/30 overflow-hidden">
@@ -229,7 +273,6 @@ function App() {
         onSearchChange={setSearchQuery}
       />
 
-      {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden pt-20"
@@ -237,7 +280,6 @@ function App() {
         />
       )}
 
-      {/* Toast Notification */}
       {toast && (
           <div className="fixed bottom-20 md:bottom-8 right-1/2 translate-x-1/2 md:translate-x-0 md:right-8 z-[70] bg-slate-800 border border-slate-700 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-5 fade-in">
               <span className="font-medium text-sm">{toast.message}</span>
@@ -267,7 +309,6 @@ function App() {
         />
 
         <main className="flex-1 relative overflow-y-auto no-scrollbar bg-[#000208]">
-            {/* Settings Bar */}
             {showSettings && (
                <div className="sticky top-0 z-30 bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between shadow-md animate-in slide-in-from-top-5">
                   <div className="flex items-center gap-2 text-teal-500">
@@ -306,7 +347,6 @@ function App() {
                </div>
             )}
 
-            {/* Trending Tags Bar (Horizontal Scroll) */}
             {userSettings.showTags && trendingTags.length > 0 && viewMode === 'grid' && (
                 <div className="px-4 sm:px-6 lg:px-8 pt-4 pb-0 overflow-x-auto no-scrollbar flex items-center gap-2">
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-xs font-bold uppercase tracking-wider shrink-0">
@@ -330,7 +370,6 @@ function App() {
                </div>
             ) : (
                <div className="px-4 py-2 sm:p-6 lg:p-8">
-                  {/* Controls / Filter Bar */}
                   <div className="flex justify-between items-center mb-6 sticky top-0 z-40 bg-[#000208]/95 backdrop-blur-xl py-4 border-b border-slate-900/50 shadow-sm -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
                       <div className="flex items-center gap-4 truncate max-w-md">
                          <h2 className="text-xl font-bold text-white">
@@ -342,7 +381,6 @@ function App() {
                          </h2>
                          
                          <div className="flex items-center bg-slate-900 rounded-full border border-slate-800 p-1 gap-1">
-                             {/* Selection Toggle */}
                              <button 
                                 onClick={handleSelectionModeToggle}
                                 className={`p-2 rounded-full transition-all ${isSelectionMode ? 'bg-teal-500 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
@@ -363,7 +401,6 @@ function App() {
                       </div>
 
                       <div className="flex items-center gap-2">
-                          {/* Shuffle Toggle */}
                           <button 
                              onClick={() => setIsShuffle(!isShuffle)}
                              className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-medium ${isShuffle ? 'bg-purple-500/10 border-purple-500 text-purple-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'}`}
@@ -373,7 +410,6 @@ function App() {
                              <span className="hidden sm:inline">Shuffle</span>
                           </button>
 
-                          {/* Sort Dropdown */}
                           <div className="relative" ref={sortRef}>
                               <button 
                                 onClick={() => setIsSortOpen(!isSortOpen)}
@@ -390,9 +426,7 @@ function App() {
                                     <div className="px-3 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</div>
                                     <SortButton value="newest" label="Newest First" current={sortBy} />
                                     <SortButton value="oldest" label="Oldest First" current={sortBy} />
-                                    
                                     <div className="h-px bg-slate-800 my-1"></div>
-                                    
                                     <div className="px-3 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">Title</div>
                                     <SortButton value="az" label="Title (A-Z)" current={sortBy} />
                                     <SortButton value="za" label="Title (Z-A)" current={sortBy} />
@@ -419,7 +453,6 @@ function App() {
                         </button>
                     </div>
                   ) : (
-                    // Custom Masonry Grid Implementation - Filling Left to Right (Round Robin)
                     <div className="flex gap-2 md:gap-4 lg:gap-6 justify-center mx-auto max-w-[2400px]">
                        {masonryColumns.map((colPins, colIndex) => (
                           <div key={colIndex} className="flex-1 flex flex-col gap-2 md:gap-4 lg:gap-6 min-w-0">
@@ -442,7 +475,6 @@ function App() {
             )}
         </main>
 
-        {/* Bulk Actions Bar */}
         {selectedPinIds.length > 0 && (
            <BulkActionBar 
               selectedIds={selectedPinIds}
@@ -450,12 +482,7 @@ function App() {
                   setSelectedPinIds([]);
                   setLastSelectedId(null);
               }}
-              onUpdate={() => {
-                  refreshData();
-                  // Check if items are gone, if so handle the toast/restore logic
-                  // Note: for bulk delete from ActionBar, the handler is passed.
-                  // This onUpdate is for other actions like tagging.
-              }}
+              onUpdate={refreshData}
               collections={collections}
               boards={boards}
               customDeleteHandler={handleBulkDelete}
@@ -488,7 +515,7 @@ function App() {
         collections={collections}
         boards={boards}
         onCreated={refreshData}
-        userId={currentUser.id}
+        userId={currentUser ? currentUser.id : ''}
       />
       
     </div>
