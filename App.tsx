@@ -228,12 +228,8 @@ function App() {
       const availableWidth = windowWidth - sidebarWidth;
 
       let colCount = 2; 
-      // Breakpoints based on AVAILABLE content space, not just window width
-      if (availableWidth >= 1100) colCount = 4; // Trigger 4 cols sooner
+      if (availableWidth >= 1100) colCount = 4;
       else if (availableWidth >= 800) colCount = 3; 
-      
-      // Use windowWidth < 500 for single column on very small phones? 
-      // sticking to 2 minimum as per request mostly.
 
       const columns: Pin[][] = Array.from({ length: colCount }, () => []);
       pins.forEach((pin, i) => columns[i % colCount].push(pin));
@@ -432,7 +428,11 @@ function App() {
       {selectedPinIds.length > 0 && (
            <BulkActionBar 
               selectedIds={selectedPinIds}
-              onClear={() => { setSelectedPinIds([]); setLastSelectedId(null); }}
+              onClear={() => {
+                  setSelectedPinIds([]);
+                  setLastSelectedId(null);
+                  setIsSelectionMode(false); // <--- ADDED THIS LINE
+              }}
               onUpdate={refreshData}
               collections={collections}
               boards={boards}

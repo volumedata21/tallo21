@@ -36,7 +36,7 @@ export const dataService = {
     return res.json();
   },
 
-  // --- BOARDS (Restored) ---
+  // --- BOARDS ---
   getBoards: async (userId: string): Promise<Board[]> => {
     const res = await fetch(`${API_URL}/boards?userId=${userId}`);
     return res.json();
@@ -73,8 +73,7 @@ export const dataService = {
     } else if (filter?.boardId) {
       pins = pins.filter(p => p.boardIds.includes(filter.boardId!));
     } else if (filter?.collectionId) {
-       // Filter pins that belong to boards in this collection
-       const boards = await dataService.getBoards('u1'); // Fetching all boards to filter
+       const boards = await dataService.getBoards('u1'); 
        const colBoardIds = boards.filter(b => b.collectionId === filter.collectionId).map(b => b.id);
        pins = pins.filter(p => p.boardIds.some(bid => colBoardIds.includes(bid)));
     } else if (filter?.tag) {
@@ -224,14 +223,51 @@ export const dataService = {
     });
   },
   
-  // Stubs
-  addPinToBoard: async (pinId: string, boardId: string) => {},
-  restorePin: async (pin: Pin) => {},
-  restorePins: async (pins: Pin[]) => {},
-  bulkAddTags: async (ids: string[], tags: string[]) => {},
-  bulkAddBoard: async (ids: string[], boardId: string) => {},
-  bulkSetLocation: async (ids: string[], loc: LocationData) => {},
-  mergePins: async (ids: string[]) => {},
+  // --- BULK ACTION IMPLEMENTATIONS ---
+  
+  bulkUpdatePins: async (ids: string[], updates: Partial<Pin>) => {
+    await fetch(`${API_URL}/pins/bulk-update`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ids, updates })
+    });
+  },
+
+  bulkAddTags: async (ids: string[], tags: string[]) => {
+    await fetch(`${API_URL}/pins/bulk-tags`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ids, tags })
+    });
+  },
+
+  bulkAddBoard: async (ids: string[], boardId: string) => {
+    await fetch(`${API_URL}/pins/bulk-boards`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ids, boardId })
+    });
+  },
+
+  addPinToBoard: async (pinId: string, boardId: string) => {
+    await dataService.bulkAddBoard([pinId], boardId);
+  },
+
+  bulkSetLocation: async (ids: string[], location: LocationData) => {
+    await dataService.bulkUpdatePins(ids, { location });
+  },
+
+  mergePins: async (ids: string[]) => {
+     await fetch(`${API_URL}/pins/merge`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ids })
+    });
+  },
+
+  restorePin: async (pin: Pin) => {}, 
+  restorePins: async (pins: Pin[]) => {}, 
+  
   swapHeroImage: async (id: string, url: string) => { 
       await dataService.updatePin(id, { imageUrl: url });
   }
