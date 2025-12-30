@@ -1,7 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Pin, Board, Collection, LocationData } from '../types';
-import { X, MapPin, Layers, Trash2, Search, Heart, ChevronLeft, ChevronRight, Calendar, Tag as TagIcon, Plus, Check, Image as ImageIcon, Link, ExternalLink, Share2, PanelRightClose, PanelRightOpen, ArrowLeft, ChevronUp, ChevronDown } from 'lucide-react';
+import { X, MapPin, Layers, Trash2, Heart, ChevronLeft, ChevronRight, Calendar, Tag as TagIcon, Plus, Check, Image as ImageIcon, Link, ExternalLink, Share2, PanelRightClose, PanelRightOpen, ArrowLeft } from 'lucide-react';
 import { dataService } from '../services/dataService';
+
+// Tell TypeScript that Leaflet (L) exists on the window
+declare const L: any;
 
 interface PinModalProps {
   pin: Pin | null;
@@ -58,7 +61,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
         setLocationResults([]);
         setIsFavorite(pin.favorite);
         setViewingUrl(pin.imageUrl);
-        setIsDrawerOpen(false); // Reset drawer on new pin
+        setIsDrawerOpen(false);
     }
   }, [pin]);
 
@@ -68,18 +71,20 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
     const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'ArrowLeft') handlePrev();
         if (e.key === 'ArrowRight') handleNext();
-        if (e.key === 'Escape') onClose();
+        if (e.key === 'Escape') handleClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [pin, pinList]);
 
-  // Handle map
+  // Handle map logic
   useEffect(() => {
     if (!pin) return;
 
     if (isEditingLocation && mapContainer.current) {
+       // Destroy existing map if any
        if (mapInstance.current) {
+         mapInstance.current.off();
          mapInstance.current.remove();
          mapInstance.current = null;
        }
@@ -87,24 +92,23 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
        const lat = pin.location?.lat || 38.2527; 
        const lng = pin.location?.lng || -85.7585;
 
+       // Initialize Leaflet
        const map = L.map(mapContainer.current).setView([lat, lng], 13);
        mapInstance.current = map;
 
        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-         attribution: '&copy; CARTO'
+         attribution: '&copy; CARTO',
+         subdomains: 'abcd',
+         maxZoom: 19
        }).addTo(map);
        
        if (pin.location) {
          L.marker([pin.location.lat, pin.location.lng]).addTo(map);
        }
+       
+       // Force resize to prevent grey box
+       setTimeout(() => { map.invalidateSize(); }, 100);
     }
-
-    return () => {
-      if (mapInstance.current) {
-        mapInstance.current.remove();
-        mapInstance.current = null;
-      }
-    };
   }, [isEditingLocation, pin]);
 
   if (!pin) return null;
@@ -115,12 +119,12 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   const hasPrev = currentIndex > 0;
 
   const handleNext = () => {
-    handleSave(); 
+    handleSave(false); // Save quietly (no refresh)
     if (hasNext) onNavigate(pinList[currentIndex + 1]);
   };
 
   const handlePrev = () => {
-    handleSave();
+    handleSave(false); // Save quietly (no refresh)
     if (hasPrev) onNavigate(pinList[currentIndex - 1]);
   };
 
@@ -158,27 +162,34 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
     touchStartRef.current = null;
   };
 
-  const handleSave = () => {
+  // FIXED: Added shouldRefresh param to prevent race conditions on close
+  const handleSave = async (shouldRefresh = true) => {
      const sanitizedLink = dataService.sanitizeUrl(link);
-     dataService.updatePin(pin.id, { 
+     await dataService.updatePin(pin.id, { 
          title, 
          description, 
          tags, 
          boardIds: selectedBoardIds, 
          link: sanitizedLink 
      });
-     onUpdate();
+     
+     if (shouldRefresh) {
+         onUpdate();
+     }
   };
   
   const handleClose = () => {
-      handleSave();
+      handleSave(false); // Save quietly (no refresh)
       onClose();
   };
 
   const handleDelete = (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      onDelete(pin);
+      if (confirm("Are you sure you want to delete this stem?")) {
+        onDelete(pin);
+        onClose();
+      }
   };
 
   const handleShare = () => {
@@ -187,15 +198,18 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
      alert('Link copied to clipboard!');
   };
 
-  const handleToggleFavorite = () => {
-      const newVal = dataService.toggleFavorite(pin.id);
-      setIsFavorite(!!newVal);
+  const handleToggleFavorite = async () => {
+      // Optimistic update
+      setIsFavorite(!isFavorite);
+      await dataService.toggleFavorite(pin.id);
       onUpdate();
   };
 
-  const handleSetAsCover = () => {
-      handleSave();
-      dataService.swapHeroImage(pin.id, viewingUrl);
+  const handleSetAsCover = async () => {
+      await handleSave(false);
+      // Need to implement this in dataService/server if you want it to persist purely
+      // For now we'll just update the imageUrl
+      await dataService.updatePin(pin.id, { imageUrl: viewingUrl });
       onUpdate();
   };
 
@@ -208,8 +222,9 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       setLocationResults(results);
   };
 
-  const selectLocation = (loc: LocationData) => {
-      dataService.updatePin(pin.id, { location: loc });
+  const selectLocation = async (loc: LocationData) => {
+      await dataService.updatePin(pin.id, { location: loc });
+      
       if (mapInstance.current) {
           mapInstance.current.setView([loc.lat, loc.lng], 13);
           mapInstance.current.eachLayer((layer: any) => {
@@ -222,28 +237,28 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       setSearchQuery('');
   };
   
-  const handleAddTag = (e: React.KeyboardEvent) => {
+  const handleAddTag = async (e: React.KeyboardEvent) => {
     if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
       e.preventDefault();
       const newTag = tagInput.trim().toLowerCase();
       if (!tags.includes(newTag)) {
           const newTags = [...tags, newTag];
           setTags(newTags);
-          dataService.updatePin(pin.id, { tags: newTags });
+          await dataService.updatePin(pin.id, { tags: newTags });
       }
       setTagInput('');
       onUpdate();
     }
   };
 
-  const removeTag = (tag: string) => {
+  const removeTag = async (tag: string) => {
       const newTags = tags.filter(t => t !== tag);
       setTags(newTags);
-      dataService.updatePin(pin.id, { tags: newTags });
+      await dataService.updatePin(pin.id, { tags: newTags });
       onUpdate();
   };
   
-  const toggleBoard = (boardId: string) => {
+  const toggleBoard = async (boardId: string) => {
       let newBoardIds;
       if (selectedBoardIds.includes(boardId)) {
           newBoardIds = selectedBoardIds.filter(id => id !== boardId);
@@ -251,15 +266,15 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
           newBoardIds = [...selectedBoardIds, boardId];
       }
       setSelectedBoardIds(newBoardIds);
-      dataService.updatePin(pin.id, { boardIds: newBoardIds });
-      setIsAddingBoard(false);
+      await dataService.updatePin(pin.id, { boardIds: newBoardIds });
+      // Don't close adding board mode immediately so user can pick multiple
       onUpdate();
   };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 sm:bg-slate-950/95 sm:backdrop-blur-md sm:p-8" onClick={handleClose}>
        
-       {/* Pin List Navigation Buttons (Desktop) */}
+       {/* Desktop Navigation Arrows */}
        {hasPrev && (
            <button onClick={(e) => { e.stopPropagation(); handlePrev(); }} className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-slate-800/50 hover:bg-slate-700 text-white transition hidden md:flex z-50">
                <ChevronLeft size={32} />
@@ -283,7 +298,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
              onTouchStart={handleTouchStart}
              onTouchEnd={handleTouchEnd}
           >
-             {/* Back / Close Actions */}
+             {/* Top Actions */}
              <div className="absolute top-4 left-4 z-20 flex gap-2 pointer-events-auto">
                  <button onClick={handleClose} className="p-2 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors">
                      <ArrowLeft size={20} />
@@ -317,7 +332,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
              <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-[#050505]">
                  <img src={viewingUrl} className="max-w-full max-h-full object-contain" alt={pin.title} />
                  
-                 {/* Image Nav Arrows (Desktop Hover) */}
+                 {/* Image Nav Arrows (Desktop) */}
                  {galleryImages.length > 1 && (
                     <>
                        <button onClick={handlePrevImage} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/70 text-white transition opacity-0 group-hover:opacity-100 hidden md:block">
@@ -330,7 +345,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                  )}
              </div>
 
-             {/* Gallery Strip (Desktop) - Hidden on mobile if drawer is closed to save space, or maybe just always hidden on mobile to rely on swipes? Let's keep it but make it small on mobile */}
+             {/* Gallery Strip */}
              {galleryImages.length > 1 && (
                 <div className={`h-20 md:h-24 bg-[#050505] border-t border-slate-800 flex items-center gap-2 px-4 overflow-x-auto custom-scrollbar shrink-0 transition-all ${isDrawerOpen ? 'hidden md:flex' : 'flex'}`}>
                     {galleryImages.map((url, idx) => (
@@ -346,16 +361,12 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
              )}
           </div>
 
-          {/* RIGHT / BOTTOM: Info Panel (Drawer on Mobile) */}
+          {/* RIGHT / BOTTOM: Info Panel */}
           <div 
              className={`
                 bg-[#000208] border-l border-slate-800 transition-all duration-300 flex flex-col
-                
-                /* Mobile Drawer Styles */
                 fixed bottom-0 left-0 right-0 z-30 rounded-t-3xl shadow-[0_-10px_50px_rgba(0,0,0,0.8)]
                 ${isDrawerOpen ? 'h-[85vh]' : 'h-24'}
-                
-                /* Desktop Styles */
                 md:relative md:rounded-none md:shadow-none md:h-auto md:w-2/5 md:flex
                 ${showInfo ? 'md:w-2/5' : 'md:w-0 md:border-none md:overflow-hidden'}
              `}
@@ -398,13 +409,14 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                 </div>
 
                 {/* Scrollable Content */}
-                <div className={`flex-1 overflow-y-auto px-6 pb-6 space-y-6 ${!isDrawerOpen ? 'hidden md:block' : ''}`}>
+                <div className={`flex-1 overflow-y-auto px-6 pb-6 space-y-6 custom-scrollbar ${!isDrawerOpen ? 'hidden md:block' : ''}`}>
+                    
                     {/* Title & Date */}
                     <div>
                         <input 
                             value={title}
                             onChange={e => setTitle(e.target.value)}
-                            onBlur={handleSave}
+                            onBlur={() => handleSave(true)}
                             placeholder="Add a title"
                             className="w-full bg-transparent border-none text-2xl sm:text-3xl font-bold text-white placeholder-slate-600 focus:ring-0 px-0 mb-2"
                         />
@@ -420,7 +432,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                             <input 
                                 value={link}
                                 onChange={e => setLink(e.target.value)}
-                                onBlur={handleSave}
+                                onBlur={() => handleSave(true)}
                                 placeholder="Add a website link"
                                 className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-2 text-sm text-white focus:border-teal-600 outline-none"
                             />
@@ -433,7 +445,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                         )}
                     </div>
 
-                    <textarea value={description} onChange={e => setDescription(e.target.value)} onBlur={handleSave} placeholder="Add a description" className="w-full bg-slate-900/50 hover:bg-slate-900 focus:bg-slate-900 border border-transparent focus:border-slate-800 rounded-xl p-3 text-slate-300 placeholder-slate-600 focus:ring-0 outline-none transition-all resize-none h-32" />
+                    <textarea value={description} onChange={e => setDescription(e.target.value)} onBlur={() => handleSave(true)} placeholder="Add a description" className="w-full bg-slate-900/50 hover:bg-slate-900 focus:bg-slate-900 border border-transparent focus:border-slate-800 rounded-xl p-3 text-slate-300 placeholder-slate-600 focus:ring-0 outline-none transition-all resize-none h-32" />
 
                     {/* Keywords */}
                     <div>

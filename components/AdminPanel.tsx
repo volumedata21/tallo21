@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { User } from '../types';
+import React, { useState, useEffect } from 'react';
+import { User, SystemSettings } from '../types';
 import { dataService } from '../services/dataService';
 import { X, Trash2, RotateCcw, Plus, Users, HardDrive, Settings } from 'lucide-react';
 
@@ -12,13 +12,22 @@ interface AdminPanelProps {
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, onUpdate }) => {
   const [newUser, setNewUser] = useState({ username: '', email: '', role: 'user' as const, quota: '20GB' });
-  const [settings, setSettings] = useState(dataService.getSystemSettings());
+  
+  // FIX: Initialize with default/empty, not dataService call
+  const [settings, setSettings] = useState<SystemSettings>({ maxUploadSize: 'Loading...' });
+
+  // FIX: Load settings asynchronously when panel opens
+  useEffect(() => {
+    if (isOpen) {
+        dataService.getSystemSettings().then(setSettings).catch(console.error);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    dataService.addUser({
+    await dataService.addUser({
       username: newUser.username,
       email: newUser.email,
       role: newUser.role,
@@ -30,20 +39,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
     onUpdate();
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Are you sure you want to delete this user?')) {
-      dataService.deleteUser(id);
+      await dataService.deleteUser(id);
       onUpdate();
     }
   };
 
-  const handleSettingsSave = () => {
-    dataService.updateSystemSettings(settings);
+  const handleSettingsSave = async () => {
+    await dataService.updateSystemSettings(settings);
     alert('System settings saved.');
   };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+      {/* ... The rest of your JSX is fine, no changes needed ... */}
       <div className="bg-slate-900 w-full max-w-5xl rounded-2xl border border-slate-800 shadow-2xl flex flex-col max-h-[90vh]">
         <div className="flex justify-between items-center p-6 border-b border-slate-800">
           <div className="flex items-center gap-3">

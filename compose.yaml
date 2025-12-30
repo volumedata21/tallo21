@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  backend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm start"
+    volumes:
+      - ./server:/app
+      - ./data:/app/data
+      # Mount the shared types file from frontend to backend
+      - ./types.ts:/app/types.ts
+    ports:
+      - "5522:3001"
+    environment:
+      - DATA_DIR=/app/data
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host" 
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/server
+      - /app/data
+    ports:
+      - "5521:3000"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://backend:5522

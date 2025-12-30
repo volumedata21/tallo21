@@ -1,0 +1,6 @@
+# Ignore data folder
+data/
+server/
+
+# Ignore  Node modules
+node_modules/
