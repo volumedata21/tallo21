@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Maximize2, Heart, Copy, CheckCircle, ExternalLink } from 'lucide-react';
+import { Heart, Copy, CheckCircle, ExternalLink } from 'lucide-react';
 import { Pin, UserSettings } from '../types';
 import { dataService } from '../services/dataService';
 
@@ -50,12 +50,43 @@ export const PinCard: React.FC<PinCardProps> = ({
     }
   };
 
-  const handleExternalLink = (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (pin.link) window.open(pin.link, '_blank');
+  // --- SMART URL FORMATTER ---
+  const getDomainInfo = (url: string) => {
+      try {
+          const hostname = new URL(url).hostname.replace(/^www\./, '');
+          
+          // 1. Remove TLD (e.g. .com, .co.uk)
+          // We split by dot and remove the last part. 
+          // If it's a short TLD like .co.uk, this rudimentary check might leave '.co', 
+          // but for display purposes 'Newbalance' looks much better than 'newbalance.com'
+          const parts = hostname.split('.');
+          if (parts.length > 1) {
+              parts.pop(); // Remove 'com'
+              // specific edge case check for 2-letter second parts (like co.uk) could go here
+          }
+          
+          // 2. Clean up dashes/dots remaining
+          const nameRaw = parts.join(' '); 
+
+          // 3. Capitalize First Letter of each word (e.g. "the-verge" -> "The Verge")
+          // We split by non-alphanumeric chars to handle dashes elegantly
+          const displayName = nameRaw
+            .split(/[-_.]/)
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join('');
+
+          return {
+              displayName, // e.g. "Newbalance" or "TheVerge"
+              hostname,    // Keep original hostname for favicon
+              favicon: `https://www.google.com/s2/favicons?domain=${hostname}&sz=32`
+          };
+      } catch {
+          return null;
+      }
   };
 
-  // Hide title if it's "untitled" (case insensitive) or if settings say hide
+  const domainInfo = pin.link ? getDomainInfo(pin.link) : null;
+
   const shouldShowTitle = !settings.hideTitles && pin.title && pin.title.toLowerCase().trim() !== 'untitled';
 
   return (
@@ -75,7 +106,7 @@ export const PinCard: React.FC<PinCardProps> = ({
           loading="lazy"
         />
         
-        {/* Selection Checkbox - Visible in mode or on hover/selected */}
+        {/* Selection Checkbox */}
         {(isSelectionMode || isSelected) && (
             <div className={`absolute top-3 right-3 z-20 transition-all ${isSelected ? 'opacity-100 scale-100' : 'opacity-100 scale-100'}`}>
                 <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${isSelected ? 'bg-teal-500 border-teal-500' : 'bg-black/50 border-white/50'}`}>
@@ -92,39 +123,62 @@ export const PinCard: React.FC<PinCardProps> = ({
            </div>
         )}
         
-        {/* Hover Overlay - Hidden when in selection mode to avoid clutter */}
+        {/* --- HOVER OVERLAY --- */}
         {!isSelectionMode && (
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
-             <div className="absolute top-3 right-3 flex gap-2">
-                {pin.link && (
-                    <button 
-                        onClick={handleExternalLink}
-                        className="p-2 bg-slate-900/80 backdrop-blur rounded-full text-white hover:bg-teal-600 transition-colors"
-                        title="Open Source Link"
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col p-4">
+             
+             {/* Top Row: URL & Like */}
+             <div className="flex justify-between items-start">
+                {domainInfo ? (
+                    <a 
+                        href={pin.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-2 bg-black/40 hover:bg-black/60 backdrop-blur rounded-full pl-1 pr-3 py-1 transition-colors max-w-[75%]"
                     >
-                        <ExternalLink size={12} />
-                    </button>
+                        <img src={domainInfo.favicon} alt="" className="w-5 h-5 rounded-full bg-white/10" />
+                        {/* UPDATED: Uses the sanitized displayName */}
+                        <span className="text-[10px] font-bold text-white truncate">{domainInfo.displayName}</span>
+                        <ExternalLink size={10} className="text-slate-400 -ml-1" />
+                    </a>
+                ) : (
+                    <div /> /* Spacer if no link */
                 )}
+
                 <button 
                   onClick={toggleFav}
-                  className={`p-2 backdrop-blur rounded-full transition-colors ${isFavorite ? 'bg-red-500 text-white' : 'bg-slate-900/80 text-white hover:bg-slate-800'}`}
+                  className={`p-2 backdrop-blur rounded-full transition-colors ${isFavorite ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-black/60'}`}
                 >
-                  <Heart size={12} fill={isFavorite ? "currentColor" : "none"} />
+                  <Heart size={14} fill={isFavorite ? "currentColor" : "none"} />
                 </button>
-                
              </div>
              
-             {pin.location && (
-               <div className="inline-flex items-center gap-1 text-xs font-medium text-slate-300 mb-2">
-                 <MapPin size={12} className="text-teal-500" />
-                 <span className="truncate max-w-[150px]">{pin.location.name}</span>
-               </div>
-             )}
+             {/* Bottom Row: Tags */}
+             <div className="mt-auto pt-4">
+               {pin.tags && pin.tags.length > 0 ? (
+                   <div className="flex flex-wrap gap-1.5 overflow-hidden max-h-[3.6em] relative">
+                       {pin.tags.map(tag => (
+                           <span key={tag} className="text-[10px] font-medium text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded-full border-slate-700/50 truncate max-w-[100px]">
+                               #{tag}
+                           </span>
+                       ))}
+                   </div>
+               ) : (
+                   /* Fallback to Location if no tags */
+                   pin.location && (
+                       <div className="text-[10px] font-medium text-slate-300 flex items-center gap-1.5">
+                           <div className="w-1 h-1 rounded-full bg-teal-500"></div>
+                           <span className="truncate">{pin.location.name}</span>
+                       </div>
+                   )
+               )}
+             </div>
           </div>
         )}
       </div>
 
-      {/* Info */}
+      {/* Info Footer (Outside Image) */}
       <div className="mt-3 px-1">
         {shouldShowTitle && (
           <div className="flex justify-between items-start gap-2">

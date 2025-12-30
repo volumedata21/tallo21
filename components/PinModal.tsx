@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Pin, Board, Collection, LocationData } from '../types';
-import { X, MapPin, Layers, Trash2, Heart, ChevronLeft, ChevronRight, Calendar, Tag as TagIcon, Plus, Check, Image as ImageIcon, Link, ExternalLink, Share2, PanelRightClose, PanelRightOpen, ArrowLeft } from 'lucide-react';
+import { X, MapPin, Layers, Trash2, Heart, ChevronLeft, ChevronRight, Calendar, Tag as TagIcon, Plus, Check, Image as ImageIcon, Link as LinkIcon, ExternalLink, Share2, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { dataService } from '../services/dataService';
 
 // Tell TypeScript that Leaflet (L) exists on the window
@@ -34,6 +34,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   
   const [isAddingBoard, setIsAddingBoard] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
+  const [isCopying, setIsCopying] = useState(false);
   
   // Gallery Navigation State (Viewing)
   const [viewingUrl, setViewingUrl] = useState('');
@@ -82,7 +83,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
     if (!pin) return;
 
     if (isEditingLocation && mapContainer.current) {
-       // Destroy existing map if any
        if (mapInstance.current) {
          mapInstance.current.off();
          mapInstance.current.remove();
@@ -92,7 +92,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
        const lat = pin.location?.lat || 38.2527; 
        const lng = pin.location?.lng || -85.7585;
 
-       // Initialize Leaflet
        const map = L.map(mapContainer.current).setView([lat, lng], 13);
        mapInstance.current = map;
 
@@ -106,7 +105,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
          L.marker([pin.location.lat, pin.location.lng]).addTo(map);
        }
        
-       // Force resize to prevent grey box
        setTimeout(() => { map.invalidateSize(); }, 100);
     }
   }, [isEditingLocation, pin]);
@@ -119,12 +117,12 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   const hasPrev = currentIndex > 0;
 
   const handleNext = () => {
-    handleSave(false); // Save quietly (no refresh)
+    handleSave(false);
     if (hasNext) onNavigate(pinList[currentIndex + 1]);
   };
 
   const handlePrev = () => {
-    handleSave(false); // Save quietly (no refresh)
+    handleSave(false);
     if (hasPrev) onNavigate(pinList[currentIndex - 1]);
   };
 
@@ -162,7 +160,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
     touchStartRef.current = null;
   };
 
-  // FIXED: Added shouldRefresh param to prevent race conditions on close
   const handleSave = async (shouldRefresh = true) => {
      const sanitizedLink = dataService.sanitizeUrl(link);
      await dataService.updatePin(pin.id, { 
@@ -179,7 +176,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   };
   
   const handleClose = () => {
-      handleSave(false); // Save quietly (no refresh)
+      handleSave(false);
       onClose();
   };
 
@@ -195,11 +192,11 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   const handleShare = () => {
      const url = `${window.location.origin}?pinId=${pin.id}`;
      navigator.clipboard.writeText(url);
-     alert('Link copied to clipboard!');
+     setIsCopying(true);
+     setTimeout(() => setIsCopying(false), 2000);
   };
 
   const handleToggleFavorite = async () => {
-      // Optimistic update
       setIsFavorite(!isFavorite);
       await dataService.toggleFavorite(pin.id);
       onUpdate();
@@ -207,8 +204,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
 
   const handleSetAsCover = async () => {
       await handleSave(false);
-      // Need to implement this in dataService/server if you want it to persist purely
-      // For now we'll just update the imageUrl
       await dataService.updatePin(pin.id, { imageUrl: viewingUrl });
       onUpdate();
   };
@@ -267,7 +262,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       }
       setSelectedBoardIds(newBoardIds);
       await dataService.updatePin(pin.id, { boardIds: newBoardIds });
-      // Don't close adding board mode immediately so user can pick multiple
       onUpdate();
   };
 
@@ -298,13 +292,22 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
              onTouchStart={handleTouchStart}
              onTouchEnd={handleTouchEnd}
           >
-             {/* Top Actions */}
+             {/* TOP LEFT ACTIONS: Share & Like */}
              <div className="absolute top-4 left-4 z-20 flex gap-2 pointer-events-auto">
-                 <button onClick={handleClose} className="p-2 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors">
-                     <ArrowLeft size={20} />
+                 <button 
+                    onClick={handleShare} 
+                    className="p-2.5 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors relative"
+                    title="Share"
+                 >
+                     <Share2 size={20} />
+                     {isCopying && <span className="absolute top-full left-0 mt-2 text-[10px] bg-teal-500 text-white px-2 py-1 rounded whitespace-nowrap">Copied!</span>}
                  </button>
-                 <button onClick={handleDelete} className="p-2 bg-black/40 hover:bg-red-600/80 backdrop-blur rounded-full text-white transition-colors">
-                     <Trash2 size={20} />
+                 <button 
+                    onClick={handleToggleFavorite} 
+                    className={`p-2.5 backdrop-blur rounded-full transition-colors ${isFavorite ? 'bg-red-500/80 hover:bg-red-500 text-white' : 'bg-black/40 hover:bg-black/80 text-white'}`}
+                    title="Like"
+                 >
+                     <Heart size={20} fill={isFavorite ? "currentColor" : "none"} />
                  </button>
                  {viewingUrl !== pin.imageUrl && (
                       <button onClick={handleSetAsCover} className="px-4 py-2 bg-black/40 hover:bg-teal-600 backdrop-blur text-white text-xs font-bold rounded-full transition-colors flex items-center gap-2">
@@ -313,32 +316,30 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                   )}
              </div>
 
-             {/* Mobile Favorite Button */}
-             <button 
-                onClick={(e) => { e.stopPropagation(); handleToggleFavorite(); }}
-                className={`absolute top-4 right-4 z-20 p-2 backdrop-blur rounded-full transition-colors md:hidden ${isFavorite ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-black/60'}`}
-             >
-                <Heart size={20} fill={isFavorite ? "currentColor" : "none"} />
-             </button>
-
-             {/* Desktop Info Toggle */}
+             {/* Top Right: Expand/Collapse Info (Desktop Only) */}
              {!showInfo && (
                 <button onClick={() => setShowInfo(true)} className="absolute top-4 right-4 z-20 p-2 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors hidden md:block">
                    <PanelRightOpen size={20} />
                 </button>
              )}
+             
+             {/* Close Button on Mobile (Since panel might be collapsed) */}
+             <button onClick={handleClose} className="absolute top-4 right-4 z-20 p-2 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors md:hidden">
+                 <X size={20} />
+             </button>
 
              {/* Main Image View */}
              <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-[#050505]">
-                 <img src={viewingUrl} className="max-w-full max-h-full object-contain" alt={pin.title} />
+                 <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#1e293b 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
+                 <img src={viewingUrl} className="max-w-full max-h-full object-contain relative z-10" alt={pin.title} />
                  
                  {/* Image Nav Arrows (Desktop) */}
                  {galleryImages.length > 1 && (
                     <>
-                       <button onClick={handlePrevImage} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/70 text-white transition opacity-0 group-hover:opacity-100 hidden md:block">
+                       <button onClick={handlePrevImage} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/70 text-white transition opacity-0 group-hover:opacity-100 hidden md:block z-20">
                           <ChevronLeft size={24} />
                        </button>
-                       <button onClick={handleNextImage} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/70 text-white transition opacity-0 group-hover:opacity-100 hidden md:block">
+                       <button onClick={handleNextImage} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/70 text-white transition opacity-0 group-hover:opacity-100 hidden md:block z-20">
                           <ChevronRight size={24} />
                        </button>
                     </>
@@ -379,7 +380,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                     <div className="w-12 h-1.5 bg-slate-700 rounded-full" />
                 </div>
 
-                {/* Info Header */}
+                {/* Info Header (Top Right on Desktop) */}
                 <div className="flex justify-between items-start px-6 pt-2 md:pt-6 md:mb-2 shrink-0">
                     <div className="flex items-center gap-4">
                         <button onClick={() => setShowInfo(false)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-900 rounded-full hidden md:block" title="Hide Info">
@@ -395,15 +396,13 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                         </div>
                     )}
 
-                    <div className="flex gap-2">
-                        <button onClick={handleShare} className="p-3 bg-slate-900 rounded-full hover:bg-slate-800 text-white transition" title="Share">
-                            <Share2 size={20} />
-                        </button>
+                    {/* Desktop Close Button (Upper Right) */}
+                    <div className="hidden md:flex">
                         <button 
-                            onClick={handleToggleFavorite}
-                            className={`p-3 rounded-full transition-all ${isFavorite ? 'bg-red-500 text-white' : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'}`}
+                            onClick={handleClose}
+                            className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
                         >
-                            <Heart size={20} fill={isFavorite ? "currentColor" : "none"} />
+                            <X size={24} />
                         </button>
                     </div>
                 </div>
@@ -418,7 +417,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                             onChange={e => setTitle(e.target.value)}
                             onBlur={() => handleSave(true)}
                             placeholder="Add a title"
-                            className="w-full bg-transparent border-none text-2xl sm:text-3xl font-bold text-white placeholder-slate-600 focus:ring-0 px-0 mb-2"
+                            className="w-full bg-transparent border-none text-2xl sm:text-3xl font-bold text-white placeholder-slate-700 focus:ring-0 px-0 mb-1 tracking-tight"
                         />
                         <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                             <Calendar size={12} />
@@ -427,47 +426,47 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                     </div>
                     
                     {/* Link */}
-                    <div className="flex gap-2 items-center">
+                    <div className="flex gap-2 items-center group">
                         <div className="relative flex-1">
                             <input 
                                 value={link}
                                 onChange={e => setLink(e.target.value)}
                                 onBlur={() => handleSave(true)}
                                 placeholder="Add a website link"
-                                className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-2 text-sm text-white focus:border-teal-600 outline-none"
+                                className="w-full bg-transparent border-b border-slate-800 rounded-none pl-7 pr-3 py-2 text-sm text-white focus:border-teal-600 outline-none transition-colors"
                             />
-                            <Link className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                            <LinkIcon className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-teal-500 transition-colors" size={14} />
                         </div>
                         {link && (
                             <a href={dataService.sanitizeUrl(link)} target="_blank" rel="noopener noreferrer" className="p-2 bg-slate-900 hover:bg-teal-600 hover:text-white text-slate-400 rounded-lg transition-colors border border-slate-800 hover:border-teal-600">
-                                <ExternalLink size={18} />
+                                <ExternalLink size={16} />
                             </a>
                         )}
                     </div>
 
-                    <textarea value={description} onChange={e => setDescription(e.target.value)} onBlur={() => handleSave(true)} placeholder="Add a description" className="w-full bg-slate-900/50 hover:bg-slate-900 focus:bg-slate-900 border border-transparent focus:border-slate-800 rounded-xl p-3 text-slate-300 placeholder-slate-600 focus:ring-0 outline-none transition-all resize-none h-32" />
+                    <textarea value={description} onChange={e => setDescription(e.target.value)} onBlur={() => handleSave(true)} placeholder="Add a description" className="w-full bg-slate-900/30 hover:bg-slate-900 focus:bg-slate-900 border border-transparent focus:border-slate-800 rounded-xl p-4 text-slate-300 placeholder-slate-600 focus:ring-0 outline-none transition-all resize-none h-32 text-sm leading-relaxed" />
 
                     {/* Keywords */}
                     <div>
-                        <label className="flex items-center gap-2 text-sm font-semibold text-slate-400 mb-2">
-                            <TagIcon size={16} /> Keywords
+                        <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                            <TagIcon size={12} /> Keywords
                         </label>
                         <div className="flex flex-wrap gap-2 mb-2">
                             {tags.map(tag => (
-                                <span key={tag} className="flex items-center gap-1 text-sm font-medium text-teal-400 bg-teal-500/10 px-2 py-1 rounded-md border border-teal-500/20">
+                                <span key={tag} className="flex items-center gap-1 text-xs font-medium text-teal-400 bg-teal-500/10 px-2.5 py-1 rounded-md border border-teal-500/20">
                                     #{tag}
-                                    <button onClick={() => removeTag(tag)} className="hover:text-teal-200"><X size={12} /></button>
+                                    <button onClick={() => removeTag(tag)} className="hover:text-teal-200 ml-1"><X size={10} /></button>
                                 </span>
                             ))}
                         </div>
-                        <input value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleAddTag} placeholder="Add tags..." className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-600 outline-none" />
+                        <input value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleAddTag} placeholder="Add tags..." className="w-full bg-transparent border-b border-slate-800 px-0 py-2 text-sm text-white focus:border-teal-600 outline-none placeholder-slate-700" />
                     </div>
 
                     <div className="space-y-6 pt-6 border-t border-slate-800">
                         {/* Boards */}
                         <div>
-                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-400 mb-2">
-                            <Layers size={16} /> Saved to Boards
+                            <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                            <Layers size={12} /> Saved to Boards
                             </label>
                             
                             <div className="flex flex-wrap gap-2 mb-2">
@@ -475,14 +474,14 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                                     const board = boards.find(b => b.id === bid);
                                     if (!board) return null;
                                     return (
-                                        <span key={bid} className="flex items-center gap-1 text-sm bg-slate-900 text-slate-200 px-3 py-1.5 rounded-full border border-slate-800">
+                                        <span key={bid} className="flex items-center gap-1 text-xs bg-slate-900 text-slate-200 px-3 py-1.5 rounded-full border border-slate-800">
                                             {board.title}
-                                            <button onClick={() => toggleBoard(bid)} className="hover:text-white ml-1"><X size={14} /></button>
+                                            <button onClick={() => toggleBoard(bid)} className="hover:text-white ml-1"><X size={12} /></button>
                                         </span>
                                     );
                                 })}
-                                <button onClick={() => setIsAddingBoard(!isAddingBoard)} className="flex items-center gap-1 text-sm bg-slate-900 hover:bg-slate-800 text-teal-500 px-3 py-1.5 rounded-full border border-slate-800 dashed border-2">
-                                    <Plus size={14} /> Add
+                                <button onClick={() => setIsAddingBoard(!isAddingBoard)} className="flex items-center gap-1 text-xs bg-slate-900 hover:bg-slate-800 text-teal-500 px-3 py-1.5 rounded-full border border-slate-800 dashed border-2">
+                                    <Plus size={12} /> Add
                                 </button>
                             </div>
 
@@ -490,18 +489,18 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                                 <div className="bg-slate-900 border border-slate-800 rounded-lg max-h-40 overflow-y-auto p-1 shadow-xl">
                                     {collections.map(col => (
                                         <div key={col.id}>
-                                            <div className="px-3 py-1 text-xs font-bold text-slate-500 uppercase">{col.title}</div>
+                                            <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase">{col.title}</div>
                                             {boards.filter(b => b.collectionId === col.id).map(b => (
-                                                <button key={b.id} onClick={() => toggleBoard(b.id)} className={`w-full text-left px-4 py-2 text-sm rounded flex items-center justify-between ${selectedBoardIds.includes(b.id) ? 'bg-teal-500/20 text-teal-400' : 'text-slate-300 hover:bg-slate-800'}`}>
-                                                    {b.title} {selectedBoardIds.includes(b.id) && <Check size={14} />}
+                                                <button key={b.id} onClick={() => toggleBoard(b.id)} className={`w-full text-left px-4 py-2 text-xs rounded flex items-center justify-between ${selectedBoardIds.includes(b.id) ? 'bg-teal-500/20 text-teal-400' : 'text-slate-300 hover:bg-slate-800'}`}>
+                                                    {b.title} {selectedBoardIds.includes(b.id) && <Check size={12} />}
                                                 </button>
                                             ))}
                                         </div>
                                     ))}
-                                    <div className="px-3 py-1 text-xs font-bold text-slate-500 uppercase mt-1">New Boards</div>
+                                    <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase mt-1">New Boards</div>
                                     {boards.filter(b => !b.collectionId).map(b => (
-                                        <button key={b.id} onClick={() => toggleBoard(b.id)} className={`w-full text-left px-4 py-2 text-sm rounded flex items-center justify-between ${selectedBoardIds.includes(b.id) ? 'bg-teal-500/20 text-teal-400' : 'text-slate-300 hover:bg-slate-800'}`}>
-                                            {b.title} {selectedBoardIds.includes(b.id) && <Check size={14} />}
+                                        <button key={b.id} onClick={() => toggleBoard(b.id)} className={`w-full text-left px-4 py-2 text-xs rounded flex items-center justify-between ${selectedBoardIds.includes(b.id) ? 'bg-teal-500/20 text-teal-400' : 'text-slate-300 hover:bg-slate-800'}`}>
+                                            {b.title} {selectedBoardIds.includes(b.id) && <Check size={12} />}
                                         </button>
                                     ))}
                                 </div>
@@ -511,8 +510,8 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                         {/* Location */}
                         <div>
                             <div className="flex justify-between items-center mb-3">
-                                <label className="flex items-center gap-2 text-sm font-semibold text-slate-400"><MapPin size={16} /> Location</label>
-                                <button onClick={() => setIsEditingLocation(!isEditingLocation)} className="text-teal-500 text-xs font-bold uppercase hover:text-teal-400">{isEditingLocation ? 'Done' : 'Edit'}</button>
+                                <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest"><MapPin size={12} /> Location</label>
+                                <button onClick={() => setIsEditingLocation(!isEditingLocation)} className="text-teal-500 text-[10px] font-bold uppercase hover:text-teal-400 tracking-widest">{isEditingLocation ? 'Done' : 'Edit'}</button>
                             </div>
                             
                             {isEditingLocation ? (
@@ -535,13 +534,28 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                                     </div>
                                 </div>
                             ) : (
-                                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 text-slate-300 text-sm">
-                                    <div className="font-medium">{pin.location?.name || 'No location set'}</div>
-                                    {pin.location?.address && <div className="text-xs text-slate-500">{pin.location.address}</div>}
+                                <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-slate-300 text-sm flex items-center gap-3">
+                                    <div className="p-2 bg-slate-800 rounded-full text-slate-400">
+                                        <MapPin size={14} />
+                                    </div>
+                                    <div>
+                                        <div className="font-medium text-xs text-white">{pin.location?.name || 'No location set'}</div>
+                                        {pin.location?.address && <div className="text-[10px] text-slate-500 mt-0.5">{pin.location.address}</div>}
+                                    </div>
                                 </div>
                             )}
                         </div>
                     </div>
+                </div>
+
+                {/* Footer: Delete Button */}
+                <div className={`p-6 border-t border-slate-800 bg-[#000208] mt-auto ${!isDrawerOpen ? 'hidden md:block' : ''}`}>
+                    <button 
+                        onClick={handleDelete}
+                        className="w-full py-3 rounded-xl border border-slate-800 text-slate-500 hover:text-red-500 hover:border-red-500/30 hover:bg-red-500/5 transition-all flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-widest"
+                    >
+                        <Trash2 size={14} /> Delete Stem
+                    </button>
                 </div>
              </div>
        </div>
