@@ -1,0 +1,538 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Pin, Board, Collection, LocationData } from '../types';
+import { X, MapPin, Layers, Trash2, Search, Heart, ChevronLeft, ChevronRight, Calendar, Tag as TagIcon, Plus, Check, Image as ImageIcon, Link, ExternalLink, Share2, PanelRightClose, PanelRightOpen, ArrowLeft, ChevronUp, ChevronDown } from 'lucide-react';
+import { dataService } from '../services/dataService';
+
+interface PinModalProps {
+  pin: Pin | null;
+  onClose: () => void;
+  collections: Collection[];
+  boards: Board[];
+  onUpdate: () => void;
+  onDelete: (pin: Pin) => void;
+  pinList: Pin[];
+  onNavigate: (pin: Pin) => void;
+}
+
+export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, boards, onUpdate, onDelete, pinList, onNavigate }) => {
+  const [isEditingLocation, setIsEditingLocation] = useState(false);
+  const [showInfo, setShowInfo] = useState(true);
+  
+  // Mobile Drawer State
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  
+  // Editable Fields
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [selectedBoardIds, setSelectedBoardIds] = useState<string[]>([]);
+  const [link, setLink] = useState('');
+  
+  const [isAddingBoard, setIsAddingBoard] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(false);
+  
+  // Gallery Navigation State (Viewing)
+  const [viewingUrl, setViewingUrl] = useState('');
+  
+  // Location Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [locationResults, setLocationResults] = useState<LocationData[]>([]);
+
+  // Mobile Swipe Logic
+  const touchStartRef = useRef<number | null>(null);
+
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const mapInstance = useRef<any>(null);
+
+  useEffect(() => {
+    if (pin) {
+        setTitle(pin.title);
+        setDescription(pin.description);
+        setTags(pin.tags || []);
+        setSelectedBoardIds(pin.boardIds || []);
+        setLink(pin.link || '');
+        setIsEditingLocation(false);
+        setSearchQuery('');
+        setLocationResults([]);
+        setIsFavorite(pin.favorite);
+        setViewingUrl(pin.imageUrl);
+        setIsDrawerOpen(false); // Reset drawer on new pin
+    }
+  }, [pin]);
+
+  // Keyboard Navigation
+  useEffect(() => {
+    if (!pin) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'ArrowLeft') handlePrev();
+        if (e.key === 'ArrowRight') handleNext();
+        if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [pin, pinList]);
+
+  // Handle map
+  useEffect(() => {
+    if (!pin) return;
+
+    if (isEditingLocation && mapContainer.current) {
+       if (mapInstance.current) {
+         mapInstance.current.remove();
+         mapInstance.current = null;
+       }
+
+       const lat = pin.location?.lat || 38.2527; 
+       const lng = pin.location?.lng || -85.7585;
+
+       const map = L.map(mapContainer.current).setView([lat, lng], 13);
+       mapInstance.current = map;
+
+       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+         attribution: '&copy; CARTO'
+       }).addTo(map);
+       
+       if (pin.location) {
+         L.marker([pin.location.lat, pin.location.lng]).addTo(map);
+       }
+    }
+
+    return () => {
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
+      }
+    };
+  }, [isEditingLocation, pin]);
+
+  if (!pin) return null;
+
+  // Pin List Navigation
+  const currentIndex = pinList.findIndex(p => p.id === pin.id);
+  const hasNext = currentIndex < pinList.length - 1;
+  const hasPrev = currentIndex > 0;
+
+  const handleNext = () => {
+    handleSave(); 
+    if (hasNext) onNavigate(pinList[currentIndex + 1]);
+  };
+
+  const handlePrev = () => {
+    handleSave();
+    if (hasPrev) onNavigate(pinList[currentIndex - 1]);
+  };
+
+  // Internal Gallery Cycling
+  const getAllImages = () => [pin.imageUrl, ...(pin.gallery || [])];
+  const galleryImages = getAllImages();
+  
+  const handleNextImage = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const images = getAllImages();
+      const idx = images.indexOf(viewingUrl);
+      const nextIdx = (idx + 1) % images.length;
+      setViewingUrl(images[nextIdx]);
+  };
+
+  const handlePrevImage = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const images = getAllImages();
+      const idx = images.indexOf(viewingUrl);
+      const prevIdx = (idx - 1 + images.length) % images.length;
+      setViewingUrl(images[prevIdx]);
+  };
+
+  // Swipe Handlers
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartRef.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartRef.current === null) return;
+    const touchEnd = e.changedTouches[0].clientX;
+    const diff = touchStartRef.current - touchEnd;
+    if (diff > 50) handleNext();
+    else if (diff < -50) handlePrev();
+    touchStartRef.current = null;
+  };
+
+  const handleSave = () => {
+     const sanitizedLink = dataService.sanitizeUrl(link);
+     dataService.updatePin(pin.id, { 
+         title, 
+         description, 
+         tags, 
+         boardIds: selectedBoardIds, 
+         link: sanitizedLink 
+     });
+     onUpdate();
+  };
+  
+  const handleClose = () => {
+      handleSave();
+      onClose();
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onDelete(pin);
+  };
+
+  const handleShare = () => {
+     const url = `${window.location.origin}?pinId=${pin.id}`;
+     navigator.clipboard.writeText(url);
+     alert('Link copied to clipboard!');
+  };
+
+  const handleToggleFavorite = () => {
+      const newVal = dataService.toggleFavorite(pin.id);
+      setIsFavorite(!!newVal);
+      onUpdate();
+  };
+
+  const handleSetAsCover = () => {
+      handleSave();
+      dataService.swapHeroImage(pin.id, viewingUrl);
+      onUpdate();
+  };
+
+  const handleLocationSearch = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!searchQuery.trim()) return;
+      setIsSearching(true);
+      const results = await dataService.searchLocation(searchQuery);
+      setIsSearching(false);
+      setLocationResults(results);
+  };
+
+  const selectLocation = (loc: LocationData) => {
+      dataService.updatePin(pin.id, { location: loc });
+      if (mapInstance.current) {
+          mapInstance.current.setView([loc.lat, loc.lng], 13);
+          mapInstance.current.eachLayer((layer: any) => {
+              if (layer instanceof L.Marker) mapInstance.current.removeLayer(layer);
+          });
+          L.marker([loc.lat, loc.lng]).addTo(mapInstance.current);
+      }
+      onUpdate();
+      setLocationResults([]);
+      setSearchQuery('');
+  };
+  
+  const handleAddTag = (e: React.KeyboardEvent) => {
+    if ((e.key === 'Enter' || e.key === ',') && tagInput.trim()) {
+      e.preventDefault();
+      const newTag = tagInput.trim().toLowerCase();
+      if (!tags.includes(newTag)) {
+          const newTags = [...tags, newTag];
+          setTags(newTags);
+          dataService.updatePin(pin.id, { tags: newTags });
+      }
+      setTagInput('');
+      onUpdate();
+    }
+  };
+
+  const removeTag = (tag: string) => {
+      const newTags = tags.filter(t => t !== tag);
+      setTags(newTags);
+      dataService.updatePin(pin.id, { tags: newTags });
+      onUpdate();
+  };
+  
+  const toggleBoard = (boardId: string) => {
+      let newBoardIds;
+      if (selectedBoardIds.includes(boardId)) {
+          newBoardIds = selectedBoardIds.filter(id => id !== boardId);
+      } else {
+          newBoardIds = [...selectedBoardIds, boardId];
+      }
+      setSelectedBoardIds(newBoardIds);
+      dataService.updatePin(pin.id, { boardIds: newBoardIds });
+      setIsAddingBoard(false);
+      onUpdate();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 sm:bg-slate-950/95 sm:backdrop-blur-md sm:p-8" onClick={handleClose}>
+       
+       {/* Pin List Navigation Buttons (Desktop) */}
+       {hasPrev && (
+           <button onClick={(e) => { e.stopPropagation(); handlePrev(); }} className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-slate-800/50 hover:bg-slate-700 text-white transition hidden md:flex z-50">
+               <ChevronLeft size={32} />
+           </button>
+       )}
+       {hasNext && (
+           <button onClick={(e) => { e.stopPropagation(); handleNext(); }} className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-slate-800/50 hover:bg-slate-700 text-white transition hidden md:flex z-50">
+               <ChevronRight size={32} />
+           </button>
+       )}
+
+       {/* Main Container */}
+       <div 
+          className="bg-[#000208] w-full h-full sm:max-w-6xl sm:h-[90vh] sm:rounded-3xl overflow-hidden flex flex-col md:flex-row shadow-2xl ring-1 ring-white/10 relative transition-all duration-300" 
+          onClick={e => e.stopPropagation()}
+       >
+          
+          {/* LEFT: Image Section */}
+          <div 
+             className={`${showInfo ? 'md:w-3/5' : 'md:w-full'} w-full h-full md:h-auto bg-black flex flex-col relative group transition-all duration-300`}
+             onTouchStart={handleTouchStart}
+             onTouchEnd={handleTouchEnd}
+          >
+             {/* Back / Close Actions */}
+             <div className="absolute top-4 left-4 z-20 flex gap-2 pointer-events-auto">
+                 <button onClick={handleClose} className="p-2 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors">
+                     <ArrowLeft size={20} />
+                 </button>
+                 <button onClick={handleDelete} className="p-2 bg-black/40 hover:bg-red-600/80 backdrop-blur rounded-full text-white transition-colors">
+                     <Trash2 size={20} />
+                 </button>
+                 {viewingUrl !== pin.imageUrl && (
+                      <button onClick={handleSetAsCover} className="px-4 py-2 bg-black/40 hover:bg-teal-600 backdrop-blur text-white text-xs font-bold rounded-full transition-colors flex items-center gap-2">
+                        <ImageIcon size={14} /> Cover
+                      </button>
+                  )}
+             </div>
+
+             {/* Mobile Favorite Button */}
+             <button 
+                onClick={(e) => { e.stopPropagation(); handleToggleFavorite(); }}
+                className={`absolute top-4 right-4 z-20 p-2 backdrop-blur rounded-full transition-colors md:hidden ${isFavorite ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-black/60'}`}
+             >
+                <Heart size={20} fill={isFavorite ? "currentColor" : "none"} />
+             </button>
+
+             {/* Desktop Info Toggle */}
+             {!showInfo && (
+                <button onClick={() => setShowInfo(true)} className="absolute top-4 right-4 z-20 p-2 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors hidden md:block">
+                   <PanelRightOpen size={20} />
+                </button>
+             )}
+
+             {/* Main Image View */}
+             <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-[#050505]">
+                 <img src={viewingUrl} className="max-w-full max-h-full object-contain" alt={pin.title} />
+                 
+                 {/* Image Nav Arrows (Desktop Hover) */}
+                 {galleryImages.length > 1 && (
+                    <>
+                       <button onClick={handlePrevImage} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/70 text-white transition opacity-0 group-hover:opacity-100 hidden md:block">
+                          <ChevronLeft size={24} />
+                       </button>
+                       <button onClick={handleNextImage} className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/70 text-white transition opacity-0 group-hover:opacity-100 hidden md:block">
+                          <ChevronRight size={24} />
+                       </button>
+                    </>
+                 )}
+             </div>
+
+             {/* Gallery Strip (Desktop) - Hidden on mobile if drawer is closed to save space, or maybe just always hidden on mobile to rely on swipes? Let's keep it but make it small on mobile */}
+             {galleryImages.length > 1 && (
+                <div className={`h-20 md:h-24 bg-[#050505] border-t border-slate-800 flex items-center gap-2 px-4 overflow-x-auto custom-scrollbar shrink-0 transition-all ${isDrawerOpen ? 'hidden md:flex' : 'flex'}`}>
+                    {galleryImages.map((url, idx) => (
+                        <button 
+                           key={idx}
+                           onClick={() => setViewingUrl(url)}
+                           className={`h-12 w-12 md:h-16 md:w-16 rounded-lg overflow-hidden border-2 shrink-0 transition-all ${viewingUrl === url ? 'border-teal-500 opacity-100' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                        >
+                            <img src={url} className="w-full h-full object-cover" />
+                        </button>
+                    ))}
+                </div>
+             )}
+          </div>
+
+          {/* RIGHT / BOTTOM: Info Panel (Drawer on Mobile) */}
+          <div 
+             className={`
+                bg-[#000208] border-l border-slate-800 transition-all duration-300 flex flex-col
+                
+                /* Mobile Drawer Styles */
+                fixed bottom-0 left-0 right-0 z-30 rounded-t-3xl shadow-[0_-10px_50px_rgba(0,0,0,0.8)]
+                ${isDrawerOpen ? 'h-[85vh]' : 'h-24'}
+                
+                /* Desktop Styles */
+                md:relative md:rounded-none md:shadow-none md:h-auto md:w-2/5 md:flex
+                ${showInfo ? 'md:w-2/5' : 'md:w-0 md:border-none md:overflow-hidden'}
+             `}
+          >
+                {/* Mobile Handle */}
+                <div 
+                   className="md:hidden w-full h-8 flex justify-center items-center cursor-pointer active:bg-slate-900 rounded-t-3xl shrink-0"
+                   onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+                >
+                    <div className="w-12 h-1.5 bg-slate-700 rounded-full" />
+                </div>
+
+                {/* Info Header */}
+                <div className="flex justify-between items-start px-6 pt-2 md:pt-6 md:mb-2 shrink-0">
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => setShowInfo(false)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-900 rounded-full hidden md:block" title="Hide Info">
+                            <PanelRightClose size={20} />
+                        </button>
+                    </div>
+                    
+                    {/* Collapsed State Info (Mobile Only) */}
+                    {!isDrawerOpen && (
+                        <div className="md:hidden flex-1 px-4 truncate" onClick={() => setIsDrawerOpen(true)}>
+                            <div className="font-bold text-white truncate">{pin.title || 'Untitled'}</div>
+                            <div className="text-xs text-slate-500">Tap for details</div>
+                        </div>
+                    )}
+
+                    <div className="flex gap-2">
+                        <button onClick={handleShare} className="p-3 bg-slate-900 rounded-full hover:bg-slate-800 text-white transition" title="Share">
+                            <Share2 size={20} />
+                        </button>
+                        <button 
+                            onClick={handleToggleFavorite}
+                            className={`p-3 rounded-full transition-all ${isFavorite ? 'bg-red-500 text-white' : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'}`}
+                        >
+                            <Heart size={20} fill={isFavorite ? "currentColor" : "none"} />
+                        </button>
+                    </div>
+                </div>
+
+                {/* Scrollable Content */}
+                <div className={`flex-1 overflow-y-auto px-6 pb-6 space-y-6 ${!isDrawerOpen ? 'hidden md:block' : ''}`}>
+                    {/* Title & Date */}
+                    <div>
+                        <input 
+                            value={title}
+                            onChange={e => setTitle(e.target.value)}
+                            onBlur={handleSave}
+                            placeholder="Add a title"
+                            className="w-full bg-transparent border-none text-2xl sm:text-3xl font-bold text-white placeholder-slate-600 focus:ring-0 px-0 mb-2"
+                        />
+                        <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                            <Calendar size={12} />
+                            <span>Added {new Date(pin.createdAt).toLocaleDateString()}</span>
+                        </div>
+                    </div>
+                    
+                    {/* Link */}
+                    <div className="flex gap-2 items-center">
+                        <div className="relative flex-1">
+                            <input 
+                                value={link}
+                                onChange={e => setLink(e.target.value)}
+                                onBlur={handleSave}
+                                placeholder="Add a website link"
+                                className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-3 py-2 text-sm text-white focus:border-teal-600 outline-none"
+                            />
+                            <Link className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                        </div>
+                        {link && (
+                            <a href={dataService.sanitizeUrl(link)} target="_blank" rel="noopener noreferrer" className="p-2 bg-slate-900 hover:bg-teal-600 hover:text-white text-slate-400 rounded-lg transition-colors border border-slate-800 hover:border-teal-600">
+                                <ExternalLink size={18} />
+                            </a>
+                        )}
+                    </div>
+
+                    <textarea value={description} onChange={e => setDescription(e.target.value)} onBlur={handleSave} placeholder="Add a description" className="w-full bg-slate-900/50 hover:bg-slate-900 focus:bg-slate-900 border border-transparent focus:border-slate-800 rounded-xl p-3 text-slate-300 placeholder-slate-600 focus:ring-0 outline-none transition-all resize-none h-32" />
+
+                    {/* Keywords */}
+                    <div>
+                        <label className="flex items-center gap-2 text-sm font-semibold text-slate-400 mb-2">
+                            <TagIcon size={16} /> Keywords
+                        </label>
+                        <div className="flex flex-wrap gap-2 mb-2">
+                            {tags.map(tag => (
+                                <span key={tag} className="flex items-center gap-1 text-sm font-medium text-teal-400 bg-teal-500/10 px-2 py-1 rounded-md border border-teal-500/20">
+                                    #{tag}
+                                    <button onClick={() => removeTag(tag)} className="hover:text-teal-200"><X size={12} /></button>
+                                </span>
+                            ))}
+                        </div>
+                        <input value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleAddTag} placeholder="Add tags..." className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-600 outline-none" />
+                    </div>
+
+                    <div className="space-y-6 pt-6 border-t border-slate-800">
+                        {/* Boards */}
+                        <div>
+                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-400 mb-2">
+                            <Layers size={16} /> Saved to Boards
+                            </label>
+                            
+                            <div className="flex flex-wrap gap-2 mb-2">
+                                {selectedBoardIds.map(bid => {
+                                    const board = boards.find(b => b.id === bid);
+                                    if (!board) return null;
+                                    return (
+                                        <span key={bid} className="flex items-center gap-1 text-sm bg-slate-900 text-slate-200 px-3 py-1.5 rounded-full border border-slate-800">
+                                            {board.title}
+                                            <button onClick={() => toggleBoard(bid)} className="hover:text-white ml-1"><X size={14} /></button>
+                                        </span>
+                                    );
+                                })}
+                                <button onClick={() => setIsAddingBoard(!isAddingBoard)} className="flex items-center gap-1 text-sm bg-slate-900 hover:bg-slate-800 text-teal-500 px-3 py-1.5 rounded-full border border-slate-800 dashed border-2">
+                                    <Plus size={14} /> Add
+                                </button>
+                            </div>
+
+                            {isAddingBoard && (
+                                <div className="bg-slate-900 border border-slate-800 rounded-lg max-h-40 overflow-y-auto p-1 shadow-xl">
+                                    {collections.map(col => (
+                                        <div key={col.id}>
+                                            <div className="px-3 py-1 text-xs font-bold text-slate-500 uppercase">{col.title}</div>
+                                            {boards.filter(b => b.collectionId === col.id).map(b => (
+                                                <button key={b.id} onClick={() => toggleBoard(b.id)} className={`w-full text-left px-4 py-2 text-sm rounded flex items-center justify-between ${selectedBoardIds.includes(b.id) ? 'bg-teal-500/20 text-teal-400' : 'text-slate-300 hover:bg-slate-800'}`}>
+                                                    {b.title} {selectedBoardIds.includes(b.id) && <Check size={14} />}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ))}
+                                    <div className="px-3 py-1 text-xs font-bold text-slate-500 uppercase mt-1">New Boards</div>
+                                    {boards.filter(b => !b.collectionId).map(b => (
+                                        <button key={b.id} onClick={() => toggleBoard(b.id)} className={`w-full text-left px-4 py-2 text-sm rounded flex items-center justify-between ${selectedBoardIds.includes(b.id) ? 'bg-teal-500/20 text-teal-400' : 'text-slate-300 hover:bg-slate-800'}`}>
+                                            {b.title} {selectedBoardIds.includes(b.id) && <Check size={14} />}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Location */}
+                        <div>
+                            <div className="flex justify-between items-center mb-3">
+                                <label className="flex items-center gap-2 text-sm font-semibold text-slate-400"><MapPin size={16} /> Location</label>
+                                <button onClick={() => setIsEditingLocation(!isEditingLocation)} className="text-teal-500 text-xs font-bold uppercase hover:text-teal-400">{isEditingLocation ? 'Done' : 'Edit'}</button>
+                            </div>
+                            
+                            {isEditingLocation ? (
+                                <div className="space-y-3 relative">
+                                    <form onSubmit={handleLocationSearch} className="flex gap-2">
+                                        <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search place..." className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-teal-600" />
+                                        <button type="submit" disabled={isSearching} className="bg-teal-600 text-white px-3 py-2 rounded-lg font-bold text-xs">{isSearching ? '...' : 'Find'}</button>
+                                    </form>
+                                    {locationResults.length > 0 && (
+                                        <div className="absolute z-20 w-full bg-slate-900 border border-slate-800 rounded-lg shadow-xl max-h-40 overflow-y-auto top-10">
+                                            {locationResults.map((loc, i) => (
+                                                <button key={i} onClick={() => selectLocation(loc)} className="w-full text-left px-3 py-2 hover:bg-slate-800 border-b border-slate-800/50 flex flex-col">
+                                                    <span className="text-sm font-medium text-white">{loc.name}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <div className="w-full h-48 rounded-xl bg-slate-900 z-10 overflow-hidden relative border border-slate-800">
+                                        <div ref={mapContainer} className="w-full h-full" />
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-800 text-slate-300 text-sm">
+                                    <div className="font-medium">{pin.location?.name || 'No location set'}</div>
+                                    {pin.location?.address && <div className="text-xs text-slate-500">{pin.location.address}</div>}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+             </div>
+       </div>
+    </div>
+  );
+};
