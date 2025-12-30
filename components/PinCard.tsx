@@ -117,7 +117,7 @@ export const PinCard: React.FC<PinCardProps> = ({
 
         {/* Gallery Indicator */}
         {pin.gallery && pin.gallery.length > 0 && (
-           <div className="absolute top-3 left-3 px-2 py-1 bg-black/60 backdrop-blur rounded-md flex items-center gap-1.5 z-10">
+           <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/60 backdrop-blur rounded-md flex items-center gap-1.5 z-10">
               <Copy size={12} className="text-white" />
               <span className="text-[10px] font-bold text-white">+{pin.gallery.length}</span>
            </div>
