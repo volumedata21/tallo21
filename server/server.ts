@@ -54,7 +54,6 @@ const ensureDefaultUser = async () => {
         console.error("Failed to check/create default user:", err);
     }
 };
-// Run this check immediately
 ensureDefaultUser();
 
 
@@ -62,9 +61,7 @@ ensureDefaultUser();
 
 app.get('/', (req, res) => res.send('Tallo API Running'));
 
-// --- USERS (Fixed) ---
-
-// 1. Get All Users (Fixes the 404)
+// --- USERS ---
 app.get('/api/users', async (req, res) => {
     try {
         const rows = await all("SELECT * FROM users");
@@ -74,13 +71,9 @@ app.get('/api/users', async (req, res) => {
     }
 });
 
-// 2. Get Current User (With Fallback)
 app.get('/api/users/current', async (req, res) => {
   let user = await get("SELECT * FROM users LIMIT 1");
-  // If for some reason ensureDefaultUser failed, return a fallback object so the app doesn't crash
-  if (!user) {
-      user = { id: 'u1', username: 'Fallback Admin', isAdmin: true };
-  }
+  if (!user) user = { id: 'u1', username: 'Fallback Admin', isAdmin: true };
   res.json(user);
 });
 
@@ -156,12 +149,121 @@ app.delete('/api/pins/:id', async (req, res) => {
   await run("DELETE FROM pins WHERE id = ?", [req.params.id]);
   res.json({ success: true });
 });
+
+// --- BULK ACTIONS ---
+
+// 1. Bulk Delete
 app.post('/api/pins/bulk-delete', async (req, res) => {
   const { ids } = req.body;
   const placeholders = ids.map(() => '?').join(',');
   await run(`DELETE FROM pins WHERE id IN (${placeholders})`, ids);
   res.json({ success: true });
 });
+
+// 2. Bulk Update (General)
+app.post('/api/pins/bulk-update', async (req, res) => {
+  const { ids, updates } = req.body;
+  if (!ids || !ids.length) return res.json({ success: false });
+
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  Object.keys(updates).forEach(key => {
+      let val = updates[key];
+      if (['location', 'tags', 'boardIds', 'gallery'].includes(key)) val = JSON.stringify(val);
+      fields.push(`${key} = ?`);
+      values.push(val);
+  });
+
+  if (fields.length === 0) return res.json({ success: true });
+
+  values.push(...ids);
+  
+  const placeholders = ids.map(() => '?').join(',');
+  await run(`UPDATE pins SET ${fields.join(', ')} WHERE id IN (${placeholders})`, values);
+  
+  res.json({ success: true });
+});
+
+// 3. Bulk Add Tags
+app.post('/api/pins/bulk-tags', async (req, res) => {
+  const { ids, tags } = req.body;
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await all(`SELECT id, tags FROM pins WHERE id IN (${placeholders})`, ids);
+
+  for (const row of rows) {
+      const currentTags: string[] = JSON.parse(row.tags || '[]');
+      const newSet = new Set([...currentTags, ...tags]);
+      const updatedTags = JSON.stringify(Array.from(newSet));
+      await run("UPDATE pins SET tags = ? WHERE id = ?", [updatedTags, row.id]);
+  }
+  res.json({ success: true });
+});
+
+// 4. Bulk Add to Board
+app.post('/api/pins/bulk-boards', async (req, res) => {
+  const { ids, boardId } = req.body;
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await all(`SELECT id, boardIds FROM pins WHERE id IN (${placeholders})`, ids);
+
+  for (const row of rows) {
+      const currentBoards: string[] = JSON.parse(row.boardIds || '[]');
+      if (!currentBoards.includes(boardId)) {
+          currentBoards.push(boardId);
+          await run("UPDATE pins SET boardIds = ? WHERE id = ?", [JSON.stringify(currentBoards), row.id]);
+      }
+  }
+  res.json({ success: true });
+});
+
+// 5. MERGE PINS (Group into one)
+app.post('/api/pins/merge', async (req, res) => {
+  const { ids } = req.body;
+  if (!ids || ids.length < 2) return res.status(400).json({ error: "Need at least 2 pins" });
+
+  const placeholders = ids.map(() => '?').join(',');
+  const pins = await all(`SELECT * FROM pins WHERE id IN (${placeholders})`, ids);
+
+  if (pins.length < 2) return res.status(400).json({ error: "Pins not found" });
+
+  // Use the first pin in the list as the "Hero" / Target
+  // In a real app, you might sort by creation date or let the user choose
+  const targetId = ids[0];
+  const targetPin = pins.find(p => p.id === targetId);
+  const sourcePins = pins.filter(p => p.id !== targetId);
+
+  if (!targetPin) return res.status(404).json({ error: "Target pin not found" });
+
+  // 1. Gather existing gallery
+  let targetGallery: string[] = [];
+  try { targetGallery = JSON.parse(targetPin.gallery || '[]'); } catch (e) {}
+
+  // 2. Collect images from source pins
+  const sourceImages: string[] = [];
+  sourcePins.forEach(p => {
+      sourceImages.push(p.imageUrl);
+      try {
+          const g = JSON.parse(p.gallery || '[]');
+          sourceImages.push(...g);
+      } catch (e) {}
+  });
+
+  // 3. Merge and deduplicate
+  const newGallery = Array.from(new Set([...targetGallery, ...sourceImages]));
+
+  // 4. Update Target
+  await run("UPDATE pins SET gallery = ? WHERE id = ?", [JSON.stringify(newGallery), targetId]);
+
+  // 5. Delete Sources
+  const sourceIds = sourcePins.map(p => p.id);
+  if (sourceIds.length > 0) {
+      const delPlaceholders = sourceIds.map(() => '?').join(',');
+      await run(`DELETE FROM pins WHERE id IN (${delPlaceholders})`, sourceIds);
+  }
+
+  res.json({ success: true, mergedPinId: targetId });
+});
+
 
 // --- ROBUST WEB SCRAPER ---
 app.post('/api/scrape', async (req, res) => {
