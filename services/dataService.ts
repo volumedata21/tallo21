@@ -172,18 +172,32 @@ export const dataService = {
     return false;
   },
   
+  // --- IMPROVED LOCATION SEARCH ---
   searchLocation: async (query: string): Promise<LocationData[]> => {
       try {
         if (!query.trim()) return [];
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+        // Increased limit to 10 and requested detailed address components
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&addressdetails=1`);
         if (!response.ok) throw new Error('Geocoding failed');
         const data = await response.json();
-        return data.map((item: any) => ({
-          lat: parseFloat(item.lat),
-          lng: parseFloat(item.lon),
-          name: item.display_name.split(',')[0],
-          address: item.display_name
-        }));
+        
+        return data.map((item: any) => {
+            // Prefer the explicit name from OSM, fallback to the first part of the display name
+            const name = item.name || item.display_name.split(',')[0];
+            
+            // Clean up the address string to avoid repeating the name
+            let address = item.display_name;
+            if (address.startsWith(name + ', ')) {
+                address = address.substring(name.length + 2);
+            }
+
+            return {
+              lat: parseFloat(item.lat),
+              lng: parseFloat(item.lon),
+              name: name,
+              address: address
+            };
+        });
       } catch (e) { return []; }
   },
   
@@ -223,8 +237,7 @@ export const dataService = {
     });
   },
   
-  // --- BULK ACTION IMPLEMENTATIONS ---
-  
+  // --- BULK ACTIONS ---
   bulkUpdatePins: async (ids: string[], updates: Partial<Pin>) => {
     await fetch(`${API_URL}/pins/bulk-update`, {
         method: 'POST',

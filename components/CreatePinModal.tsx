@@ -1,13 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-// Changed LayoutGrid to Grid to be safe with older Lucide versions
-import { X, Layers, MapPin, Loader, Search, Check, Link as LinkIcon, ArrowRight, Image as ImageIcon, Grid, Type, Plus, Trash2 } from 'lucide-react';
+import { X, Layers, MapPin, Loader, Search, Check, Link as LinkIcon, ArrowRight, Image as ImageIcon, Grid, Type, Plus, Trash2, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Collection, Board, LocationData } from '../types';
 import { dataService } from '../services/dataService';
 
 interface CreatePinModalProps {
   isOpen: boolean;
   onClose: () => void;
-  // Initialize with defaults in case parent passes undefined
   collections?: Collection[];
   boards?: Board[];
   onCreated: () => void;
@@ -29,8 +27,8 @@ interface DraftPin {
 export const CreatePinModal: React.FC<CreatePinModalProps> = ({ 
   isOpen, 
   onClose, 
-  collections = [], // Default to empty array to prevent crash
-  boards = [],      // Default to empty array to prevent crash
+  collections = [], 
+  boards = [],
   onCreated, 
   userId 
 }) => {
@@ -92,7 +90,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   // --- LOGIC ---
 
   const getDefaultBoardId = () => {
-    // Safety check for boards
     if (!boards || boards.length === 0) return '';
     const moodboard = boards.find(b => b.title === 'Moodboard') || boards.find(b => !b.collectionId) || boards[0];
     return moodboard ? moodboard.id : '';
@@ -134,7 +131,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                       id: Math.random().toString(36) + Date.now(),
                       file, 
                       previewUrl: e.target?.result as string,
-                      title: file.name.split('.')[0], 
+                      title: '', 
                       description: '',
                       boardIds: defaultBoardId ? [defaultBoardId] : [], 
                       tags: [],
@@ -149,15 +146,12 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       
       setDrafts(prev => {
           const combined = [...prev, ...newDrafts];
-          // If no draft is selected, select the first new one
           if (!selectedDraftId && combined.length > 0) {
-             // We do this in a useEffect or callback usually, but setting state here is fine for this flow
              setSelectedDraftId(combined[0].id);
           }
           return combined;
       });
       
-      // Force selection if it was null (double safety)
       if (!selectedDraftId && newDrafts.length > 0) {
           setSelectedDraftId(newDrafts[0].id);
       }
@@ -242,14 +236,12 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     }));
   };
 
-  const removeDraft = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const removeDraft = (id: string) => {
     setDrafts(prev => {
       const remaining = prev.filter(d => d.id !== id);
-      if (selectedDraftId === id && remaining.length > 0) {
-        setSelectedDraftId(remaining[0].id);
-      } else if (remaining.length === 0) {
-        setSelectedDraftId(null);
+      if (selectedDraftId === id) {
+          if (remaining.length > 0) setSelectedDraftId(remaining[0].id);
+          else setSelectedDraftId(null);
       }
       return remaining;
     });
@@ -331,23 +323,17 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     setDrafts([]);
   };
 
-  // --- UI COMPONENTS ---
-
   const ToggleSwitch = () => (
     <div className="bg-[#05080F] p-1 rounded-lg border border-gray-800 flex w-48 mb-6 mx-auto">
         <button 
             onClick={() => setActiveTab('upload')}
-            className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-bold transition-all ${
-                activeTab === 'upload' ? 'bg-[#1F2937] text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'
-            }`}
+            className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === 'upload' ? 'bg-[#1F2937] text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
         >
             Upload
         </button>
         <button 
             onClick={() => setActiveTab('url')}
-            className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-bold transition-all ${
-                activeTab === 'url' ? 'bg-[#1F2937] text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'
-            }`}
+            className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-bold transition-all ${activeTab === 'url' ? 'bg-[#1F2937] text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
         >
             URL
         </button>
@@ -357,7 +343,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm sm:p-6" onClick={onClose}>
       <div 
-        className="bg-[#0B1120] w-full max-w-3xl h-[600px] rounded-2xl border border-gray-800 shadow-2xl flex flex-col overflow-hidden transition-all" 
+        className="bg-[#0B1120] w-full max-w-5xl h-[700px] rounded-2xl border border-gray-800 shadow-2xl flex flex-col overflow-hidden transition-all" 
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -376,143 +362,143 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
            </button>
         </div>
 
-        <div className="flex flex-1 flex-col md:flex-row overflow-hidden">
+        <div className="flex flex-1 overflow-hidden">
             
-            {/* --- SIDEBAR (Drafts List) --- */}
-            {drafts.length > 0 && (
-              <div className="hidden md:flex w-20 lg:w-48 border-r border-gray-800 bg-[#05080F] flex-col shrink-0">
-                  <div className="p-4 border-b border-gray-800 flex justify-center lg:justify-start">
-                     <button onClick={() => { setActiveTab('upload'); setSelectedDraftId(null); }} className="w-8 h-8 lg:w-full lg:h-auto rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center gap-2 transition-colors">
-                        <Plus size={18} /> <span className="hidden lg:inline text-xs font-bold">New</span>
-                     </button>
-                  </div>
-
-                  <div className="p-3 overflow-y-auto flex-1 space-y-2 custom-scrollbar">
-                      {drafts.map(draft => (
-                          <div 
-                            key={draft.id} 
-                            onClick={() => setSelectedDraftId(draft.id)}
-                            className={`relative group rounded-lg overflow-hidden cursor-pointer border transition-all duration-200 ${selectedDraftId === draft.id ? 'border-emerald-500 bg-emerald-500/5' : 'border-transparent hover:bg-[#131B2C]'}`}
-                          >
-                            <div className="flex items-center gap-3 p-2">
-                                <div className="w-10 h-10 rounded bg-gray-800 shrink-0 overflow-hidden">
-                                    <img src={draft.previewUrl} className="w-full h-full object-cover" />
-                                </div>
-                                <div className="hidden lg:block overflow-hidden">
-                                    <div className="text-xs font-bold text-white truncate">{draft.title || 'Untitled'}</div>
-                                    <div className="text-[10px] text-gray-500 truncate">
-                                        {(draft.boardIds && draft.boardIds.length > 0) ? 'Board set' : 'No board'}
-                                    </div>
-                                </div>
-                            </div>
-                            <button onClick={(e) => removeDraft(draft.id, e)} className="absolute top-1.5 right-1.5 p-1 bg-black/60 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all">
-                              <X size={10} />
-                            </button>
-                          </div>
-                      ))}
-                  </div>
-              </div>
-            )}
-
+            {/* Input to trigger file dialog from thumbnails */}
             <input type="file" multiple accept="image/*,video/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
 
-            {/* --- MAIN CONTENT --- */}
-            <div className="flex-1 bg-[#0B1120] overflow-y-auto relative custom-scrollbar flex flex-col">
+            {/* --- MAIN CONTENT AREA --- */}
+            <div className="flex-1 bg-[#0B1120] overflow-hidden flex flex-col w-full h-full">
                
-               {/* VIEW 1: URL IMPORT */}
-               {activeTab === 'url' && (drafts.length === 0 || selectedDraftId === null) ? (
-                   <div className="flex-1 flex flex-col items-center justify-center p-8">
+               {/* EMPTY STATE / URL IMPORT (Center View) */}
+               {drafts.length === 0 ? (
+                   <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#0B1120]">
                        <div className="max-w-md w-full">
-                           {!drafts.length && <ToggleSwitch />}
+                           <ToggleSwitch />
                            
-                           <div className="text-center mb-6">
-                               <div className="w-12 h-12 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3 border border-emerald-500/20">
-                                  <LinkIcon size={24} />
-                               </div>
-                               <h3 className="text-lg font-bold text-white">Import from URL</h3>
-                           </div>
-
-                           <form onSubmit={handleUrlScrape} className="relative mb-6">
-                               <input 
-                                   autoFocus
-                                   value={urlInput}
-                                   onChange={e => setUrlInput(e.target.value)}
-                                   placeholder="Paste link here..."
-                                   className="w-full bg-[#131B2C] border border-gray-700 rounded-xl pl-4 pr-12 py-3 text-white focus:border-emerald-500 outline-none text-sm placeholder-gray-600 transition-all"
-                               />
-                               <button type="submit" disabled={isScraping || !urlInput.trim()} className="absolute right-2 top-2 bottom-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition flex items-center justify-center">
-                                   {isScraping ? <Loader className="animate-spin" size={16} /> : <ArrowRight size={18} />}
-                               </button>
-                           </form>
-
-                           {scrapeError && <div className="text-red-400 text-xs text-center bg-red-500/10 p-2 rounded-lg border border-red-500/20">{scrapeError}</div>}
-
-                           {scrapedImages.length > 0 && (
-                               <div className="space-y-4">
-                                   <div className="grid grid-cols-4 gap-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                                       {scrapedImages.map((img, i) => (
-                                           <div key={i} onClick={() => toggleScrapedImage(img)} className={`aspect-square rounded-lg overflow-hidden cursor-pointer border-2 relative group transition-all ${selectedScrapedImages.includes(img) ? 'border-emerald-500' : 'border-transparent hover:border-gray-700'}`}>
-                                               <img src={img} className="w-full h-full object-cover" />
-                                               {selectedScrapedImages.includes(img) && <div className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center"><div className="bg-emerald-500 text-white rounded-full p-0.5"><Check size={12} /></div></div>}
-                                           </div>
-                                       ))}
+                           {activeTab === 'url' ? (
+                               <>
+                                   <div className="text-center mb-6">
+                                       <div className="w-12 h-12 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3 border border-emerald-500/20">
+                                          <LinkIcon size={24} />
+                                       </div>
+                                       <h3 className="text-lg font-bold text-white">Import from URL</h3>
                                    </div>
-                                   <button onClick={addScrapedImagesToDrafts} disabled={selectedScrapedImages.length === 0} className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-sm transition-all disabled:opacity-50">
-                                       Add {selectedScrapedImages.length} Images
-                                   </button>
+
+                                   <form onSubmit={handleUrlScrape} className="relative mb-6">
+                                       <input 
+                                           autoFocus
+                                           value={urlInput}
+                                           onChange={e => setUrlInput(e.target.value)}
+                                           placeholder="Paste link here..."
+                                           className="w-full bg-[#131B2C] border border-gray-700 rounded-xl pl-4 pr-12 py-3 text-white focus:border-emerald-500 outline-none text-sm placeholder-gray-600 transition-all"
+                                       />
+                                       <button type="submit" disabled={isScraping || !urlInput.trim()} className="absolute right-2 top-2 bottom-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition flex items-center justify-center">
+                                           {isScraping ? <Loader className="animate-spin" size={16} /> : <ArrowRight size={18} />}
+                                       </button>
+                                   </form>
+
+                                   {scrapeError && <div className="text-red-400 text-xs text-center bg-red-500/10 p-2 rounded-lg border border-red-500/20">{scrapeError}</div>}
+
+                                   {scrapedImages.length > 0 && (
+                                       <div className="space-y-4">
+                                           <div className="grid grid-cols-4 gap-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                                               {scrapedImages.map((img, i) => (
+                                                   <div key={i} onClick={() => toggleScrapedImage(img)} className={`aspect-square rounded-lg overflow-hidden cursor-pointer border-2 relative group transition-all ${selectedScrapedImages.includes(img) ? 'border-emerald-500' : 'border-transparent hover:border-gray-700'}`}>
+                                                       <img src={img} className="w-full h-full object-cover" />
+                                                       {selectedScrapedImages.includes(img) && <div className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center"><div className="bg-emerald-500 text-white rounded-full p-0.5"><Check size={12} /></div></div>}
+                                                   </div>
+                                               ))}
+                                           </div>
+                                           <button onClick={addScrapedImagesToDrafts} disabled={selectedScrapedImages.length === 0} className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-sm transition-all disabled:opacity-50">
+                                               Add {selectedScrapedImages.length} Images
+                                           </button>
+                                       </div>
+                                   )}
+                               </>
+                           ) : (
+                               <div 
+                                 className={`flex flex-col items-center justify-center w-full max-w-lg h-64 rounded-xl border-2 border-dashed transition-all cursor-pointer bg-[#0F1522]
+                                   ${dragActive ? 'border-emerald-500 bg-emerald-500/5' : 'border-gray-800 hover:bg-[#131B2C] hover:border-gray-700'}
+                                 `}
+                                 onDragEnter={handleDrag}
+                                 onDragLeave={handleDrag}
+                                 onDragOver={handleDrag}
+                                 onDrop={handleDrop}
+                                 onClick={() => fileInputRef.current?.click()}
+                               >
+                                   <div className="w-14 h-14 bg-[#1A202C] rounded-full flex items-center justify-center mb-4 text-gray-400">
+                                       <ImageIcon size={28} />
+                                   </div>
+                                   <h3 className="text-lg font-bold text-gray-200 mb-1">Drop files to upload</h3>
+                                   <p className="text-gray-500 text-xs">or click to browse</p>
                                </div>
                            )}
                        </div>
                    </div>
 
-               // VIEW 2: EMPTY STATE (UPLOAD)
-               ) : (drafts.length === 0 || (activeTab === 'upload' && selectedDraftId === null)) ? (
-                   <div className="flex-1 flex flex-col items-center justify-center p-8">
-                       <ToggleSwitch />
-                       
-                       <div 
-                         className={`flex flex-col items-center justify-center w-full max-w-lg h-64 rounded-xl border-2 border-dashed transition-all cursor-pointer bg-[#0F1522]
-                           ${dragActive ? 'border-emerald-500 bg-emerald-500/5' : 'border-gray-800 hover:bg-[#131B2C] hover:border-gray-700'}
-                         `}
-                         onDragEnter={handleDrag}
-                         onDragLeave={handleDrag}
-                         onDragOver={handleDrag}
-                         onDrop={handleDrop}
-                         onClick={() => fileInputRef.current?.click()}
-                       >
-                           <div className="w-14 h-14 bg-[#1A202C] rounded-full flex items-center justify-center mb-4 text-gray-400">
-                               <ImageIcon size={28} />
-                           </div>
-                           <h3 className="text-lg font-bold text-gray-200 mb-1">Drop files to upload</h3>
-                           <p className="text-gray-500 text-xs">or click to browse</p>
-                       </div>
-                   </div>
-
-               // VIEW 3: EDIT DRAFT (REVISED - 2 Columns)
+               // EDIT VIEW (2 COLUMNS)
                ) : currentDraft ? (
-                   <div className="flex flex-col md:flex-row h-full">
+                   <div className="flex flex-col md:flex-row h-full overflow-hidden">
                        
-                       {/* Left Panel: Preview (40%) */}
-                       <div className="w-full md:w-[40%] bg-[#05080F]/50 flex items-center justify-center p-8 relative shrink-0 border-r border-gray-800">
-                           <img src={currentDraft.previewUrl} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl border border-gray-800" />
+                       {/* LEFT COLUMN: PREVIEW + THUMBNAILS (45%) */}
+                       <div className="w-full md:w-[45%] bg-[#05080F] flex flex-col border-r border-gray-800 shrink-0">
                            
-                           {/* Floating Action: Apply to all */}
-                           {drafts.length > 1 && (
-                               <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur border border-gray-700 rounded-full pl-3 pr-1 py-1 flex items-center gap-2 shadow-xl z-10">
-                                   <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Sync</span>
+                           {/* Main Image Preview */}
+                           <div className="flex-1 flex items-center justify-center p-8 relative overflow-hidden bg-black/50">
+                               <img src={currentDraft.previewUrl} className="max-w-full max-h-full object-contain rounded shadow-2xl" />
+                               
+                               {/* Delete Button */}
+                               <button 
+                                  onClick={() => removeDraft(currentDraft.id)}
+                                  className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-red-500 text-white rounded-full transition-all backdrop-blur"
+                                  title="Remove Draft"
+                               >
+                                   <Trash2 size={16} />
+                               </button>
+
+                               {/* Sync Button */}
+                               {drafts.length > 1 && (
+                                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur border border-gray-700 rounded-full pl-3 pr-1 py-1 flex items-center gap-2 shadow-xl z-10">
+                                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Sync Info</span>
+                                       <button 
+                                          onClick={() => setSyncChanges(!syncChanges)}
+                                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors ${syncChanges ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-400'}`}
+                                       >
+                                           {syncChanges ? 'ON' : 'OFF'}
+                                       </button>
+                                   </div>
+                               )}
+                           </div>
+
+                           {/* Thumbnail Strip */}
+                           {drafts.length > 0 && (
+                               <div className="h-24 bg-[#020408] border-t border-gray-800 flex items-center gap-3 px-4 overflow-x-auto custom-scrollbar shrink-0">
+                                   {drafts.map(draft => (
+                                       <div 
+                                          key={draft.id} 
+                                          onClick={() => setSelectedDraftId(draft.id)}
+                                          className={`h-16 w-16 rounded-lg overflow-hidden cursor-pointer border-2 shrink-0 transition-all relative ${selectedDraftId === draft.id ? 'border-emerald-500 opacity-100' : 'border-transparent opacity-50 hover:opacity-100'}`}
+                                       >
+                                           <img src={draft.previewUrl} className="w-full h-full object-cover" />
+                                       </div>
+                                   ))}
+                                   
+                                   {/* Add Button in Strip */}
                                    <button 
-                                      onClick={() => setSyncChanges(!syncChanges)}
-                                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors ${syncChanges ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-400'}`}
+                                      onClick={() => fileInputRef.current?.click()}
+                                      className="h-16 w-16 rounded-lg border-2 border-dashed border-gray-700 hover:border-gray-500 hover:bg-gray-900 flex items-center justify-center text-gray-500 hover:text-white transition-all shrink-0"
+                                      title="Add More"
                                    >
-                                       {syncChanges ? 'ON' : 'OFF'}
+                                       <Plus size={24} />
                                    </button>
                                </div>
                            )}
                        </div>
 
-                       {/* Right Panel: Form Fields (60%) */}
-                       <div className="w-full md:w-[60%] flex flex-col h-full bg-[#0B1120]">
-                           <div className="flex-1 overflow-y-auto p-8 custom-scrollbar space-y-6">
+                       {/* RIGHT COLUMN: FORM (55%) */}
+                       <div className="flex-1 bg-[#0B1120] overflow-y-auto custom-scrollbar flex flex-col">
+                           <div className="p-8 space-y-6">
                                
                                {/* 1. Board Selection */}
                                <div>
@@ -550,9 +536,19 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
                                {/* 2. Title */}
                                <div className="space-y-1">
-                                   <label className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">
-                                       <Type size={12} /> Title
-                                   </label>
+                                   <div className="flex justify-between items-center">
+                                       <label className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">
+                                           <Type size={12} /> Title
+                                       </label>
+                                       {currentDraft.file && (
+                                           <button 
+                                               onClick={() => updateDraft({ title: currentDraft.file?.name.split('.')[0] })}
+                                               className="flex items-center gap-1 text-[10px] font-bold text-emerald-500 hover:text-emerald-400 transition-colors uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded-full"
+                                           >
+                                               <FileText size={10} /> Use Filename
+                                           </button>
+                                       )}
+                                   </div>
                                    <input 
                                        value={currentDraft.title} 
                                        onChange={e => updateDraft({ title: e.target.value })} 
@@ -602,6 +598,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                                     {locationResults.map((loc, i) => (
                                                         <button key={i} onClick={() => selectLocation(loc)} className="w-full text-left px-4 py-3 hover:bg-gray-700 border-b border-gray-700/50 text-xs text-gray-300 last:border-0">
                                                             {loc.name}
+                                                            {loc.address && <span className="block text-[10px] text-gray-500 truncate">{loc.address}</span>}
                                                         </button>
                                                     ))}
                                                 </div>
