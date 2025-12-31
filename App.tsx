@@ -56,7 +56,7 @@ function App() {
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sortRef = useRef<HTMLDivElement>(null);
 
-  // --- NEW: BACK BUTTON HANDLER ---
+  // --- BACK BUTTON HANDLER ---
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
         // If any modal is open, the back button should close it
@@ -110,7 +110,9 @@ function App() {
     initUser();
   }, []);
 
-  const refreshData = async () => {
+  // --- UPDATED REFRESH DATA ---
+  // Added preserveModal param to prevent accidental re-opening during undo
+  const refreshData = async (preserveModal = true) => {
     if (!currentUser) return;
     try {
         const [usersData, collectionsData, boardsData, tagsData, allTagsData] = await Promise.all([
@@ -138,7 +140,8 @@ function App() {
         const pinsData = await dataService.getPins(filterConfig, effectiveSort, searchQuery, currentUser.id); 
         setPins(pinsData);
 
-        if (selectedPin) {
+        // Only update selected pin if preserveModal is true
+        if (preserveModal && selectedPin) {
             const updatedPin = (await dataService.getAllPins()).find(p => p.id === selectedPin.id);
             if (updatedPin) setSelectedPin(updatedPin);
         }
@@ -161,13 +164,28 @@ function App() {
       toastTimeoutRef.current = setTimeout(() => setToast(null), 5000);
   };
 
+  // --- UPDATED DELETE HANDLER ---
   const handlePinDelete = async (pin: Pin) => {
+      // 1. Optimistic Update: Remove from UI immediately
+      setPins(current => current.filter(p => p.id !== pin.id));
+      
+      // 2. Perform Soft Delete on Server
       await dataService.deletePin(pin.id);
+      
+      // 3. Close Modal (if open)
       if (selectedPin && selectedPin.id === pin.id) {
-          closeModal(); // Use helper
+          closeModal();
       }
-      await refreshData();
-      showToast('Stem deleted', () => { console.log("Restore not implemented"); });
+
+      // 4. Show Toast with Undo
+      showToast('Stem moved to trash', async () => {
+          // A. Restore data
+          await dataService.restorePin(pin);
+          
+          // B. Refresh grid BUT tell it NOT to check for selectedPin
+          // This prevents the modal from popping back open due to stale state
+          await refreshData(false); 
+      });
   };
 
   const handleBulkDelete = async (ids: string[]) => {
@@ -479,7 +497,7 @@ function App() {
       {selectedPinIds.length > 0 && (
            <BulkActionBar 
               selectedIds={selectedPinIds}
-              pins={pins}
+              pins={pins} // <--- ADD THIS PROP
               onClear={() => {
                   setSelectedPinIds([]);
                   setLastSelectedId(null);

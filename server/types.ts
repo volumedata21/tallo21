@@ -23,6 +23,7 @@ export interface Pin {
   ownerId: string;
   createdAt: number;
   favorite: boolean;
+  deletedAt?: number;
 }
 
 export interface Board {
