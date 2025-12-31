@@ -313,7 +313,14 @@ export const dataService = {
     });
   },
 
-  restorePin: async (pin: Pin) => {}, 
+  restorePin: async (pin: Pin) => {
+      await fetch(`${API_URL}/pins/restore`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ id: pin.id })
+      });
+  },
+
   restorePins: async (pins: Pin[]) => {}, 
   
   swapHeroImage: async (id: string, url: string) => { 
