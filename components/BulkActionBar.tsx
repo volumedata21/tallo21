@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 // Changed imports: Added 'Folder', removed 'Copy' (unless you want to keep it available)
-import { X, Layers, Tag, MapPin, Link as LinkIcon, Check, Trash2, Minus, Plus, Search, Folder, Copy } from 'lucide-react';
+import { X, Layers, Layers2, Tag, MapPin, Link as LinkIcon, Check, Trash2, Minus, Plus, Search, Folder, Copy } from 'lucide-react';
 import { Collection, Board, LocationData, Pin } from '../types';
 import { dataService } from '../services/dataService';
 
@@ -247,7 +247,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
                title="Group Together (Merge)"
             >
                {/* UPDATED ICON: Layers */}
-               <Layers size={18} />
+               <Layers2 size={18} />
             </button>
 
             <button 
