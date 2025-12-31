@@ -101,11 +101,36 @@ app.post('/api/boards', async (req, res) => {
   await run("INSERT INTO boards (id, title, collectionId, ownerId) VALUES (?, ?, ?, ?)", [id, title, collectionId, ownerId]);
   res.json(await get("SELECT * FROM boards WHERE id = ?", [id]));
 });
+
 app.put('/api/boards/:id', async (req, res) => {
-    const { collectionId } = req.body;
-    await run("UPDATE boards SET collectionId = ? WHERE id = ?", [collectionId, req.params.id]);
+    const { title, collectionId } = req.body;
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (title !== undefined) {
+        updates.push("title = ?");
+        values.push(title);
+    }
+    if (collectionId !== undefined) {
+        updates.push("collectionId = ?");
+        values.push(collectionId);
+    }
+
+    if (updates.length > 0) {
+        values.push(req.params.id);
+        await run(`UPDATE boards SET ${updates.join(', ')} WHERE id = ?`, values);
+    }
+    
     res.json({ success: true });
 });
+
+// Add this NEW route for collections
+app.put('/api/collections/:id', async (req, res) => {
+    const { title } = req.body;
+    await run("UPDATE collections SET title = ? WHERE id = ?", [title, req.params.id]);
+    res.json({ success: true });
+});
+
 app.delete('/api/boards/:id', async (req, res) => {
   await run("DELETE FROM boards WHERE id = ?", [req.params.id]);
   res.json({ success: true });
