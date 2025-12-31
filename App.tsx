@@ -56,6 +56,24 @@ function App() {
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sortRef = useRef<HTMLDivElement>(null);
 
+  // --- NEW: BACK BUTTON HANDLER ---
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+        // If any modal is open, the back button should close it
+        if (selectedPin) setSelectedPin(null);
+        if (isCreateOpen) setIsCreateOpen(false);
+        if (isAdminOpen) setIsAdminOpen(false);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [selectedPin, isCreateOpen, isAdminOpen]);
+
+  // Helper to close modal via history (keeps history clean)
+  const closeModal = () => {
+      window.history.back();
+  };
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (sortRef.current && !sortRef.current.contains(event.target as Node)) {
@@ -117,7 +135,6 @@ function App() {
         
         const effectiveSort = isShuffle ? 'random' : sortBy;
         
-        // --- FIX: Removed duplicate declaration and kept the correct one with currentUser.id ---
         const pinsData = await dataService.getPins(filterConfig, effectiveSort, searchQuery, currentUser.id); 
         setPins(pinsData);
 
@@ -146,7 +163,9 @@ function App() {
 
   const handlePinDelete = async (pin: Pin) => {
       await dataService.deletePin(pin.id);
-      if (selectedPin && selectedPin.id === pin.id) setSelectedPin(null);
+      if (selectedPin && selectedPin.id === pin.id) {
+          closeModal(); // Use helper
+      }
       await refreshData();
       showToast('Stem deleted', () => { console.log("Restore not implemented"); });
   };
@@ -194,6 +213,8 @@ function App() {
           if (!isSelectionMode) setIsSelectionMode(true);
           toggleSelection(pin.id, e);
       } else {
+          // --- NEW: Push state when opening pin ---
+          window.history.pushState({ modal: 'pin' }, '');
           setSelectedPin(pin);
       }
   };
@@ -217,11 +238,10 @@ function App() {
       </button>
   );
 
-  // --- IMPROVED: SMART MASONRY LAYOUT ---
+  // --- SMART MASONRY LAYOUT ---
   const getMasonryColumns = () => {
       const isMobile = windowWidth < 768;
       
-      // Calculate available content width based on sidebar state
       let sidebarWidth = 0;
       if (!isMobile) {
           sidebarWidth = isSidebarOpen ? 256 : 80; 
@@ -230,15 +250,13 @@ function App() {
       const availableWidth = windowWidth - sidebarWidth;
 
       let colCount = 2; 
-      if (availableWidth >= 1600) colCount = 5; // Added extra wide column
+      if (availableWidth >= 1600) colCount = 5;
       else if (availableWidth >= 1100) colCount = 4;
       else if (availableWidth >= 800) colCount = 3; 
 
-      // Initialize columns and height tracker
       const columns: Pin[][] = Array.from({ length: colCount }, () => []);
       const colHeights = new Array(colCount).fill(0);
 
-      // Distribute pins to the shortest column
       pins.forEach((pin) => {
           let minHeight = colHeights[0];
           let minColIndex = 0;
@@ -251,7 +269,6 @@ function App() {
           }
 
           columns[minColIndex].push(pin);
-          // Estimate height: (1 / aspect ratio) + text padding factor
           const estimatedHeight = (1 / (pin.aspectRatio || 1)) + 0.2; 
           colHeights[minColIndex] += estimatedHeight;
       });
@@ -301,7 +318,11 @@ function App() {
          onUpdate={refreshData}
          onCloseMobile={() => setIsSidebarOpen(false)}
          onOpenSettings={() => setShowSettings(!showSettings)}
-         onOpenAdmin={() => setIsAdminOpen(true)}
+         onOpenAdmin={() => {
+             // --- NEW: Push state when opening admin ---
+             window.history.pushState({ modal: 'admin' }, '');
+             setIsAdminOpen(true);
+         }}
          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
       />
 
@@ -313,7 +334,11 @@ function App() {
             viewMode={viewMode}
             onToggleView={setViewMode}
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-            onCreatePin={() => setIsCreateOpen(true)}
+            onCreatePin={() => {
+                // --- NEW: Push state when opening create ---
+                window.history.pushState({ modal: 'create' }, '');
+                setIsCreateOpen(true);
+            }}
             onLogoClick={resetFilters}
             searchQuery={searchQuery}
             onSearchChange={setSearchQuery}
@@ -360,7 +385,10 @@ function App() {
             {/* Content Body */}
             {viewMode === 'map' ? (
                <div className="w-full h-[calc(100vh-80px)] relative z-0">
-                  <MapView pins={pins} onPinClick={setSelectedPin} />
+                  <MapView pins={pins} onPinClick={(pin) => {
+                      window.history.pushState({ modal: 'pin' }, '');
+                      setSelectedPin(pin);
+                  }} />
                </div>
             ) : (
                <div className="px-4 py-6 sm:px-6 lg:px-8">
@@ -422,7 +450,7 @@ function App() {
                         </div>
                         <h3 className="text-xl font-bold text-slate-300 mb-2">No Stems Found</h3>
                         <p className="mb-6">{searchQuery ? `No results for "${searchQuery}"` : 'Upload an image to get started.'}</p>
-                        <button onClick={() => setIsCreateOpen(true)} className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full font-medium transition">Add Stem</button>
+                        <button onClick={() => { window.history.pushState({ modal: 'create' }, ''); setIsCreateOpen(true); }} className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full font-medium transition">Add Stem</button>
                     </div>
                   ) : (
                     <div className="flex gap-4 justify-center mx-auto max-w-[2400px]">
@@ -454,7 +482,7 @@ function App() {
               onClear={() => {
                   setSelectedPinIds([]);
                   setLastSelectedId(null);
-                  setIsSelectionMode(false); // <--- ADDED THIS LINE
+                  setIsSelectionMode(false); 
               }}
               onUpdate={refreshData}
               collections={collections}
@@ -463,14 +491,19 @@ function App() {
            />
       )}
 
-      <AdminPanel isOpen={isAdminOpen} onClose={() => setIsAdminOpen(false)} users={users} onUpdate={refreshData} />
+      {/* MODALS
+          Updated to use closeModal() instead of setting state directly.
+          This calls window.history.back(), triggering popstate, which closes the modal.
+      */}
+      <AdminPanel isOpen={isAdminOpen} onClose={closeModal} users={users} onUpdate={refreshData} />
       <PinModal 
-         pin={selectedPin} onClose={() => setSelectedPin(null)} 
+         pin={selectedPin} onClose={closeModal}
          collections={collections} boards={boards} 
          onUpdate={refreshData} onDelete={handlePinDelete} 
          pinList={pins} onNavigate={setSelectedPin}
       />
-      <CreatePinModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} collections={collections} boards={boards} onCreated={refreshData} userId={currentUser ? currentUser.id : ''} />
+      <CreatePinModal isOpen={isCreateOpen} onClose={closeModal} collections={collections} boards={boards} onCreated={refreshData} userId={currentUser ? currentUser.id : ''} />
+      
       {toast && (
           <div className="fixed bottom-8 right-8 z-[70] bg-slate-800 border border-slate-700 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-4">
               <span className="font-medium text-sm">{toast.message}</span>
