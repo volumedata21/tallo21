@@ -116,7 +116,9 @@ function App() {
         if (activeFilter.type === 'tag') filterConfig.tag = activeFilter.id;
         
         const effectiveSort = isShuffle ? 'random' : sortBy;
-        const pinsData = await dataService.getPins(filterConfig, effectiveSort, searchQuery);
+        
+        // --- FIX: Removed duplicate declaration and kept the correct one with currentUser.id ---
+        const pinsData = await dataService.getPins(filterConfig, effectiveSort, searchQuery, currentUser.id); 
         setPins(pinsData);
 
         if (selectedPin) {
@@ -215,24 +217,45 @@ function App() {
       </button>
   );
 
-  // --- DYNAMIC COLUMN CALCULATION ---
+  // --- IMPROVED: SMART MASONRY LAYOUT ---
   const getMasonryColumns = () => {
       const isMobile = windowWidth < 768;
       
       // Calculate available content width based on sidebar state
       let sidebarWidth = 0;
       if (!isMobile) {
-          sidebarWidth = isSidebarOpen ? 256 : 80; // 256px (w-64) or 80px (w-20)
+          sidebarWidth = isSidebarOpen ? 256 : 80; 
       }
       
       const availableWidth = windowWidth - sidebarWidth;
 
       let colCount = 2; 
-      if (availableWidth >= 1100) colCount = 4;
+      if (availableWidth >= 1600) colCount = 5; // Added extra wide column
+      else if (availableWidth >= 1100) colCount = 4;
       else if (availableWidth >= 800) colCount = 3; 
 
+      // Initialize columns and height tracker
       const columns: Pin[][] = Array.from({ length: colCount }, () => []);
-      pins.forEach((pin, i) => columns[i % colCount].push(pin));
+      const colHeights = new Array(colCount).fill(0);
+
+      // Distribute pins to the shortest column
+      pins.forEach((pin) => {
+          let minHeight = colHeights[0];
+          let minColIndex = 0;
+
+          for (let i = 1; i < colCount; i++) {
+              if (colHeights[i] < minHeight) {
+                  minHeight = colHeights[i];
+                  minColIndex = i;
+              }
+          }
+
+          columns[minColIndex].push(pin);
+          // Estimate height: (1 / aspect ratio) + text padding factor
+          const estimatedHeight = (1 / (pin.aspectRatio || 1)) + 0.2; 
+          colHeights[minColIndex] += estimatedHeight;
+      });
+
       return columns;
   };
   
