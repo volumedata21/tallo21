@@ -65,6 +65,62 @@ const ensureDefaultData = async () => {
 };
 ensureDefaultData();
 
+const runMigrations = async () => {
+    try {
+        // 1. Ensure the tracker table exists
+        await run(`
+            CREATE TABLE IF NOT EXISTS migrations (
+                id INTEGER PRIMARY KEY, 
+                name TEXT NOT NULL, 
+                appliedAt INTEGER NOT NULL
+            )
+        `);
+
+        // 2. Define your migrations here
+        // (Add new ones to the bottom of this list in the future)
+        const migrationList = [
+            {
+                id: 1,
+                name: 'add_deleted_at_to_pins',
+                sql: "ALTER TABLE pins ADD COLUMN deletedAt INTEGER DEFAULT NULL"
+            },
+            // Future example:
+            // { id: 2, name: 'add_user_bio', sql: "ALTER TABLE users ADD COLUMN bio TEXT" }
+        ];
+
+        // 3. Run pending migrations
+        for (const m of migrationList) {
+            const exists = await get("SELECT * FROM migrations WHERE id = ?", [m.id]);
+            
+            if (!exists) {
+                console.log(`Applying migration ${m.id}: ${m.name}...`);
+                try {
+                    await run(m.sql);
+                    await run("INSERT INTO migrations (id, name, appliedAt) VALUES (?, ?, ?)", [m.id, m.name, Date.now()]);
+                    console.log(`✅ Migration ${m.id} success.`);
+                } catch (err: any) {
+                    // SQLite throws error if column exists; safe to ignore for idempotent operations
+                    if (err.message.includes('duplicate column')) {
+                        console.log(`⚠️ Migration ${m.id} skipped (column exists). Marking as done.`);
+                        await run("INSERT INTO migrations (id, name, appliedAt) VALUES (?, ?, ?)", [m.id, m.name, Date.now()]);
+                    } else {
+                        console.error(`❌ Migration ${m.id} failed:`, err);
+                        // Optional: process.exit(1) if you want to crash on fail
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Migration system error:", e);
+    }
+};
+
+// Run migrations BEFORE ensuring default data
+// (Because ensureDefaultData might depend on new columns)
+runMigrations().then(() => {
+    ensureDefaultData();
+});
+
 
 // --- Routes ---
 
@@ -132,9 +188,34 @@ app.put('/api/boards/:id', async (req, res) => {
     }
     res.json({ success: true });
 });
-app.delete('/api/boards/:id', async (req, res) => {
-  if (req.params.id === NEW_STEMS_ID) return res.status(403).json({ error: "Cannot delete permanent board" });
-  await run("DELETE FROM boards WHERE id = ?", [req.params.id]);
+app.delete('/api/pins/:id', async (req, res) => {
+  // Don't actually delete, just mark it with a timestamp
+  await run("UPDATE pins SET deletedAt = ? WHERE id = ?", [Date.now(), req.params.id]);
+  res.json({ success: true });
+});
+
+// --- ADD NEW RESTORE ROUTE ---
+app.post('/api/pins/restore', async (req, res) => {
+  const { id } = req.body;
+  await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [id]);
+  res.json({ success: true });
+});
+
+// --- MODIFY GET ROUTE TO HIDE TRASH ---
+app.get('/api/pins', async (req, res) => {
+  // Only fetch pins that haven't been deleted
+  const rows = await all("SELECT * FROM pins WHERE deletedAt IS NULL");
+  const pins = rows.map(parsePin);
+  res.json(pins);
+});
+
+// --- MODIFY BULK DELETE TO SOFT DELETE ---
+app.post('/api/pins/bulk-delete', async (req, res) => {
+  const { ids } = req.body;
+  const placeholders = ids.map(() => '?').join(',');
+  // Update all selected pins to have a deletedAt timestamp
+  const params = [Date.now(), ...ids]; 
+  await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${placeholders})`, params);
   res.json({ success: true });
 });
 

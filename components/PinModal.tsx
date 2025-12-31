@@ -140,13 +140,11 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   
   const handleClose = () => { handleSave(false); onClose(); };
 
+  // --- CHANGED: Removed confirm() ---
   const handleDelete = (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      if (confirm("Are you sure you want to delete this stem?")) {
-        onDelete(pin);
-        onClose();
-      }
+      onDelete(pin);
   };
 
   const handleUngroup = async () => {
@@ -204,10 +202,8 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       setSearchQuery('');
   };
 
-  // --- FIX: Use null instead of undefined ---
   const handleClearLocation = async () => {
       if(confirm("Remove location from this stem?")) {
-          // Sending 'null' ensures the key is included in the JSON payload sent to the server.
           await dataService.updatePin(pin.id, { location: null as any });
           
           if (mapInstance.current) {
