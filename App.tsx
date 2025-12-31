@@ -479,6 +479,7 @@ function App() {
       {selectedPinIds.length > 0 && (
            <BulkActionBar 
               selectedIds={selectedPinIds}
+              pins={pins}
               onClear={() => {
                   setSelectedPinIds([]);
                   setLastSelectedId(null);
