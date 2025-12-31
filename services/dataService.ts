@@ -64,7 +64,8 @@ export const dataService = {
   },
 
   // --- PINS ---
-  getPins: async (filter?: { collectionId?: string; boardId?: string; tag?: string; favorites?: boolean }, sort: SortOption = 'newest', searchQuery?: string): Promise<Pin[]> => {
+  getPins: async (filter?: { collectionId?: string; boardId?: string; tag?: string; favorites?: boolean }, sort: SortOption = 'newest', searchQuery?: string, userId?: string): Promise<Pin[]> => {
+    
     const res = await fetch(`${API_URL}/pins`);
     let pins: Pin[] = await res.json();
 
@@ -72,8 +73,10 @@ export const dataService = {
       pins = pins.filter(p => p.favorite);
     } else if (filter?.boardId) {
       pins = pins.filter(p => p.boardIds.includes(filter.boardId!));
-    } else if (filter?.collectionId) {
-       const boards = await dataService.getBoards('u1'); 
+    
+    } else if (filter?.collectionId && userId) { 
+       const boards = await dataService.getBoards(userId); 
+       
        const colBoardIds = boards.filter(b => b.collectionId === filter.collectionId).map(b => b.id);
        pins = pins.filter(p => p.boardIds.some(bid => colBoardIds.includes(bid)));
     } else if (filter?.tag) {
