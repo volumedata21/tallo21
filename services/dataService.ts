@@ -305,6 +305,14 @@ export const dataService = {
     });
   },
 
+  bulkRemoveBoard: async (ids: string[], boardId: string) => {
+    await fetch(`${API_URL}/pins/bulk-boards-remove`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ids, boardId })
+    });
+  },
+
   restorePin: async (pin: Pin) => {}, 
   restorePins: async (pins: Pin[]) => {}, 
   
