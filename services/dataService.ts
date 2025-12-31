@@ -36,6 +36,14 @@ export const dataService = {
     return res.json();
   },
 
+  updateCollection: async (id: string, updates: Partial<Collection>) => {
+    await fetch(`${API_URL}/collections/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(updates)
+    });
+  },
+
   // --- BOARDS ---
   getBoards: async (userId: string): Promise<Board[]> => {
     const res = await fetch(`${API_URL}/boards?userId=${userId}`);
@@ -59,54 +67,31 @@ export const dataService = {
     });
   },
 
-  updateCollection: async (id: string, updates: Partial<Collection>) => {
-    await fetch(`${API_URL}/collections/${id}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(updates)
-    });
-  },
-
   deleteBoard: async (id: string) => {
     await fetch(`${API_URL}/boards/${id}`, { method: 'DELETE' });
   },
 
-  // --- PINS ---
-  getPins: async (filter?: { collectionId?: string; boardId?: string; tag?: string; favorites?: boolean }, sort: SortOption = 'newest', searchQuery?: string, userId?: string): Promise<Pin[]> => {
+  // --- PINS (Fixed) ---
+  getPins: async (filter: any = {}, sort: SortOption = 'newest', search = '', userId = '', page = 1): Promise<Pin[]> => {
+    const params = new URLSearchParams();
     
-    const res = await fetch(`${API_URL}/pins`);
-    let pins: Pin[] = await res.json();
-
-    if (filter?.favorites) {
-      pins = pins.filter(p => p.favorite);
-    } else if (filter?.boardId) {
-      pins = pins.filter(p => p.boardIds.includes(filter.boardId!));
+    // Filters
+    if (filter.collectionId) params.append('collectionId', filter.collectionId);
+    if (filter.boardId) params.append('boardId', filter.boardId);
+    if (filter.favorites) params.append('favorites', 'true');
+    if (filter.tag) params.append('tag', filter.tag);
     
-    } else if (filter?.collectionId && userId) { 
-       const boards = await dataService.getBoards(userId); 
-       
-       const colBoardIds = boards.filter(b => b.collectionId === filter.collectionId).map(b => b.id);
-       pins = pins.filter(p => p.boardIds.some(bid => colBoardIds.includes(bid)));
-    } else if (filter?.tag) {
-      pins = pins.filter(p => p.tags.includes(filter.tag!));
-    }
-
-    if (searchQuery && searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      pins = pins.filter(p => 
-        p.title.toLowerCase().includes(q) ||
-        p.description.toLowerCase().includes(q) ||
-        p.tags.some(t => t.toLowerCase().includes(q))
-      );
-    }
+    // Search & Sort
+    if (sort) params.append('sort', sort);
+    if (search) params.append('search', search);
+    if (userId) params.append('userId', userId);
     
-    if (sort === 'newest') pins.sort((a, b) => b.createdAt - a.createdAt);
-    if (sort === 'oldest') pins.sort((a, b) => a.createdAt - b.createdAt);
-    if (sort === 'az') pins.sort((a, b) => a.title.localeCompare(b.title));
-    if (sort === 'za') pins.sort((a, b) => b.title.localeCompare(a.title));
-    if (sort === 'random') pins.sort(() => Math.random() - 0.5);
+    // Pagination (Load 50 at a time)
+    params.append('page', page.toString());
+    params.append('limit', '50'); 
 
-    return pins;
+    const res = await fetch(`${API_URL}/pins?${params.toString()}`);
+    return res.json();
   },
 
   getAllPins: async (): Promise<Pin[]> => {
@@ -174,7 +159,7 @@ export const dataService = {
 
   // --- INTERACTIONS ---
   toggleFavorite: async (id: string) => {
-    const pins = await dataService.getAllPins();
+    const pins = await dataService.getAllPins(); 
     const pin = pins.find(p => p.id === id);
     if (pin) {
         await dataService.updatePin(id, { favorite: !pin.favorite });
@@ -183,41 +168,28 @@ export const dataService = {
     return false;
   },
   
-  // --- IMPROVED LOCATION SEARCH ---
+  // --- LOCATION ---
   searchLocation: async (query: string): Promise<LocationData[]> => {
       try {
         if (!query.trim()) return [];
-        
-        // We switch from Nominatim to Photon (Komoot) for better "fuzzy" search
         const response = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=10`);
         if (!response.ok) throw new Error('Geocoding failed');
-        
         const data = await response.json();
         
-        // Photon returns GeoJSON, so we map it differently
         return data.features.map((item: any) => {
             const p = item.properties;
-            
-            // Build a nice address string from available parts
             const addressParts = [
-                p.street, 
-                p.housenumber,
-                p.city || p.town || p.village,
-                p.state,
-                p.country
-            ].filter(Boolean); // Removes undefined/null parts
+                p.street, p.housenumber, p.city || p.town || p.village, p.state, p.country
+            ].filter(Boolean);
             
             return {
-              lat: item.geometry.coordinates[1], // GeoJSON is [Lng, Lat]
+              lat: item.geometry.coordinates[1],
               lng: item.geometry.coordinates[0],
               name: p.name || addressParts[0] || 'Unknown Location',
               address: addressParts.join(', ') || p.name
             };
         });
-      } catch (e) { 
-          console.error(e);
-          return []; 
-      }
+      } catch (e) { return []; }
   },
   
   sanitizeUrl: (url: string) => { 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { PinCard } from './components/PinCard';
@@ -19,6 +19,7 @@ function App() {
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   
+  // --- DATA ---
   const [pins, setPins] = useState<Pin[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -26,6 +27,12 @@ function App() {
   const [trendingTags, setTrendingTags] = useState<string[]>([]);
   const [allTags, setAllTags] = useState<string[]>([]);
 
+  // --- PAGINATION STATE ---
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+
+  // --- FILTERS ---
   const [activeFilter, setActiveFilter] = useState<{ type: 'all' | 'collection' | 'board' | 'tag' | 'favorites', id: string }>({ type: 'all', id: '' });
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -50,26 +57,20 @@ function App() {
 
   const [toast, setToast] = useState<{ message: string, onUndo: () => void } | null>(null);
   
-  // Track window width to trigger re-renders for column calculation
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
-
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sortRef = useRef<HTMLDivElement>(null);
 
-  // --- BACK BUTTON HANDLER ---
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-        // If any modal is open, the back button should close it
         if (selectedPin) setSelectedPin(null);
         if (isCreateOpen) setIsCreateOpen(false);
         if (isAdminOpen) setIsAdminOpen(false);
     };
-
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, [selectedPin, isCreateOpen, isAdminOpen]);
 
-  // Helper to close modal via history (keeps history clean)
   const closeModal = () => {
       window.history.back();
   };
@@ -86,7 +87,6 @@ function App() {
     };
   }, []);
 
-  // Window Resize Listener
   useEffect(() => {
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
@@ -110,11 +110,17 @@ function App() {
     initUser();
   }, []);
 
-  // --- UPDATED REFRESH DATA ---
-  // Added preserveModal param to prevent accidental re-opening during undo
-  const refreshData = async (preserveModal = true) => {
+  // --- UPDATED: FETCH DATA WITH PAGINATION ---
+  const refreshData = async (reset = false) => {
     if (!currentUser) return;
+    
+    // If resetting (e.g. filter change), fetch Page 1. Otherwise fetch current 'page'
+    const targetPage = reset ? 1 : page;
+
     try {
+        if (reset) setIsLoading(true);
+        else setIsFetchingMore(true);
+
         const [usersData, collectionsData, boardsData, tagsData, allTagsData] = await Promise.all([
             dataService.getUsers(),
             dataService.getCollections(currentUser.id),
@@ -137,11 +143,22 @@ function App() {
         
         const effectiveSort = isShuffle ? 'random' : sortBy;
         
-        const pinsData = await dataService.getPins(filterConfig, effectiveSort, searchQuery, currentUser.id); 
-        setPins(pinsData);
+        // --- KEY CHANGE: PASS PAGE AND LIMIT ---
+        const newPins = await dataService.getPins(filterConfig, effectiveSort, searchQuery, currentUser.id, targetPage); 
+        
+        if (reset) {
+            setPins(newPins);
+            setHasMore(newPins.length >= 50); // Assuming 50 is default limit
+        } else {
+            // Append and Remove Duplicates
+            setPins(prev => {
+                const combined = [...prev, ...newPins];
+                return Array.from(new Map(combined.map(p => [p.id, p])).values());
+            });
+            if (newPins.length < 50) setHasMore(false);
+        }
 
-        // Only update selected pin if preserveModal is true
-        if (preserveModal && selectedPin) {
+        if (selectedPin) {
             const updatedPin = (await dataService.getAllPins()).find(p => p.id === selectedPin.id);
             if (updatedPin) setSelectedPin(updatedPin);
         }
@@ -149,14 +166,34 @@ function App() {
         console.error("Error refreshing data:", error);
     } finally {
         setIsLoading(false);
+        setIsFetchingMore(false);
     }
   };
 
+  // 1. Reset on Filter Change
   useEffect(() => {
-    if (currentUser) {
-        refreshData();
-    }
-  }, [activeFilter, currentUser?.id, sortBy, isShuffle, searchQuery, currentUser]);
+      setPage(1);
+      setHasMore(true);
+      setPins([]); 
+      refreshData(true);
+  }, [activeFilter, sortBy, isShuffle, searchQuery, currentUser?.id]);
+
+  // 2. Fetch on Page Change
+  useEffect(() => {
+      if (page > 1) {
+          refreshData(false);
+      }
+  }, [page]);
+
+  // 3. Scroll Handler (Attached to <main>)
+  const handleScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
+      const { scrollTop, clientHeight, scrollHeight } = e.currentTarget;
+      // Load next page when user is 300px from bottom
+      if (scrollHeight - scrollTop - clientHeight < 300 && hasMore && !isFetchingMore && !isLoading) {
+          setPage(prev => prev + 1);
+      }
+  }, [hasMore, isFetchingMore, isLoading]);
+
 
   const showToast = (message: string, onUndo: () => void) => {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -164,33 +201,25 @@ function App() {
       toastTimeoutRef.current = setTimeout(() => setToast(null), 5000);
   };
 
-  // --- UPDATED DELETE HANDLER ---
   const handlePinDelete = async (pin: Pin) => {
-      // 1. Optimistic Update: Remove from UI immediately
+      // Optimistic delete
       setPins(current => current.filter(p => p.id !== pin.id));
-      
-      // 2. Perform Soft Delete on Server
       await dataService.deletePin(pin.id);
       
-      // 3. Close Modal (if open)
       if (selectedPin && selectedPin.id === pin.id) {
           closeModal();
       }
-
-      // 4. Show Toast with Undo
+      
+      // Toast with undo
       showToast('Stem moved to trash', async () => {
-          // A. Restore data
           await dataService.restorePin(pin);
-          
-          // B. Refresh grid BUT tell it NOT to check for selectedPin
-          // This prevents the modal from popping back open due to stale state
-          await refreshData(false); 
+          refreshData(true); // Full refresh to ensure correct order
       });
   };
 
   const handleBulkDelete = async (ids: string[]) => {
       await dataService.bulkDeletePins(ids);
-      await refreshData();
+      refreshData(true);
       setSelectedPinIds([]);
       setLastSelectedId(null);
   };
@@ -231,7 +260,6 @@ function App() {
           if (!isSelectionMode) setIsSelectionMode(true);
           toggleSelection(pin.id, e);
       } else {
-          // --- NEW: Push state when opening pin ---
           window.history.pushState({ modal: 'pin' }, '');
           setSelectedPin(pin);
       }
@@ -256,7 +284,6 @@ function App() {
       </button>
   );
 
-  // --- SMART MASONRY LAYOUT ---
   const getMasonryColumns = () => {
       const isMobile = windowWidth < 768;
       
@@ -287,7 +314,8 @@ function App() {
           }
 
           columns[minColIndex].push(pin);
-          const estimatedHeight = (1 / (pin.aspectRatio || 1)) + 0.2; 
+          const aspectRatio = typeof pin.aspectRatio === 'number' ? pin.aspectRatio : 1;
+          const estimatedHeight = (1 / aspectRatio) + 0.2; 
           colHeights[minColIndex] += estimatedHeight;
       });
 
@@ -321,10 +349,11 @@ function App() {
       );
   }
 
+  // --- KEY LAYOUT FIX: h-screen + overflow-hidden on PARENT ---
+  // This allows the <main> child to scroll independently, firing onScroll events.
   return (
-    <div className="min-h-screen bg-[#000208] text-slate-200 font-sans selection:bg-teal-500/30">
+    <div className="h-screen bg-[#000208] text-slate-200 font-sans selection:bg-teal-500/30 overflow-hidden flex">
       
-      {/* 1. SIDEBAR (FIXED) */}
       <Sidebar
          isOpen={isSidebarOpen}
          activeFilter={activeFilter}
@@ -333,19 +362,17 @@ function App() {
          boards={boards}
          allTags={allTags}
          currentUser={currentUser}
-         onUpdate={refreshData}
+         onUpdate={() => refreshData(true)}
          onCloseMobile={() => setIsSidebarOpen(false)}
          onOpenSettings={() => setShowSettings(!showSettings)}
          onOpenAdmin={() => {
-             // --- NEW: Push state when opening admin ---
              window.history.pushState({ modal: 'admin' }, '');
              setIsAdminOpen(true);
          }}
          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
       />
 
-      {/* 2. MAIN CONTENT WRAPPER (SHIFTED RIGHT) */}
-      <div className={`flex flex-col min-h-screen transition-all duration-300 ease-in-out ${isSidebarOpen ? 'md:ml-64' : 'md:ml-20'}`}>
+      <div className={`flex flex-col h-full flex-1 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'md:ml-64' : 'md:ml-20'}`}>
           
           <Header 
             user={currentUser}
@@ -353,7 +380,6 @@ function App() {
             onToggleView={setViewMode}
             onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
             onCreatePin={() => {
-                // --- NEW: Push state when opening create ---
                 window.history.pushState({ modal: 'create' }, '');
                 setIsCreateOpen(true);
             }}
@@ -362,8 +388,11 @@ function App() {
             onSearchChange={setSearchQuery}
           />
 
-          <main className="flex-1 relative overflow-y-auto no-scrollbar">
-            {/* Settings & Tags Bar */}
+          {/* MAIN SCROLL CONTAINER */}
+          <main 
+            className="flex-1 relative overflow-y-auto no-scrollbar"
+            onScroll={handleScroll}
+          >
             {showSettings && (
                <div className="sticky top-0 z-20 bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between shadow-md">
                   <div className="flex items-center gap-2 text-teal-500">
@@ -400,7 +429,6 @@ function App() {
                 </div>
             )}
 
-            {/* Content Body */}
             {viewMode === 'map' ? (
                <div className="w-full h-[calc(100vh-80px)] relative z-0">
                   <MapView pins={pins} onPinClick={(pin) => {
@@ -410,7 +438,6 @@ function App() {
                </div>
             ) : (
                <div className="px-4 py-6 sm:px-6 lg:px-8">
-                  {/* Title & Sorting */}
                   <div className="flex justify-between items-center mb-6">
                       <div className="flex items-center gap-4 truncate max-w-md">
                          <h2 className="text-xl font-bold text-white">
@@ -471,23 +498,30 @@ function App() {
                         <button onClick={() => { window.history.pushState({ modal: 'create' }, ''); setIsCreateOpen(true); }} className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full font-medium transition">Add Stem</button>
                     </div>
                   ) : (
-                    <div className="flex gap-4 justify-center mx-auto max-w-[2400px]">
-                       {masonryColumns.map((colPins, colIndex) => (
-                          <div key={colIndex} className="flex-1 flex flex-col gap-4 min-w-0">
-                             {colPins.map(pin => (
-                                <PinCard 
-                                  key={pin.id} 
-                                  pin={pin} 
-                                  settings={userSettings}
-                                  onClick={handlePinClick}
-                                  isSelectionMode={isSelectionMode}
-                                  isSelected={selectedPinIds.includes(pin.id)}
-                                  onToggleSelection={toggleSelection}
-                                />
-                             ))}
-                          </div>
-                       ))}
-                    </div>
+                    <>
+                        <div className="flex gap-4 justify-center mx-auto max-w-[2400px]">
+                           {masonryColumns.map((colPins, colIndex) => (
+                              <div key={colIndex} className="flex-1 flex flex-col gap-4 min-w-0">
+                                 {colPins.map(pin => (
+                                    <PinCard 
+                                      key={pin.id} 
+                                      pin={pin} 
+                                      settings={userSettings}
+                                      onClick={handlePinClick}
+                                      isSelectionMode={isSelectionMode}
+                                      isSelected={selectedPinIds.includes(pin.id)}
+                                      onToggleSelection={toggleSelection}
+                                    />
+                                 ))}
+                              </div>
+                           ))}
+                        </div>
+                        {isFetchingMore && (
+                            <div className="w-full py-8 flex justify-center text-teal-500">
+                                <Loader2 className="animate-spin w-8 h-8" />
+                            </div>
+                        )}
+                    </>
                   )}
                </div>
             )}
@@ -497,31 +531,28 @@ function App() {
       {selectedPinIds.length > 0 && (
            <BulkActionBar 
               selectedIds={selectedPinIds}
-              pins={pins} // <--- ADD THIS PROP
+              pins={pins} 
               onClear={() => {
                   setSelectedPinIds([]);
                   setLastSelectedId(null);
                   setIsSelectionMode(false); 
               }}
-              onUpdate={refreshData}
+              onUpdate={() => refreshData(true)}
               collections={collections}
               boards={boards}
               customDeleteHandler={handleBulkDelete}
            />
       )}
 
-      {/* MODALS
-          Updated to use closeModal() instead of setting state directly.
-          This calls window.history.back(), triggering popstate, which closes the modal.
-      */}
-      <AdminPanel isOpen={isAdminOpen} onClose={closeModal} users={users} onUpdate={refreshData} />
+      {/* MODALS */}
+      <AdminPanel isOpen={isAdminOpen} onClose={closeModal} users={users} onUpdate={() => refreshData(true)} />
       <PinModal 
          pin={selectedPin} onClose={closeModal}
          collections={collections} boards={boards} 
-         onUpdate={refreshData} onDelete={handlePinDelete} 
+         onUpdate={() => refreshData(true)} onDelete={handlePinDelete} 
          pinList={pins} onNavigate={setSelectedPin}
       />
-      <CreatePinModal isOpen={isCreateOpen} onClose={closeModal} collections={collections} boards={boards} onCreated={refreshData} userId={currentUser ? currentUser.id : ''} />
+      <CreatePinModal isOpen={isCreateOpen} onClose={closeModal} collections={collections} boards={boards} onCreated={() => refreshData(true)} userId={currentUser ? currentUser.id : ''} />
       
       {toast && (
           <div className="fixed bottom-8 right-8 z-[70] bg-slate-800 border border-slate-700 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-4">

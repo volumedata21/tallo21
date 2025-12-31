@@ -1,4 +1,3 @@
-
 export type Role = 'admin' | 'user' | 'guest';
 
 export interface User {
@@ -6,7 +5,7 @@ export interface User {
   username: string;
   email: string;
   role: Role;
-  quota: string; // Changed to string for "20GB" etc.
+  quota: string;
   usedQuota: string;
   inviteCode?: string;
   avatarSeed: string;
@@ -37,15 +36,17 @@ export interface Pin {
   title: string;
   description: string;
   imageUrl: string;
-  gallery?: string[]; // For grouped images
-  boardIds: string[]; // Changed to support multiple boards
-  link?: string; // Website / Source URL
+  thumbnail?: string; // <--- NEW: Optimized image
+  gallery?: string[];
+  boardIds: string[];
+  link?: string;
   location?: LocationData;
-  aspectRatio: '1:1' | '3:4' | '9:16';
+  aspectRatio: number; // Changed to number to support dynamic ratios
   tags: string[];
   ownerId: string;
   createdAt: number;
   favorite: boolean;
+  deletedAt?: number; // <--- NEW: Soft Delete support
 }
 
 export interface UserSettings {
@@ -56,12 +57,7 @@ export interface UserSettings {
 }
 
 export interface SystemSettings {
-  maxUploadSize: string; // e.g. "50MB"
+  maxUploadSize: string;
 }
 
 export type SortOption = 'newest' | 'oldest' | 'az' | 'za' | 'random';
-
-// Global declaration for Leaflet to avoid TS errors without specific types
-declare global {
-  const L: any;
-}
