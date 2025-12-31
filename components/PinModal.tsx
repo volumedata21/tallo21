@@ -19,8 +19,11 @@ interface PinModalProps {
 export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, boards, onUpdate, onDelete, pinList, onNavigate }) => {
   const [isEditingLocation, setIsEditingLocation] = useState(false);
   const [showInfo, setShowInfo] = useState(true);
+  
+  // Mobile Drawer State
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   
+  // Editable Fields
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>([]);
@@ -31,13 +34,18 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   const [isAddingBoard, setIsAddingBoard] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
+  
+  // Gallery Navigation State (Viewing)
   const [viewingUrl, setViewingUrl] = useState('');
   
+  // Location Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [locationResults, setLocationResults] = useState<LocationData[]>([]);
 
+  // Mobile Swipe Logic
   const touchStartRef = useRef<number | null>(null);
+
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
 
@@ -57,6 +65,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
     }
   }, [pin]);
 
+  // Keyboard Navigation
   useEffect(() => {
     if (!pin) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -68,37 +77,55 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [pin, pinList]);
 
+  // Handle map logic
   useEffect(() => {
     if (!pin) return;
+
     if (isEditingLocation && mapContainer.current) {
        if (mapInstance.current) {
          mapInstance.current.off();
          mapInstance.current.remove();
          mapInstance.current = null;
        }
+
        const lat = pin.location?.lat || 38.2527; 
        const lng = pin.location?.lng || -85.7585;
+
        const map = L.map(mapContainer.current).setView([lat, lng], 13);
        mapInstance.current = map;
+
        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-         attribution: '&copy; CARTO',
+         attribution: '© CARTO',
          subdomains: 'abcd',
          maxZoom: 19
        }).addTo(map);
-       if (pin.location) L.marker([pin.location.lat, pin.location.lng]).addTo(map);
+       
+       if (pin.location) {
+         L.marker([pin.location.lat, pin.location.lng]).addTo(map);
+       }
+       
        setTimeout(() => { map.invalidateSize(); }, 100);
     }
   }, [isEditingLocation, pin]);
 
   if (!pin) return null;
 
+  // Pin List Navigation
   const currentIndex = pinList.findIndex(p => p.id === pin.id);
   const hasNext = currentIndex < pinList.length - 1;
   const hasPrev = currentIndex > 0;
 
-  const handleNext = () => { handleSave(false); if (hasNext) onNavigate(pinList[currentIndex + 1]); };
-  const handlePrev = () => { handleSave(false); if (hasPrev) onNavigate(pinList[currentIndex - 1]); };
+  const handleNext = () => {
+    handleSave(false);
+    if (hasNext) onNavigate(pinList[currentIndex + 1]);
+  };
 
+  const handlePrev = () => {
+    handleSave(false);
+    if (hasPrev) onNavigate(pinList[currentIndex - 1]);
+  };
+
+  // Internal Gallery Cycling
   const getAllImages = () => [pin.imageUrl, ...(pin.gallery || [])];
   const galleryImages = getAllImages();
   
@@ -118,26 +145,47 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       setViewingUrl(images[prevIdx]);
   };
 
-  const handleTouchStart = (e: React.TouchEvent) => { touchStartRef.current = e.touches[0].clientX; };
+  // Swipe Handlers
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartRef.current = e.touches[0].clientX;
+  };
+
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (touchStartRef.current === null) return;
     const touchEnd = e.changedTouches[0].clientX;
     const diff = touchStartRef.current - touchEnd;
-    if (diff > 50) handleNext(); else if (diff < -50) handlePrev();
+    if (diff > 50) handleNext();
+    else if (diff < -50) handlePrev();
     touchStartRef.current = null;
   };
 
   const handleSave = async (shouldRefresh = true) => {
      const sanitizedLink = dataService.sanitizeUrl(link);
-     await dataService.updatePin(pin.id, { title, description, tags, boardIds: selectedBoardIds, link: sanitizedLink });
-     if (shouldRefresh) onUpdate();
+     await dataService.updatePin(pin.id, { 
+         title, 
+         description, 
+         tags, 
+         boardIds: selectedBoardIds, 
+         link: sanitizedLink 
+     });
+     
+     if (shouldRefresh) {
+         onUpdate();
+     }
   };
   
-  const handleClose = () => { handleSave(false); onClose(); };
+  const handleClose = () => {
+      handleSave(false);
+      onClose();
+  };
 
   const handleDelete = (e: React.MouseEvent) => {
-      e.preventDefault(); e.stopPropagation();
-      if (confirm("Are you sure you want to delete this stem?")) { onDelete(pin); onClose(); }
+      e.preventDefault();
+      e.stopPropagation();
+      if (confirm("Are you sure you want to delete this stem?")) {
+        onDelete(pin);
+        onClose();
+      }
   };
 
   const handleShare = () => {
@@ -153,21 +201,16 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       onUpdate();
   };
 
-  // --- FIXED: HERO SWAP LOGIC ---
   const handleSetAsCover = async () => {
-      if (viewingUrl === pin.imageUrl) return; // Already cover
+      if (viewingUrl === pin.imageUrl) return;
 
       const oldHero = pin.imageUrl;
       const newHero = viewingUrl;
       
-      // 1. Get current gallery without the image we are promoting
       const currentGallery = pin.gallery || [];
       const newGallery = currentGallery.filter(url => url !== newHero);
-      
-      // 2. Add the old hero to the gallery so it's not lost
       newGallery.push(oldHero);
 
-      // 3. Save updates
       await dataService.updatePin(pin.id, { 
           imageUrl: newHero,
           gallery: newGallery
@@ -186,12 +229,17 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
 
   const selectLocation = async (loc: LocationData) => {
       await dataService.updatePin(pin.id, { location: loc });
+      
       if (mapInstance.current) {
           mapInstance.current.setView([loc.lat, loc.lng], 13);
-          mapInstance.current.eachLayer((layer: any) => { if (layer instanceof L.Marker) mapInstance.current.removeLayer(layer); });
+          mapInstance.current.eachLayer((layer: any) => {
+              if (layer instanceof L.Marker) mapInstance.current.removeLayer(layer);
+          });
           L.marker([loc.lat, loc.lng]).addTo(mapInstance.current);
       }
-      onUpdate(); setLocationResults([]); setSearchQuery('');
+      onUpdate();
+      setLocationResults([]);
+      setSearchQuery('');
   };
   
   const handleAddTag = async (e: React.KeyboardEvent) => {
@@ -217,8 +265,11 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   
   const toggleBoard = async (boardId: string) => {
       let newBoardIds;
-      if (selectedBoardIds.includes(boardId)) newBoardIds = selectedBoardIds.filter(id => id !== boardId);
-      else newBoardIds = [...selectedBoardIds, boardId];
+      if (selectedBoardIds.includes(boardId)) {
+          newBoardIds = selectedBoardIds.filter(id => id !== boardId);
+      } else {
+          newBoardIds = [...selectedBoardIds, boardId];
+      }
       setSelectedBoardIds(newBoardIds);
       await dataService.updatePin(pin.id, { boardIds: newBoardIds });
       onUpdate();
@@ -227,6 +278,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 sm:bg-slate-950/95 sm:backdrop-blur-md sm:p-8" onClick={handleClose}>
        
+       {/* Desktop Navigation Arrows */}
        {hasPrev && (
            <button onClick={(e) => { e.stopPropagation(); handlePrev(); }} className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-slate-800/50 hover:bg-slate-700 text-white transition hidden md:flex z-50">
                <ChevronLeft size={32} />
@@ -238,15 +290,33 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
            </button>
        )}
 
-       <div className="bg-[#000208] w-full h-full sm:max-w-6xl sm:h-[90vh] sm:rounded-3xl overflow-hidden flex flex-col md:flex-row shadow-2xl ring-1 ring-white/10 relative transition-all duration-300" onClick={e => e.stopPropagation()}>
+       {/* Main Container */}
+       <div 
+          className="bg-[#000208] w-full h-full sm:max-w-6xl sm:h-[90vh] sm:rounded-3xl overflow-hidden flex flex-col md:flex-row shadow-2xl ring-1 ring-white/10 relative transition-all duration-300" 
+          onClick={e => e.stopPropagation()}
+       >
           
-          <div className={`${showInfo ? 'md:w-3/5' : 'md:w-full'} w-full h-full md:h-auto bg-black flex flex-col relative group transition-all duration-300`} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+          {/* LEFT: Image Section */}
+          <div 
+             className={`${showInfo ? 'md:w-3/5' : 'md:w-full'} w-full h-full md:h-auto bg-black flex flex-col relative group transition-all duration-300`}
+             onTouchStart={handleTouchStart}
+             onTouchEnd={handleTouchEnd}
+          >
+             {/* Top Actions */}
              <div className="absolute top-4 left-4 z-20 flex gap-2 pointer-events-auto">
-                 <button onClick={handleShare} className="p-2.5 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors relative" title="Share">
+                 <button 
+                    onClick={handleShare} 
+                    className="p-2.5 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors relative"
+                    title="Share"
+                 >
                      <Share2 size={20} />
                      {isCopying && <span className="absolute top-full left-0 mt-2 text-[10px] bg-teal-500 text-white px-2 py-1 rounded whitespace-nowrap">Copied!</span>}
                  </button>
-                 <button onClick={handleToggleFavorite} className={`p-2.5 backdrop-blur rounded-full transition-colors ${isFavorite ? 'bg-red-500/80 hover:bg-red-500 text-white' : 'bg-black/40 hover:bg-black/80 text-white'}`} title="Like">
+                 <button 
+                    onClick={handleToggleFavorite} 
+                    className={`p-2.5 backdrop-blur rounded-full transition-colors ${isFavorite ? 'bg-red-500/80 hover:bg-red-500 text-white' : 'bg-black/40 hover:bg-black/80 text-white'}`}
+                    title="Like"
+                 >
                      <Heart size={20} fill={isFavorite ? "currentColor" : "none"} />
                  </button>
                  {viewingUrl !== pin.imageUrl && (
@@ -256,20 +326,24 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                   )}
              </div>
 
+             {/* Desktop Info Toggle */}
              {!showInfo && (
                 <button onClick={() => setShowInfo(true)} className="absolute top-4 right-4 z-20 p-2 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors hidden md:block">
                    <PanelRightOpen size={20} />
                 </button>
              )}
              
+             {/* Close Button on Mobile */}
              <button onClick={handleClose} className="absolute top-4 right-4 z-20 p-2 bg-black/40 hover:bg-black/80 backdrop-blur rounded-full text-white transition-colors md:hidden">
                  <X size={20} />
              </button>
 
+             {/* Main Image View */}
              <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-[#050505]">
                  <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#1e293b 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
                  <img src={viewingUrl} className="max-w-full max-h-full object-contain relative z-10" alt={pin.title} />
                  
+                 {/* Image Nav Arrows (Desktop) */}
                  {galleryImages.length > 1 && (
                     <>
                        <button onClick={handlePrevImage} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/70 text-white transition opacity-0 group-hover:opacity-100 hidden md:block z-20">
@@ -282,10 +356,15 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                  )}
              </div>
 
+             {/* Gallery Strip */}
              {galleryImages.length > 1 && (
                 <div className={`h-20 md:h-24 bg-[#050505] border-t border-slate-800 flex items-center gap-2 px-4 overflow-x-auto custom-scrollbar shrink-0 transition-all ${isDrawerOpen ? 'hidden md:flex' : 'flex'}`}>
                     {galleryImages.map((url, idx) => (
-                        <button key={idx} onClick={() => setViewingUrl(url)} className={`h-12 w-12 md:h-16 md:w-16 rounded-lg overflow-hidden border-2 shrink-0 transition-all ${viewingUrl === url ? 'border-teal-500 opacity-100' : 'border-transparent opacity-60 hover:opacity-100'}`}>
+                        <button 
+                           key={idx}
+                           onClick={() => setViewingUrl(url)}
+                           className={`h-12 w-12 md:h-16 md:w-16 rounded-lg overflow-hidden border-2 shrink-0 transition-all ${viewingUrl === url ? 'border-teal-500 opacity-100' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                        >
                             <img src={url} className="w-full h-full object-cover" />
                         </button>
                     ))}
@@ -293,11 +372,25 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
              )}
           </div>
 
-          <div className={`bg-[#000208] border-l border-slate-800 transition-all duration-300 flex flex-col fixed bottom-0 left-0 right-0 z-30 rounded-t-3xl shadow-[0_-10px_50px_rgba(0,0,0,0.8)] ${isDrawerOpen ? 'h-[85vh]' : 'h-24'} md:relative md:rounded-none md:shadow-none md:h-auto md:w-2/5 md:flex ${showInfo ? 'md:w-2/5' : 'md:w-0 md:border-none md:overflow-hidden'}`}>
-                <div className="md:hidden w-full h-8 flex justify-center items-center cursor-pointer active:bg-slate-900 rounded-t-3xl shrink-0" onClick={() => setIsDrawerOpen(!isDrawerOpen)}>
+          {/* RIGHT / BOTTOM: Info Panel */}
+          <div 
+             className={`
+                bg-[#000208] border-l border-slate-800 transition-all duration-300 flex flex-col
+                fixed bottom-0 left-0 right-0 z-30 rounded-t-3xl shadow-[0_-10px_50px_rgba(0,0,0,0.8)]
+                ${isDrawerOpen ? 'h-[85vh]' : 'h-24'}
+                md:relative md:rounded-none md:shadow-none md:h-auto md:w-2/5 md:flex
+                ${showInfo ? 'md:w-2/5' : 'md:w-0 md:border-none md:overflow-hidden'}
+             `}
+          >
+                {/* Mobile Handle */}
+                <div 
+                   className="md:hidden w-full h-8 flex justify-center items-center cursor-pointer active:bg-slate-900 rounded-t-3xl shrink-0"
+                   onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+                >
                     <div className="w-12 h-1.5 bg-slate-700 rounded-full" />
                 </div>
 
+                {/* Info Header */}
                 <div className="flex justify-between items-start px-6 pt-2 md:pt-6 md:mb-2 shrink-0">
                     <div className="flex items-center gap-4">
                         <button onClick={() => setShowInfo(false)} className="p-2 text-slate-400 hover:text-white hover:bg-slate-900 rounded-full hidden md:block" title="Hide Info">
@@ -313,24 +406,43 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                     )}
 
                     <div className="hidden md:flex">
-                        <button onClick={handleClose} className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-900 transition-colors">
+                        <button 
+                            onClick={handleClose}
+                            className="p-2 rounded-full text-slate-400 hover:text-white hover:bg-slate-900 transition-colors"
+                        >
                             <X size={24} />
                         </button>
                     </div>
                 </div>
 
+                {/* Scrollable Content */}
                 <div className={`flex-1 overflow-y-auto px-6 pb-6 space-y-6 custom-scrollbar ${!isDrawerOpen ? 'hidden md:block' : ''}`}>
+                    
+                    {/* Title & Date */}
                     <div>
-                        <input value={title} onChange={e => setTitle(e.target.value)} onBlur={() => handleSave(true)} placeholder="Add a title" className="w-full bg-transparent border-none text-2xl sm:text-3xl font-bold text-white placeholder-slate-700 focus:ring-0 px-0 mb-1 tracking-tight" />
+                        <input 
+                            value={title}
+                            onChange={e => setTitle(e.target.value)}
+                            onBlur={() => handleSave(true)}
+                            placeholder="Add a title"
+                            className="w-full bg-transparent border-none text-2xl sm:text-3xl font-bold text-white placeholder-slate-700 focus:ring-0 px-0 mb-1 tracking-tight"
+                        />
                         <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                             <Calendar size={12} />
                             <span>Added {new Date(pin.createdAt).toLocaleDateString()}</span>
                         </div>
                     </div>
                     
+                    {/* Link */}
                     <div className="flex gap-2 items-center group">
                         <div className="relative flex-1">
-                            <input value={link} onChange={e => setLink(e.target.value)} onBlur={() => handleSave(true)} placeholder="Add a website link" className="w-full bg-transparent border-b border-slate-800 rounded-none pl-7 pr-3 py-2 text-sm text-white focus:border-teal-600 outline-none transition-colors" />
+                            <input 
+                                value={link}
+                                onChange={e => setLink(e.target.value)}
+                                onBlur={() => handleSave(true)}
+                                placeholder="Add a website link"
+                                className="w-full bg-transparent border-b border-slate-800 rounded-none pl-7 pr-3 py-2 text-sm text-white focus:border-teal-600 outline-none transition-colors"
+                            />
                             <LinkIcon className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-teal-500 transition-colors" size={14} />
                         </div>
                         {link && (
@@ -342,8 +454,11 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
 
                     <textarea value={description} onChange={e => setDescription(e.target.value)} onBlur={() => handleSave(true)} placeholder="Add a description" className="w-full bg-slate-900/30 hover:bg-slate-900 focus:bg-slate-900 border border-transparent focus:border-slate-800 rounded-xl p-4 text-slate-300 placeholder-slate-600 focus:ring-0 outline-none transition-all resize-none h-32 text-sm leading-relaxed" />
 
+                    {/* Keywords */}
                     <div>
-                        <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2"><TagIcon size={12} /> Keywords</label>
+                        <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                            <TagIcon size={12} /> Keywords
+                        </label>
                         <div className="flex flex-wrap gap-2 mb-2">
                             {tags.map(tag => (
                                 <span key={tag} className="flex items-center gap-1 text-xs font-medium text-teal-400 bg-teal-500/10 px-2.5 py-1 rounded-md border border-teal-500/20">
@@ -355,9 +470,13 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                         <input value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleAddTag} placeholder="Add tags..." className="w-full bg-transparent border-b border-slate-800 px-0 py-2 text-sm text-white focus:border-teal-600 outline-none placeholder-slate-700" />
                     </div>
 
-                    <div className="space-y-6 pt-6 border-t border-slate-800">
+                    <div className="space-y-6 pt-6">
+                        {/* Boards */}
                         <div>
-                            <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2"><Layers size={12} /> Saved to Boards</label>
+                            <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+                            <Layers size={12} /> Saved to Boards
+                            </label>
+                            
                             <div className="flex flex-wrap gap-2 mb-2">
                                 {selectedBoardIds.map(bid => {
                                     const board = boards.find(b => b.id === bid);
@@ -396,6 +515,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                             )}
                         </div>
 
+                        {/* Location */}
                         <div>
                             <div className="flex justify-between items-center mb-3">
                                 <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest"><MapPin size={12} /> Location</label>
@@ -422,22 +542,32 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                                     </div>
                                 </div>
                             ) : (
-                                <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-slate-300 text-sm flex items-center gap-3">
-                                    <div className="p-2 bg-slate-800 rounded-full text-slate-400">
+                                <a 
+                                    href={pin.location ? `https://www.google.com/maps/search/?api=1&query=${pin.location.lat},${pin.location.lng}` : '#'} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer" 
+                                    className={`bg-slate-900/50 p-3 rounded-lg border border-slate-800 text-slate-300 text-sm flex items-center gap-3 transition-colors ${pin.location ? 'hover:bg-slate-900 hover:border-teal-500/50 cursor-pointer group' : ''}`}
+                                    onClick={e => !pin.location && e.preventDefault()}
+                                >
+                                    <div className="p-2 bg-slate-800 rounded-full text-slate-400 group-hover:text-teal-500 transition-colors">
                                         <MapPin size={14} />
                                     </div>
                                     <div>
-                                        <div className="font-medium text-xs text-white">{pin.location?.name || 'No location set'}</div>
+                                        <div className="font-medium text-xs text-white group-hover:text-teal-400 transition-colors">{pin.location?.name || 'No location set'}</div>
                                         {pin.location?.address && <div className="text-[10px] text-slate-500 mt-0.5">{pin.location.address}</div>}
                                     </div>
-                                </div>
+                                </a>
                             )}
                         </div>
                     </div>
                 </div>
 
+                {/* Footer: Delete Button */}
                 <div className={`p-6 border-t border-slate-800 bg-[#000208] mt-auto ${!isDrawerOpen ? 'hidden md:block' : ''}`}>
-                    <button onClick={handleDelete} className="w-full py-3 rounded-xl border border-slate-800 text-slate-500 hover:text-red-500 hover:border-red-500/30 hover:bg-red-500/5 transition-all flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-widest">
+                    <button 
+                        onClick={handleDelete}
+                        className="w-full py-3 rounded-xl border border-slate-800 text-slate-500 hover:text-red-500 hover:border-red-500/30 hover:bg-red-500/5 transition-all flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-widest"
+                    >
                         <Trash2 size={14} /> Delete Stem
                     </button>
                 </div>
