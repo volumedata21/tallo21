@@ -179,29 +179,37 @@ export const dataService = {
   searchLocation: async (query: string): Promise<LocationData[]> => {
       try {
         if (!query.trim()) return [];
-        // Increased limit to 10 and requested detailed address components
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&addressdetails=1`);
+        
+        // We switch from Nominatim to Photon (Komoot) for better "fuzzy" search
+        const response = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=10`);
         if (!response.ok) throw new Error('Geocoding failed');
+        
         const data = await response.json();
         
-        return data.map((item: any) => {
-            // Prefer the explicit name from OSM, fallback to the first part of the display name
-            const name = item.name || item.display_name.split(',')[0];
+        // Photon returns GeoJSON, so we map it differently
+        return data.features.map((item: any) => {
+            const p = item.properties;
             
-            // Clean up the address string to avoid repeating the name
-            let address = item.display_name;
-            if (address.startsWith(name + ', ')) {
-                address = address.substring(name.length + 2);
-            }
-
+            // Build a nice address string from available parts
+            const addressParts = [
+                p.street, 
+                p.housenumber,
+                p.city || p.town || p.village,
+                p.state,
+                p.country
+            ].filter(Boolean); // Removes undefined/null parts
+            
             return {
-              lat: parseFloat(item.lat),
-              lng: parseFloat(item.lon),
-              name: name,
-              address: address
+              lat: item.geometry.coordinates[1], // GeoJSON is [Lng, Lat]
+              lng: item.geometry.coordinates[0],
+              name: p.name || addressParts[0] || 'Unknown Location',
+              address: addressParts.join(', ') || p.name
             };
         });
-      } catch (e) { return []; }
+      } catch (e) { 
+          console.error(e);
+          return []; 
+      }
   },
   
   sanitizeUrl: (url: string) => { 
