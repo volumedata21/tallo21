@@ -304,6 +304,48 @@ app.post('/api/scrape', async (req, res) => {
     }
 });
 
+app.post('/api/pins/ungroup', async (req, res) => {
+  const { id } = req.body;
+  
+  // 1. Get the target pin
+  const pin = await get("SELECT * FROM pins WHERE id = ?", [id]);
+  if (!pin) return res.status(404).json({ error: "Pin not found" });
+
+  const gallery: string[] = JSON.parse(pin.gallery || '[]');
+  
+  if (gallery.length === 0) return res.json({ success: true }); // Nothing to ungroup
+
+  // 2. Create new pins for each gallery image
+  // We copy the metadata (boards, tags, location) from the parent
+  for (const imgUrl of gallery) {
+      const newId = uuidv4();
+      await run(
+        `INSERT INTO pins (id, title, description, imageUrl, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+            newId, 
+            pin.title, 
+            pin.description, 
+            imgUrl, 
+            '[]', // New pin has no gallery
+            pin.boardIds, 
+            pin.link, 
+            pin.location, 
+            1, // Default aspect ratio, or calculate if possible
+            pin.tags, 
+            pin.ownerId, 
+            Date.now(), 
+            0
+        ]
+      );
+  }
+
+  // 3. Clear the gallery from the parent pin
+  await run("UPDATE pins SET gallery = ? WHERE id = ?", ['[]', id]);
+
+  res.json({ success: true });
+});
+
 // --- IMAGE UPLOAD WITH DATE FOLDERS ---
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
