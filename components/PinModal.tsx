@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Pin, Board, Collection, LocationData } from '../types';
-// Added 'Split' to imports
 import { X, MapPin, Layers, Trash2, Heart, ChevronLeft, ChevronRight, Calendar, Tag as TagIcon, Plus, Check, Image as ImageIcon, Link as LinkIcon, ExternalLink, Share2, PanelRightClose, PanelRightOpen, Split } from 'lucide-react';
 import { dataService } from '../services/dataService';
 
@@ -150,13 +149,11 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       }
   };
 
-  // --- NEW: Handle Ungroup ---
   const handleUngroup = async () => {
       if (confirm("Ungroup these photos? They will become separate stems.")) {
-          // You need to add this method to your dataService
           await dataService.ungroupPin(pin.id);
           onUpdate();
-          onClose(); // Close modal as the current pin state changes significantly
+          onClose(); 
       }
   };
 
@@ -205,6 +202,20 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       onUpdate();
       setLocationResults([]);
       setSearchQuery('');
+  };
+
+  // --- FIX: Use null instead of undefined ---
+  const handleClearLocation = async () => {
+      if(confirm("Remove location from this stem?")) {
+          // Sending 'null' ensures the key is included in the JSON payload sent to the server.
+          await dataService.updatePin(pin.id, { location: null as any });
+          
+          if (mapInstance.current) {
+             mapInstance.current.remove();
+             mapInstance.current = null;
+          }
+          onUpdate();
+      }
   };
   
   const handleAddTag = async (e: React.KeyboardEvent) => {
@@ -409,7 +420,12 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                         <div>
                             <div className="flex justify-between items-center mb-3">
                                 <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest"><MapPin size={12} /> Location</label>
-                                <button onClick={() => setIsEditingLocation(!isEditingLocation)} className="text-teal-500 text-[10px] font-bold uppercase hover:text-teal-400 tracking-widest">{isEditingLocation ? 'Done' : 'Edit'}</button>
+                                <div className="flex gap-2">
+                                    {pin.location && (
+                                        <button onClick={handleClearLocation} className="text-red-500 text-[10px] font-bold uppercase hover:text-red-400 tracking-widest">Clear</button>
+                                    )}
+                                    <button onClick={() => setIsEditingLocation(!isEditingLocation)} className="text-teal-500 text-[10px] font-bold uppercase hover:text-teal-400 tracking-widest">{isEditingLocation ? 'Done' : 'Edit'}</button>
+                                </div>
                             </div>
                             
                             {isEditingLocation ? (
@@ -445,7 +461,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                 </div>
 
                 <div className={`p-6 border-t border-slate-800 bg-[#000208] mt-auto ${!isDrawerOpen ? 'hidden md:block' : ''}`}>
-                    {/* NEW UNGROUP BUTTON */}
                     {(pin.gallery && pin.gallery.length > 0) && (
                         <button 
                             onClick={handleUngroup}
@@ -454,7 +469,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                             <Split size={14} /> Ungroup Photos
                         </button>
                     )}
-
                     <button onClick={handleDelete} className="w-full py-3 rounded-xl border border-slate-800 text-slate-500 hover:text-red-500 hover:border-red-500/30 hover:bg-red-500/5 transition-all flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-widest">
                         <Trash2 size={14} /> Delete Stem
                     </button>
