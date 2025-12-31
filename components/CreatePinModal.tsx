@@ -32,7 +32,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   onCreated, 
   userId 
 }) => {
-  // --- STATE ---
   const [drafts, setDrafts] = useState<DraftPin[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -41,25 +40,19 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   
   const [activeTab, setActiveTab] = useState<'upload' | 'url'>('upload');
 
-  // URL Import State
   const [urlInput, setUrlInput] = useState('');
   const [scrapedImages, setScrapedImages] = useState<string[]>([]);
   const [selectedScrapedImages, setSelectedScrapedImages] = useState<string[]>([]);
   const [isScraping, setIsScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState('');
 
-  // Bulk Edit
   const [syncChanges, setSyncChanges] = useState(true);
 
-  // Search
   const [locationQuery, setLocationQuery] = useState('');
   const [isSearchingLocation, setIsSearchingLocation] = useState(false);
   const [locationResults, setLocationResults] = useState<LocationData[]>([]);
 
-  // Drag & Drop
   const [dragActive, setDragActive] = useState(false);
-
-  // Tags
   const [tagInput, setTagInput] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -87,10 +80,15 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
   const currentDraft = drafts.find(d => d.id === selectedDraftId);
 
-  // --- LOGIC ---
-
+  // --- UPDATED LOGIC: Prefer 'New Stems' ---
   const getDefaultBoardId = () => {
     if (!boards || boards.length === 0) return '';
+    
+    // 1. Try to find the 'New Stems' permanent board
+    const newStems = boards.find(b => b.title === 'New Stems');
+    if (newStems) return newStems.id;
+    
+    // 2. Fallback to Moodboard or Unorganized
     const moodboard = boards.find(b => b.title === 'Moodboard') || boards.find(b => !b.collectionId) || boards[0];
     return moodboard ? moodboard.id : '';
   };
@@ -364,7 +362,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
         <div className="flex flex-1 overflow-hidden">
             
-            {/* Input to trigger file dialog from thumbnails */}
             <input type="file" multiple accept="image/*,video/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
 
             {/* --- MAIN CONTENT AREA --- */}
