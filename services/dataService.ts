@@ -281,6 +281,14 @@ export const dataService = {
     });
   },
 
+  ungroupPin: async (id: string) => {
+    await fetch(`${API_URL}/pins/ungroup`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id })
+    });
+  },
+
   restorePin: async (pin: Pin) => {}, 
   restorePins: async (pins: Pin[]) => {}, 
   
