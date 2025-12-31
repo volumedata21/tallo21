@@ -11,7 +11,9 @@
     "express": "^4.19.2",
     "multer": "^1.4.5-lts.1",
     "sqlite3": "^5.1.7",
-    "uuid": "^9.0.1"
+    "sharp": "^0.33.2",
+    "uuid": "^9.0.1",
+    "jsdom": "^24.0.0" 
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -19,6 +21,7 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^20.12.7",
     "@types/uuid": "^9.0.8",
+    "@types/jsdom": "^21.1.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   }

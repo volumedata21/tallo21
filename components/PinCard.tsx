@@ -22,9 +22,18 @@ export const PinCard: React.FC<PinCardProps> = ({
 }) => {
   const [isFavorite, setIsFavorite] = useState(pin.favorite);
   const [isDraggable, setIsDraggable] = useState(true);
+  const [isHovering, setIsHovering] = useState(false);
+  
+  // --- OPTIMIZATION: Determine cover image ---
+  // If a thumbnail exists, use it by default. Fallback to full image.
+  const coverImage = pin.thumbnail || pin.imageUrl;
   
   // Gallery Cycling State
+  // Initialize with the cover image (optimized or full)
+  const [currentImage, setCurrentImage] = useState(coverImage);
   const [currentIndex, setCurrentIndex] = useState(0);
+
+  // The full gallery list always uses high-res images for consistency when cycling
   const allImages = [pin.imageUrl, ...(pin.gallery || [])];
   const hasGallery = allImages.length > 1;
 
@@ -40,10 +49,22 @@ export const PinCard: React.FC<PinCardProps> = ({
     return () => window.removeEventListener('resize', checkDraggable);
   }, []);
 
-  // Reset index if the pin prop changes (e.g. recycling in lists)
+  // Reset index and image if the pin prop changes
   useEffect(() => {
       setCurrentIndex(0);
-  }, [pin.id]);
+      setCurrentImage(coverImage);
+  }, [pin.id, coverImage]);
+
+  // --- OPTIMIZATION: Reset to thumbnail when not hovering ---
+  useEffect(() => {
+    if (!isHovering && currentIndex === 0) {
+        setCurrentImage(coverImage);
+    } else if (isHovering && currentIndex === 0 && !pin.thumbnail) {
+         // Optional: If we don't have a thumbnail, we are already using full res.
+         // If we DID have a thumbnail, we might want to swap to full res on hover?
+         // For now, let's keep it simple: Stay on thumbnail until user cycles.
+    }
+  }, [isHovering, coverImage, currentIndex, pin.thumbnail]);
 
   const toggleFav = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -62,15 +83,19 @@ export const PinCard: React.FC<PinCardProps> = ({
 
   // --- GALLERY HANDLERS ---
   const handleNext = (e: React.MouseEvent) => {
-      e.stopPropagation(); // Don't open modal
+      e.stopPropagation();
       e.preventDefault();
-      setCurrentIndex((prev) => (prev + 1) % allImages.length);
+      const nextIndex = (currentIndex + 1) % allImages.length;
+      setCurrentIndex(nextIndex);
+      setCurrentImage(allImages[nextIndex]); // Load full res when cycling
   };
 
   const handlePrev = (e: React.MouseEvent) => {
-      e.stopPropagation(); // Don't open modal
+      e.stopPropagation();
       e.preventDefault();
-      setCurrentIndex((prev) => (prev - 1 + allImages.length) % allImages.length);
+      const prevIndex = (currentIndex - 1 + allImages.length) % allImages.length;
+      setCurrentIndex(prevIndex);
+      setCurrentImage(allImages[prevIndex]); // Load full res when cycling
   };
 
   // --- SMART URL FORMATTER ---
@@ -101,13 +126,15 @@ export const PinCard: React.FC<PinCardProps> = ({
           if (!isSelectionMode && isDraggable) e.dataTransfer.setData('pinId', pin.id);
       }}
       onClick={handleClick}
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
       className={`break-inside-avoid relative group cursor-pointer active:cursor-grabbing transition-transform duration-200 ${isSelected ? 'scale-95' : ''}`}
     >
       <div className={`relative overflow-hidden rounded-xl bg-slate-800 shadow-xl border transition-all duration-300 ${isSelected ? 'border-teal-500 ring-2 ring-teal-500/50' : 'border-slate-800 group-hover:border-slate-700 group-hover:-translate-y-1'}`}>
         
-        {/* Main Image (Cycled) */}
+        {/* Main Image (Thumbnail or Full) */}
         <img
-          src={allImages[currentIndex]}
+          src={currentImage}
           alt={pin.title}
           className={`w-full h-auto block object-cover transition-opacity ${isSelected ? 'opacity-75' : 'opacity-100'}`}
           loading="lazy"
@@ -183,7 +210,7 @@ export const PinCard: React.FC<PinCardProps> = ({
              {/* Bottom Section: Location & Tags */}
              <div className="mt-auto pt-4 flex flex-col gap-2 items-start pointer-events-auto">
                
-               {/* Location (UPDATED: Uses Lat/Lng for precision) */}
+               {/* Location */}
                {pin.location && (
                    <a 
                      href={`https://www.google.com/maps/search/?api=1&query=${pin.location.lat},${pin.location.lng}`}
