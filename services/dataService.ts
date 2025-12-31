@@ -59,6 +59,14 @@ export const dataService = {
     });
   },
 
+  updateCollection: async (id: string, updates: Partial<Collection>) => {
+    await fetch(`${API_URL}/collections/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(updates)
+    });
+  },
+
   deleteBoard: async (id: string) => {
     await fetch(`${API_URL}/boards/${id}`, { method: 'DELETE' });
   },
