@@ -457,7 +457,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                {/* Sync Button */}
                                {drafts.length > 1 && (
                                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur border border-gray-700 rounded-full pl-3 pr-1 py-1 flex items-center gap-2 shadow-xl z-10">
-                                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Sync Info</span>
+                                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Apply to All</span>
                                        <button 
                                           onClick={() => setSyncChanges(!syncChanges)}
                                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors ${syncChanges ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-400'}`}
