@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { X, Layers, Tag, MapPin, Copy, Link as LinkIcon, Check, Trash2 } from 'lucide-react';
-import { Collection, Board, LocationData } from '../types';
+// Changed imports: Added 'Folder', removed 'Copy' (unless you want to keep it available)
+import { X, Layers, Tag, MapPin, Link as LinkIcon, Check, Trash2, Minus, Plus, Search, Folder, Copy } from 'lucide-react';
+import { Collection, Board, LocationData, Pin } from '../types';
 import { dataService } from '../services/dataService';
 
 interface BulkActionBarProps {
   selectedIds: string[];
+  pins: Pin[];
   onClear: () => void;
   onUpdate: () => void;
   collections: Collection[];
@@ -12,7 +14,7 @@ interface BulkActionBarProps {
   customDeleteHandler?: (ids: string[]) => void;
 }
 
-export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, onClear, onUpdate, collections, boards, customDeleteHandler }) => {
+export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins, onClear, onUpdate, collections, boards, customDeleteHandler }) => {
   const [activeAction, setActiveAction] = useState<'board' | 'tag' | 'location' | 'link' | null>(null);
   
   // States
@@ -21,6 +23,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, onCle
   const [locQuery, setLocQuery] = useState('');
   const [locResults, setLocResults] = useState<LocationData[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [boardSearch, setBoardSearch] = useState('');
 
   // --- Handlers ---
 
@@ -31,211 +34,239 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, onCle
     onClear();
   };
 
-  const handleBoardSelect = async (boardId: string) => {
-    await dataService.bulkAddBoard(selectedIds, boardId);
-    onUpdate();
-    setActiveAction(null);
+  // --- SMART BOARD LOGIC ---
+  const getBoardState = (boardId: string): 'all' | 'some' | 'none' => {
+      const selectedPins = pins.filter(p => selectedIds.includes(p.id));
+      const inBoardCount = selectedPins.filter(p => p.boardIds && p.boardIds.includes(boardId)).length;
+      
+      if (inBoardCount === selectedPins.length) return 'all';
+      if (inBoardCount > 0) return 'some';
+      return 'none';
   };
 
+  const toggleBoard = async (boardId: string) => {
+      const state = getBoardState(boardId);
+      
+      if (state === 'all') {
+          // If all are in, remove from all
+          await dataService.bulkRemoveBoard(selectedIds, boardId);
+      } else {
+          // If none or some are in, add to all (fill the gaps)
+          await dataService.bulkAddBoard(selectedIds, boardId);
+      }
+      onUpdate();
+  };
+
+  // --- Other Handlers (Tags, etc) ---
   const handleAddTag = async () => {
     if (!tagInput.trim()) return;
-    const tags = tagInput.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+    const tags = tagInput.split(',').map(t => t.trim()).filter(Boolean);
     await dataService.bulkAddTags(selectedIds, tags);
     setTagInput('');
     onUpdate();
     setActiveAction(null);
   };
 
-  const handleUpdateLink = async () => {
-    if (!linkInput.trim()) return;
-    // Use the generic bulk update for simple fields like link
-    await dataService.bulkUpdatePins(selectedIds, { link: dataService.sanitizeUrl(linkInput) });
-    setLinkInput('');
-    onUpdate();
-    setActiveAction(null);
+  const handleLocationSearch = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsSearching(true);
+      const res = await dataService.searchLocation(locQuery);
+      setLocResults(res);
+      setIsSearching(false);
   };
 
-  const handleSearchLoc = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!locQuery.trim()) return;
-    setIsSearching(true);
-    const results = await dataService.searchLocation(locQuery);
-    setLocResults(results);
-    setIsSearching(false);
+  const handleLocationSelect = async (loc: LocationData) => {
+      await dataService.bulkSetLocation(selectedIds, loc);
+      onUpdate();
+      setActiveAction(null);
   };
 
-  const handleSelectLoc = async (loc: LocationData) => {
-    await dataService.bulkSetLocation(selectedIds, loc);
-    onUpdate();
-    setActiveAction(null);
-    setLocResults([]);
-    setLocQuery('');
+  const handleDelete = () => {
+      if (confirm(`Delete ${selectedIds.length} items?`)) {
+          if (customDeleteHandler) customDeleteHandler(selectedIds);
+      }
   };
 
-  const handleDelete = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (customDeleteHandler) {
-        customDeleteHandler(selectedIds);
-    } else {
-        dataService.bulkDeletePins(selectedIds);
-        onUpdate();
-    }
-    onClear();
-  };
-
-  const canGroup = selectedIds.length >= 2;
+  const canGroup = selectedIds.length > 1;
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex flex-col items-center gap-2 w-full max-w-xl px-4 pointer-events-none">
-      
-      {/* --- Action Popups --- */}
-      <div className="pointer-events-auto w-full flex justify-center">
+    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-[#0B1120] border border-slate-700 rounded-2xl shadow-2xl z-50 flex flex-col items-center animate-in slide-in-from-bottom-4 duration-200">
         
-        {/* 1. Board Picker */}
-        {activeAction === 'board' && (
-          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-2 w-64 max-h-60 overflow-y-auto mb-2 animate-in slide-in-from-bottom-2 fade-in">
-             {collections.map(col => (
-                 <div key={col.id}>
-                     <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase">{col.title}</div>
-                     {boards.filter(b => b.collectionId === col.id).map(b => (
-                         <button key={b.id} onClick={() => handleBoardSelect(b.id)} className="w-full text-left px-3 py-2 text-sm rounded text-slate-300 hover:bg-slate-800 hover:text-white transition">
-                             {b.title}
-                         </button>
-                     ))}
-                 </div>
-             ))}
-             <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase mt-1">Unorganized</div>
-             {boards.filter(b => !b.collectionId).map(b => (
-                 <button key={b.id} onClick={() => handleBoardSelect(b.id)} className="w-full text-left px-3 py-2 text-sm rounded text-slate-300 hover:bg-slate-800 hover:text-white transition">
-                     {b.title}
-                 </button>
-             ))}
-          </div>
+        {/* Action Panel Content */}
+        {activeAction && (
+            <div className="w-full sm:w-[400px] border-b border-slate-700 p-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                
+                {/* 1. BOARD SELECTOR */}
+                {activeAction === 'board' && (
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 sticky top-0 z-10">
+                            <Search size={14} className="text-slate-500" />
+                            <input 
+                                value={boardSearch}
+                                onChange={e => setBoardSearch(e.target.value)}
+                                placeholder="Filter boards..." 
+                                className="bg-transparent border-none text-sm text-white focus:ring-0 outline-none w-full placeholder-slate-600"
+                                autoFocus
+                            />
+                        </div>
+                        
+                        <div className="space-y-4">
+                            {collections.map(col => {
+                                const colBoards = boards.filter(b => b.collectionId === col.id && b.title.toLowerCase().includes(boardSearch.toLowerCase()));
+                                if (colBoards.length === 0) return null;
+                                return (
+                                    <div key={col.id}>
+                                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-1">{col.title}</div>
+                                        <div className="space-y-1">
+                                            {colBoards.map(board => {
+                                                const state = getBoardState(board.id);
+                                                return (
+                                                    <button 
+                                                        key={board.id} 
+                                                        onClick={() => toggleBoard(board.id)} 
+                                                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group transition-colors"
+                                                    >
+                                                        <span className={`text-sm font-medium ${state !== 'none' ? 'text-teal-400' : 'text-slate-300'}`}>{board.title}</span>
+                                                        <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${state === 'all' ? 'bg-teal-500 border-teal-500' : state === 'some' ? 'bg-yellow-500/20 border-yellow-500' : 'border-slate-600 group-hover:border-slate-400'}`}>
+                                                            {state === 'all' && <Check size={12} className="text-black" strokeWidth={3} />}
+                                                            {state === 'some' && <Minus size={12} className="text-yellow-500" strokeWidth={3} />}
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            
+                            {/* Unorganized Boards */}
+                            <div>
+                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-1">Unorganized</div>
+                                <div className="space-y-1">
+                                    {boards.filter(b => !b.collectionId && b.title.toLowerCase().includes(boardSearch.toLowerCase())).map(board => {
+                                        const state = getBoardState(board.id);
+                                        return (
+                                            <button 
+                                                key={board.id} 
+                                                onClick={() => toggleBoard(board.id)} 
+                                                className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group transition-colors"
+                                            >
+                                                <span className={`text-sm font-medium ${state !== 'none' ? 'text-teal-400' : 'text-slate-300'}`}>{board.title}</span>
+                                                <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${state === 'all' ? 'bg-teal-500 border-teal-500' : state === 'some' ? 'bg-yellow-500/20 border-yellow-500' : 'border-slate-600 group-hover:border-slate-400'}`}>
+                                                    {state === 'all' && <Check size={12} className="text-black" strokeWidth={3} />}
+                                                    {state === 'some' && <Minus size={12} className="text-yellow-500" strokeWidth={3} />}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 2. TAGS */}
+                {activeAction === 'tag' && (
+                    <div className="flex gap-2">
+                        <input 
+                           value={tagInput}
+                           onChange={e => setTagInput(e.target.value)}
+                           placeholder="Enter tags (comma separated)..."
+                           className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-teal-500"
+                           autoFocus
+                           onKeyDown={e => e.key === 'Enter' && handleAddTag()}
+                        />
+                        <button onClick={handleAddTag} className="bg-teal-600 hover:bg-teal-500 text-white p-2 rounded-lg"><Check size={18} /></button>
+                    </div>
+                )}
+
+                {/* 3. LOCATION */}
+                {activeAction === 'location' && (
+                    <div className="space-y-3">
+                        <form onSubmit={handleLocationSearch} className="flex gap-2">
+                             <input 
+                                value={locQuery}
+                                onChange={e => setLocQuery(e.target.value)}
+                                placeholder="Search location..."
+                                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-teal-500"
+                                autoFocus
+                             />
+                             <button type="submit" disabled={isSearching} className="bg-teal-600 hover:bg-teal-500 text-white p-2 rounded-lg disabled:opacity-50"><Search size={18} /></button>
+                        </form>
+                        <div className="max-h-40 overflow-y-auto space-y-1">
+                            {locResults.map((loc, i) => (
+                                <button key={i} onClick={() => handleLocationSelect(loc)} className="w-full text-left px-3 py-2 hover:bg-slate-800 rounded-lg text-sm text-slate-300 hover:text-white truncate">
+                                    {loc.name}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
         )}
 
-        {/* 2. Tag Input */}
-        {activeAction === 'tag' && (
-          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 w-72 mb-2 animate-in slide-in-from-bottom-2 fade-in flex gap-2">
-             <input 
-               autoFocus
-               value={tagInput}
-               onChange={e => setTagInput(e.target.value)}
-               placeholder="Add tags..."
-               className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-500 outline-none"
-               onKeyDown={e => e.key === 'Enter' && handleAddTag()}
-             />
-             <button onClick={handleAddTag} className="bg-teal-600 hover:bg-teal-500 text-white rounded-lg px-4 py-2 text-xs font-bold">Add</button>
-          </div>
-        )}
+        {/* Main Bar */}
+        <div className="flex items-center gap-1 p-2">
+            <div className="px-3 text-xs font-bold text-teal-500 tabular-nums">
+                {selectedIds.length} <span className="text-slate-500 font-normal hidden sm:inline">selected</span>
+            </div>
+            
+            <div className="w-px h-8 bg-slate-800 mx-1"></div>
 
-        {/* 3. Link Input (NEW) */}
-        {activeAction === 'link' && (
-          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 w-80 mb-2 animate-in slide-in-from-bottom-2 fade-in flex gap-2">
-             <input 
-               autoFocus
-               value={linkInput}
-               onChange={e => setLinkInput(e.target.value)}
-               placeholder="https://example.com"
-               className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-500 outline-none"
-               onKeyDown={e => e.key === 'Enter' && handleUpdateLink()}
-             />
-             <button onClick={handleUpdateLink} className="bg-teal-600 hover:bg-teal-500 text-white rounded-lg px-4 py-2 text-xs font-bold">Save</button>
-          </div>
-        )}
+            <button 
+               onClick={() => setActiveAction(activeAction === 'board' ? null : 'board')}
+               className={`p-2.5 rounded-xl transition ${activeAction === 'board' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+               title="Organize into Boards"
+            >
+               {/* UPDATED ICON: Folder */}
+               <Folder size={18} />
+            </button>
 
-        {/* 4. Location Search */}
-        {activeAction === 'location' && (
-           <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-3 w-80 mb-2 animate-in slide-in-from-bottom-2 fade-in">
-              <form onSubmit={handleSearchLoc} className="flex gap-2 mb-2">
-                  <input 
-                    autoFocus
-                    value={locQuery}
-                    onChange={e => setLocQuery(e.target.value)}
-                    placeholder="Search location..."
-                    className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-500 outline-none"
-                  />
-                  <button type="submit" className="bg-slate-700 hover:bg-slate-600 text-white rounded-lg px-3 py-2 text-xs font-bold">Find</button>
-              </form>
-              {locResults.length > 0 && (
-                  <div className="max-h-40 overflow-y-auto space-y-1 custom-scrollbar">
-                      {locResults.map((loc, i) => (
-                          <button key={i} onClick={() => handleSelectLoc(loc)} className="w-full text-left px-3 py-2 hover:bg-slate-800 rounded-lg text-xs text-slate-300">
-                              <div className="font-bold text-white">{loc.name}</div>
-                              {loc.address && <div className="text-slate-500 truncate">{loc.address}</div>}
-                          </button>
-                      ))}
-                  </div>
-              )}
-           </div>
-        )}
-      </div>
+            <button 
+               onClick={() => setActiveAction(activeAction === 'tag' ? null : 'tag')}
+               className={`p-2.5 rounded-xl transition ${activeAction === 'tag' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+               title="Add Tags"
+            >
+               <Tag size={18} />
+            </button>
 
-      {/* --- Main Bar --- */}
-      <div className="bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 rounded-2xl px-2 py-2 shadow-2xl flex items-center gap-1 pointer-events-auto">
-        <div className="px-4 text-sm font-bold text-white border-r border-slate-700 mr-2 py-1">
-          {selectedIds.length} <span className="text-slate-500 font-normal hidden sm:inline">selected</span>
+            <button 
+               onClick={() => setActiveAction(activeAction === 'location' ? null : 'location')}
+               className={`p-2.5 rounded-xl transition ${activeAction === 'location' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+               title="Set Location"
+            >
+               <MapPin size={18} />
+            </button>
+
+            <div className="w-px h-8 bg-slate-800 mx-1"></div>
+
+            <button 
+               onClick={handleGroup}
+               disabled={!canGroup}
+               className={`p-2.5 rounded-xl transition flex items-center gap-2 ${canGroup ? 'text-slate-400 hover:bg-slate-800 hover:text-teal-400' : 'text-slate-700 opacity-50 cursor-not-allowed'}`}
+               title="Group Together (Merge)"
+            >
+               {/* UPDATED ICON: Layers */}
+               <Layers size={18} />
+            </button>
+
+            <button 
+              onClick={handleDelete}
+              className="ml-1 p-2.5 bg-slate-800 hover:bg-red-500/20 hover:text-red-500 text-slate-400 rounded-xl transition"
+              title="Delete Selected"
+            >
+               <Trash2 size={18} />
+            </button>
+
+            <div className="w-px h-8 bg-slate-800 mx-1"></div>
+
+            <button 
+              onClick={onClear}
+              className="p-2.5 hover:bg-slate-800 text-slate-500 hover:text-white rounded-xl transition"
+            >
+               <X size={18} />
+            </button>
         </div>
-
-        <button 
-           onClick={() => setActiveAction(activeAction === 'board' ? null : 'board')}
-           className={`p-2.5 rounded-xl transition ${activeAction === 'board' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-           title="Add to Board"
-        >
-           <Layers size={18} />
-        </button>
-
-        <button 
-           onClick={() => setActiveAction(activeAction === 'tag' ? null : 'tag')}
-           className={`p-2.5 rounded-xl transition ${activeAction === 'tag' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-           title="Add Tags"
-        >
-           <Tag size={18} />
-        </button>
-
-        {/* NEW LINK BUTTON */}
-        <button 
-           onClick={() => setActiveAction(activeAction === 'link' ? null : 'link')}
-           className={`p-2.5 rounded-xl transition ${activeAction === 'link' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-           title="Edit Link"
-        >
-           <LinkIcon size={18} />
-        </button>
-
-        <button 
-           onClick={() => setActiveAction(activeAction === 'location' ? null : 'location')}
-           className={`p-2.5 rounded-xl transition ${activeAction === 'location' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-           title="Set Location"
-        >
-           <MapPin size={18} />
-        </button>
-
-        <div className="w-px h-8 bg-slate-800 mx-1"></div>
-
-        <button 
-           onClick={handleGroup}
-           disabled={!canGroup}
-           className={`p-2.5 rounded-xl transition flex items-center gap-2 ${canGroup ? 'text-slate-400 hover:bg-slate-800 hover:text-teal-400' : 'text-slate-700 opacity-50 cursor-not-allowed'}`}
-           title="Group Together (Merge)"
-        >
-           <Copy size={18} />
-        </button>
-
-        <button 
-          onClick={handleDelete}
-          className="ml-1 p-2.5 bg-slate-800 hover:bg-red-500/20 hover:text-red-500 text-slate-400 rounded-xl transition"
-          title="Delete Items"
-        >
-          <Trash2 size={18} />
-        </button>
-
-        <button 
-          onClick={onClear} 
-          className="ml-1 p-2.5 text-slate-500 hover:text-white rounded-xl transition"
-          title="Cancel Selection"
-        >
-          <X size={18} />
-        </button>
-      </div>
     </div>
   );
 };
