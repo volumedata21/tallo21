@@ -11,7 +11,7 @@ import { dataService } from './services/dataService';
 import { Pin, UserSettings, Collection, Board, SortOption, User } from './types';
 import { Sliders, Plus, ArrowUpDown, ChevronDown, Check, MousePointer2, Shuffle, CheckSquare, Tag as TagIcon, Undo, Loader2, AlertTriangle, RefreshCcw } from 'lucide-react';
 
-// --- 1. HELPER: Parse URL params for filters (Defined at top) ---
+// --- HELPER: Parse URL params for filters ---
 const getInitialFilter = () => {
   if (typeof window === 'undefined') return { type: 'all' as const, id: '' };
   const params = new URLSearchParams(window.location.search);
@@ -28,7 +28,14 @@ function App() {
   const [error, setError] = useState<string | null>(null); 
   
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
+  // --- FIX 1: Initialize Sidebar Closed on Mobile ---
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+      if (typeof window !== 'undefined') {
+          return window.innerWidth >= 768; // Open on Desktop, Closed on Mobile
+      }
+      return true;
+  });
   
   // --- DATA ---
   const [pins, setPins] = useState<Pin[]>([]);
@@ -43,7 +50,7 @@ function App() {
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
 
-  // --- FILTERS (2. Initialized from URL) ---
+  // --- FILTERS ---
   const [activeFilter, setActiveFilter] = useState(getInitialFilter());
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -72,17 +79,14 @@ function App() {
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sortRef = useRef<HTMLDivElement>(null);
 
-  // --- 3. DEEP LINKING FOR PINS ---
+  // Deep Linking
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const pinId = params.get('pinId');
     if (pinId) {
         dataService.getPin(pinId)
             .then(pin => setSelectedPin(pin))
-            .catch(err => {
-                console.error("Deep link pin not found", err);
-                // Optional: Show toast here
-            });
+            .catch(err => console.error("Deep link pin not found", err));
     }
   }, []);
 
@@ -97,15 +101,12 @@ function App() {
   }, [selectedPin, isCreateOpen, isAdminOpen]);
 
   const closeModal = () => {
-      // If we opened via deep link, going back might leave the site. 
-      // Safe check: if history length is 1, just close modal state.
       if (window.history.length > 1) {
           window.history.back();
       } else {
           if (selectedPin) setSelectedPin(null);
           if (isCreateOpen) setIsCreateOpen(false);
           if (isAdminOpen) setIsAdminOpen(false);
-          // Clean URL
           window.history.replaceState(null, '', window.location.pathname);
       }
   };
@@ -117,9 +118,7 @@ function App() {
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   useEffect(() => {
@@ -231,11 +230,9 @@ function App() {
   const handlePinDelete = async (pin: Pin) => {
       setPins(current => current.filter(p => p.id !== pin.id));
       await dataService.deletePin(pin.id);
-      
       if (selectedPin && selectedPin.id === pin.id) {
           closeModal();
       }
-      
       showToast('Stem moved to trash', async () => {
           await dataService.restorePin(pin);
           refreshData(true); 
@@ -293,7 +290,6 @@ function App() {
   const resetFilters = () => { 
       setActiveFilter({ type: 'all', id: '' }); 
       setSearchQuery(''); 
-      // Clean URL parameters
       window.history.pushState({}, '', window.location.pathname);
   };
 
@@ -324,10 +320,12 @@ function App() {
       
       const availableWidth = windowWidth - sidebarWidth;
 
+      // --- FIX 2: Better Column Logic for Mobile ---
       let colCount = 2; 
       if (availableWidth >= 1600) colCount = 5;
       else if (availableWidth >= 1100) colCount = 4;
       else if (availableWidth >= 800) colCount = 3; 
+      else if (availableWidth < 500) colCount = 1; // <--- 1 Column on small phones (prevents 1.5 effect)
 
       const columns: Pin[][] = Array.from({ length: colCount }, () => []);
       const colHeights = new Array(colCount).fill(0);
