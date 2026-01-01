@@ -322,6 +322,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                             </button>
 
                                             <div className="absolute right-1 top-2 hidden group-hover:flex gap-1 bg-slate-950/80 backdrop-blur rounded px-1">
+                                                {/* --- SHARE BUTTON ADDED HERE --- */}
+                                                <button onClick={(e) => handleShare(e, 'collection', col.id)} className="p-1 text-slate-500 hover:text-white" title="Share Collection">
+                                                    <LinkIcon size={12} />
+                                                </button>
                                                 <button onClick={(e) => startRenaming(e, col.id, col.title)} className="p-1 text-slate-500 hover:text-teal-400" title="Rename">
                                                     <Pencil size={12} />
                                                 </button>

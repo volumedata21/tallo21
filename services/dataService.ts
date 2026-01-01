@@ -97,7 +97,16 @@ export const dataService = {
     await fetch(`${API_URL}/boards/${id}`, { method: 'DELETE' });
   },
 
-  // --- PINS (Fixed) ---
+  // --- PINS ---
+  
+  // 1. Fetch Single Pin (for Share Links)
+  getPin: async (id: string): Promise<Pin> => {
+    const res = await fetch(`${API_URL}/pins/${id}`);
+    if (!res.ok) throw new Error("Pin not found");
+    return res.json();
+  },
+
+  // 2. Fetch All Pins (with filters)
   getPins: async (filter: any = {}, sort: SortOption = 'newest', search = '', userId = '', page = 1): Promise<Pin[]> => {
     const params = new URLSearchParams();
     

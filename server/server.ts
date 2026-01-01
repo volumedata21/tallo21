@@ -265,6 +265,18 @@ app.delete('/api/boards/:id', async (req, res) => {
   res.json({ success: true });
 });
 
+// GET SINGLE PIN (For Deep Linking)
+app.get('/api/pins/:id', async (req, res) => {
+  try {
+      const pin = await get("SELECT * FROM pins WHERE id = ?", [req.params.id]);
+      if (!pin) return res.status(404).json({ error: "Pin not found" });
+      res.json(parsePin(pin));
+  } catch (e) {
+      console.error("Fetch single pin error:", e);
+      res.status(500).json({ error: "Failed to fetch pin" });
+  }
+});
+
 // PINS
 app.get('/api/pins', async (req, res) => {
   try {
