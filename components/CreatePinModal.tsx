@@ -126,7 +126,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                       id: Math.random().toString(36) + Date.now(),
                       file, 
                       previewUrl: e.target?.result as string,
-                      title: file.name.split('.')[0], 
+                      title: '',
                       description: '',
                       boardIds: defaultBoardId ? [defaultBoardId] : [], 
                       tags: [],

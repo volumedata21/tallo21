@@ -447,7 +447,7 @@ function App() {
                         <TagIcon size={10} /> Trending
                     </div>
                     {trendingTags.map(tag => (
-                        <button key={tag} onClick={() => toggleTrendingTag(tag)} className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${activeFilter.type === 'tag' && activeFilter.id === tag ? 'bg-teal-500/10 border-teal-500/50 text-teal-400' : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                        <button key={tag} onClick={() => toggleTrendingTag(tag)} className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${activeFilter.type === 'tag' && activeFilter.id === tag ? 'bg-teal-500/10 border-teal-500/50 text-teal-400' : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
                             #{tag}
                         </button>
                     ))}
