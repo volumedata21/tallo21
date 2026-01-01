@@ -11,6 +11,17 @@ import { dataService } from './services/dataService';
 import { Pin, UserSettings, Collection, Board, SortOption, User } from './types';
 import { Sliders, Plus, ArrowUpDown, ChevronDown, Check, MousePointer2, Shuffle, CheckSquare, Tag as TagIcon, Undo, Loader2, AlertTriangle, RefreshCcw } from 'lucide-react';
 
+// --- 1. HELPER: Parse URL params for filters (Defined at top) ---
+const getInitialFilter = () => {
+  if (typeof window === 'undefined') return { type: 'all' as const, id: '' };
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('collection')) return { type: 'collection' as const, id: params.get('collection')! };
+  if (params.get('board')) return { type: 'board' as const, id: params.get('board')! };
+  if (params.get('tag')) return { type: 'tag' as const, id: params.get('tag')! };
+  if (params.get('favorites')) return { type: 'favorites' as const, id: '' };
+  return { type: 'all' as const, id: '' };
+};
+
 function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -32,8 +43,8 @@ function App() {
   const [hasMore, setHasMore] = useState(true);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
 
-  // --- FILTERS ---
-  const [activeFilter, setActiveFilter] = useState<{ type: 'all' | 'collection' | 'board' | 'tag' | 'favorites', id: string }>({ type: 'all', id: '' });
+  // --- FILTERS (2. Initialized from URL) ---
+  const [activeFilter, setActiveFilter] = useState(getInitialFilter());
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [isShuffle, setIsShuffle] = useState(false);
@@ -61,6 +72,20 @@ function App() {
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sortRef = useRef<HTMLDivElement>(null);
 
+  // --- 3. DEEP LINKING FOR PINS ---
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const pinId = params.get('pinId');
+    if (pinId) {
+        dataService.getPin(pinId)
+            .then(pin => setSelectedPin(pin))
+            .catch(err => {
+                console.error("Deep link pin not found", err);
+                // Optional: Show toast here
+            });
+    }
+  }, []);
+
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
         if (selectedPin) setSelectedPin(null);
@@ -72,7 +97,17 @@ function App() {
   }, [selectedPin, isCreateOpen, isAdminOpen]);
 
   const closeModal = () => {
-      window.history.back();
+      // If we opened via deep link, going back might leave the site. 
+      // Safe check: if history length is 1, just close modal state.
+      if (window.history.length > 1) {
+          window.history.back();
+      } else {
+          if (selectedPin) setSelectedPin(null);
+          if (isCreateOpen) setIsCreateOpen(false);
+          if (isAdminOpen) setIsAdminOpen(false);
+          // Clean URL
+          window.history.replaceState(null, '', window.location.pathname);
+      }
   };
 
   useEffect(() => {
@@ -110,11 +145,9 @@ function App() {
     initUser();
   }, []);
 
-  // --- UPDATED: FETCH DATA WITH PAGINATION ---
   const refreshData = async (reset = false) => {
     if (!currentUser) return;
     
-    // If resetting (e.g. filter change), fetch Page 1. Otherwise fetch current 'page'
     const targetPage = reset ? 1 : page;
 
     try {
@@ -143,14 +176,12 @@ function App() {
         
         const effectiveSort = isShuffle ? 'random' : sortBy;
         
-        // --- KEY CHANGE: PASS PAGE AND LIMIT ---
         const newPins = await dataService.getPins(filterConfig, effectiveSort, searchQuery, currentUser.id, targetPage); 
         
         if (reset) {
             setPins(newPins);
-            setHasMore(newPins.length >= 50); // Assuming 50 is default limit
+            setHasMore(newPins.length >= 50); 
         } else {
-            // Append and Remove Duplicates
             setPins(prev => {
                 const combined = [...prev, ...newPins];
                 return Array.from(new Map(combined.map(p => [p.id, p])).values());
@@ -170,7 +201,6 @@ function App() {
     }
   };
 
-  // 1. Reset on Filter Change
   useEffect(() => {
       setPage(1);
       setHasMore(true);
@@ -178,17 +208,14 @@ function App() {
       refreshData(true);
   }, [activeFilter, sortBy, isShuffle, searchQuery, currentUser?.id]);
 
-  // 2. Fetch on Page Change
   useEffect(() => {
       if (page > 1) {
           refreshData(false);
       }
   }, [page]);
 
-  // 3. Scroll Handler (Attached to <main>)
   const handleScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
       const { scrollTop, clientHeight, scrollHeight } = e.currentTarget;
-      // Load next page when user is 300px from bottom
       if (scrollHeight - scrollTop - clientHeight < 300 && hasMore && !isFetchingMore && !isLoading) {
           setPage(prev => prev + 1);
       }
@@ -202,7 +229,6 @@ function App() {
   };
 
   const handlePinDelete = async (pin: Pin) => {
-      // Optimistic delete
       setPins(current => current.filter(p => p.id !== pin.id));
       await dataService.deletePin(pin.id);
       
@@ -210,10 +236,9 @@ function App() {
           closeModal();
       }
       
-      // Toast with undo
       showToast('Stem moved to trash', async () => {
           await dataService.restorePin(pin);
-          refreshData(true); // Full refresh to ensure correct order
+          refreshData(true); 
       });
   };
 
@@ -265,7 +290,12 @@ function App() {
       }
   };
 
-  const resetFilters = () => { setActiveFilter({ type: 'all', id: '' }); setSearchQuery(''); };
+  const resetFilters = () => { 
+      setActiveFilter({ type: 'all', id: '' }); 
+      setSearchQuery(''); 
+      // Clean URL parameters
+      window.history.pushState({}, '', window.location.pathname);
+  };
 
   const toggleTrendingTag = (tag: string) => {
       if (activeFilter.type === 'tag' && activeFilter.id === tag) {
@@ -349,8 +379,6 @@ function App() {
       );
   }
 
-  // --- KEY LAYOUT FIX: h-screen + overflow-hidden on PARENT ---
-  // This allows the <main> child to scroll independently, firing onScroll events.
   return (
     <div className="h-screen bg-[#000208] text-slate-200 font-sans selection:bg-teal-500/30 overflow-hidden flex">
       
@@ -388,7 +416,6 @@ function App() {
             onSearchChange={setSearchQuery}
           />
 
-          {/* MAIN SCROLL CONTAINER */}
           <main 
             className="flex-1 relative overflow-y-auto no-scrollbar"
             onScroll={handleScroll}
