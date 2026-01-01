@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-// Changed 'Sparkles' to 'MoreHorizontal' in imports
 import { Layout, Plus, Layers, Folder, Trash2, Heart, Link as LinkIcon, Settings, Shield, ArrowDownAZ, ArrowUpNarrowWide, Github, ChevronsUp, ChevronLeft, ChevronRight, FolderInput, X, Check, Pencil, MoreHorizontal, Layers2, ChartNoAxesGantt } from 'lucide-react';
 import { Collection, Board, User } from '../types';
 import { dataService } from '../services/dataService';
@@ -73,8 +72,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             setCreationName('');
             setCreationMode(null);
             onUpdate();
-        } catch (e) {
-            console.error("Failed to create item", e);
+        } catch (e: any) {
+            alert(e.message || "Failed to create item");
         }
     };
 
@@ -97,10 +96,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 await dataService.updateBoard(renamingId!, { title: renameValue });
             }
             onUpdate();
-        } catch (e) {
-            console.error("Rename failed", e);
+        } catch (e: any) {
+            alert(e.message || "Rename failed");
         } finally {
             setRenamingId(null);
+        }
+    };
+
+    const handleDeleteCollection = async (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        if (confirm('Delete this collection? Boards inside will be moved to "Boards".')) {
+            await dataService.deleteCollection(id);
+            onUpdate();
         }
     };
 
@@ -180,7 +187,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                     onClick={() => handleMoveBoard(boardToMove.id, col.id)}
                                     className="w-full text-left px-4 py-3 rounded-xl hover:bg-slate-900 text-slate-300 flex items-center gap-3 transition-colors group"
                                 >
-                                    {/* UPDATED: Layers -> MoreHorizontal */}
                                     <MoreHorizontal size={18} className="text-slate-500 group-hover:text-teal-500 transition-colors" />
                                     <span className="font-medium text-sm truncate">{col.title}</span>
                                     {boardToMove.collectionId === col.id && <Check size={16} className="ml-auto text-teal-500" />}
@@ -311,7 +317,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                                 onClick={() => handleFilterClick('collection', col.id)}
                                                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${activeFilter.type === 'collection' && activeFilter.id === col.id ? 'bg-teal-500/10 text-teal-500' : 'text-slate-400 hover:text-white hover:bg-slate-900'} ${dragOverId === col.id ? 'bg-slate-800 ring-1 ring-teal-500' : ''}`}
                                             >
-                                                {/* UPDATED ICON: Aperture (Lens Blur style) */}
                                                 <Layers size={16} strokeWidth={1.5} />
                                                 <span className="font-medium text-sm truncate pr-8">{col.title}</span>
                                             </button>
@@ -319,6 +324,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                             <div className="absolute right-1 top-2 hidden group-hover:flex gap-1 bg-slate-950/80 backdrop-blur rounded px-1">
                                                 <button onClick={(e) => startRenaming(e, col.id, col.title)} className="p-1 text-slate-500 hover:text-teal-400" title="Rename">
                                                     <Pencil size={12} />
+                                                </button>
+                                                <button onClick={(e) => handleDeleteCollection(e, col.id)} className="p-1 text-slate-500 hover:text-red-500" title="Delete">
+                                                    <Trash2 size={12} />
                                                 </button>
                                             </div>
                                         </>

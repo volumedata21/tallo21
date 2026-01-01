@@ -33,15 +33,30 @@ export const dataService = {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ title, ownerId })
     });
+    
+    if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to create collection");
+    }
+    
     return res.json();
   },
 
   updateCollection: async (id: string, updates: Partial<Collection>) => {
-    await fetch(`${API_URL}/collections/${id}`, {
+    const res = await fetch(`${API_URL}/collections/${id}`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(updates)
     });
+
+    if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to update collection");
+    }
+  },
+
+  deleteCollection: async (id: string) => {
+      await fetch(`${API_URL}/collections/${id}`, { method: 'DELETE' });
   },
 
   // --- BOARDS ---
@@ -56,15 +71,26 @@ export const dataService = {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ title, collectionId, ownerId })
     });
+    
+    if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to create board");
+    }
+    
     return res.json();
   },
 
   updateBoard: async (id: string, updates: Partial<Board>) => {
-    await fetch(`${API_URL}/boards/${id}`, {
+    const res = await fetch(`${API_URL}/boards/${id}`, {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(updates)
     });
+
+    if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to update board");
+    }
   },
 
   deleteBoard: async (id: string) => {

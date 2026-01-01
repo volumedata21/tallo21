@@ -71,7 +71,6 @@ const processExternalImage = async (url: string) => {
         const id = Date.now() + '-' + Math.round(Math.random() * 1000);
         const contentType = response.headers.get('content-type');
         
-        // --- VIDEO SUPPORT ---
         const isVideo = contentType?.startsWith('video/');
         
         let ext = '.jpg';
@@ -85,7 +84,6 @@ const processExternalImage = async (url: string) => {
         
         await fs.promises.writeFile(originalPath, buffer);
 
-        // If video, skip sharp optimization
         if (isVideo) {
              return {
                 url: `/images/${folder}/${filename}`,
@@ -178,15 +176,49 @@ app.get('/api/collections', async (req, res) => {
   const rows = await all("SELECT * FROM collections WHERE ownerId = ?", [req.query.userId]);
   res.json(rows);
 });
+
+// --- UPDATED CREATE COLLECTION (Dupe Check) ---
 app.post('/api/collections', async (req, res) => {
   const { title, ownerId } = req.body;
+  
+  // Check for duplicate title (case insensitive) for this owner
+  const existing = await get("SELECT id FROM collections WHERE lower(title) = lower(?) AND ownerId = ?", [title, ownerId]);
+  if (existing) {
+      return res.status(400).json({ error: "A collection with this name already exists." });
+  }
+
   const id = uuidv4();
   await run("INSERT INTO collections (id, title, ownerId) VALUES (?, ?, ?)", [id, title, ownerId]);
   res.json(await get("SELECT * FROM collections WHERE id = ?", [id]));
 });
+
+// --- UPDATED UPDATE COLLECTION (Dupe Check) ---
 app.put('/api/collections/:id', async (req, res) => {
     const { title } = req.body;
+    
+    // If title is changing, check for duplicates
+    if (title !== undefined) {
+        const currentCol = await get("SELECT ownerId FROM collections WHERE id = ?", [req.params.id]);
+        if (currentCol) {
+            const existing = await get("SELECT id FROM collections WHERE lower(title) = lower(?) AND ownerId = ? AND id != ?", [title, currentCol.ownerId, req.params.id]);
+            if (existing) {
+                return res.status(400).json({ error: "A collection with this name already exists." });
+            }
+        }
+    }
+
     await run("UPDATE collections SET title = ? WHERE id = ?", [title, req.params.id]);
+    res.json({ success: true });
+});
+
+// --- NEW DELETE COLLECTION ---
+app.delete('/api/collections/:id', async (req, res) => {
+    // 1. Move all boards in this collection to "Unorganized" (collectionId = NULL)
+    await run("UPDATE boards SET collectionId = NULL WHERE collectionId = ?", [req.params.id]);
+    
+    // 2. Delete the collection
+    await run("DELETE FROM collections WHERE id = ?", [req.params.id]);
+    
     res.json({ success: true });
 });
 
@@ -195,14 +227,27 @@ app.get('/api/boards', async (req, res) => {
   const rows = await all("SELECT * FROM boards WHERE ownerId = ? OR id = ?", [req.query.userId, NEW_STEMS_ID]);
   res.json(rows);
 });
+
 app.post('/api/boards', async (req, res) => {
   const { title, collectionId, ownerId } = req.body;
+  const existing = await get("SELECT id FROM boards WHERE lower(title) = lower(?) AND ownerId = ?", [title, ownerId]);
+  if (existing) return res.status(400).json({ error: "A board with this name already exists." });
+
   const id = uuidv4();
   await run("INSERT INTO boards (id, title, collectionId, ownerId) VALUES (?, ?, ?, ?)", [id, title, collectionId, ownerId]);
   res.json(await get("SELECT * FROM boards WHERE id = ?", [id]));
 });
+
 app.put('/api/boards/:id', async (req, res) => {
     const { title, collectionId } = req.body;
+    if (title !== undefined) {
+        const currentBoard = await get("SELECT ownerId FROM boards WHERE id = ?", [req.params.id]);
+        if (currentBoard) {
+            const existing = await get("SELECT id FROM boards WHERE lower(title) = lower(?) AND ownerId = ? AND id != ?", [title, currentBoard.ownerId, req.params.id]);
+            if (existing) return res.status(400).json({ error: "A board with this name already exists." });
+        }
+    }
+
     const updates: string[] = [];
     const values: any[] = [];
     if (title !== undefined) { updates.push("title = ?"); values.push(title); }
@@ -213,6 +258,7 @@ app.put('/api/boards/:id', async (req, res) => {
     }
     res.json({ success: true });
 });
+
 app.delete('/api/boards/:id', async (req, res) => {
   if (req.params.id === NEW_STEMS_ID) return res.status(403).json({ error: "Cannot delete permanent board" });
   await run("DELETE FROM boards WHERE id = ?", [req.params.id]);
@@ -231,7 +277,6 @@ app.get('/api/pins', async (req, res) => {
       let sql = "SELECT * FROM pins WHERE deletedAt IS NULL";
       const params: any[] = [];
 
-      // --- FILTERS ---
       if (favorites === 'true') {
           sql += " AND favorite = 1";
       }
@@ -242,7 +287,6 @@ app.get('/api/pins', async (req, res) => {
       }
 
       if (boardId) {
-          // Since boardIds is a JSON string, we use LIKE as a simple containment check
           sql += " AND boardIds LIKE ?";
           params.push(`%${boardId}%`);
       }
@@ -252,13 +296,12 @@ app.get('/api/pins', async (req, res) => {
           params.push(`%${tag}%`);
       }
       
-      // --- SORTING ---
-      let orderBy = 'createdAt DESC'; // Default (Newest)
+      let orderBy = 'createdAt DESC'; 
       
       if (sort === 'oldest') orderBy = 'createdAt ASC';
       else if (sort === 'az') orderBy = 'title ASC';
       else if (sort === 'za') orderBy = 'title DESC';
-      else if (sort === 'random') orderBy = 'RANDOM()'; // <--- THIS FIXES SHUFFLE
+      else if (sort === 'random') orderBy = 'RANDOM()'; 
 
       sql += ` ORDER BY ${orderBy}`;
       sql += " LIMIT ? OFFSET ?";
@@ -272,6 +315,29 @@ app.get('/api/pins', async (req, res) => {
       console.error("Fetch pins error:", e);
       res.status(500).json({ error: "Failed to fetch pins" });
   }
+});
+
+app.post('/api/pins', async (req, res) => {
+    const pin = req.body;
+    const id = uuidv4();
+    let boardIds = pin.boardIds || [];
+    if (boardIds.length === 0) boardIds = [NEW_STEMS_ID];
+
+    let finalImageUrl = pin.imageUrl;
+    let finalThumbnail = pin.thumbnail;
+
+    if (pin.imageUrl && pin.imageUrl.startsWith('http')) {
+        const processed = await processExternalImage(pin.imageUrl);
+        finalImageUrl = processed.url;
+        if (processed.thumbnail) finalThumbnail = processed.thumbnail;
+    }
+
+    await run(
+      `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), JSON.stringify(boardIds), pin.link, JSON.stringify(pin.location || null), pin.aspectRatio, JSON.stringify(pin.tags || []), pin.ownerId, Date.now(), 0, null]
+    );
+    res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
 
 app.put('/api/pins/:id', async (req, res) => {
@@ -442,7 +508,6 @@ app.post('/api/pins/ungroup', async (req, res) => {
   res.json({ success: true });
 });
 
-// --- UPDATED SUPER SCRAPER (With oEmbed for Title/Video) ---
 app.post('/api/scrape', async (req, res) => {
     try {
         const { url } = req.body;
@@ -452,7 +517,6 @@ app.post('/api/scrape', async (req, res) => {
         const extractedImages = new Set<string>();
         let scrapedTitle = '';
 
-        // 1. OEmbed (Fastest for YouTube/Vimeo/Soundcloud)
         try {
             const oembedUrl = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
             const oembedRes = await fetch(oembedUrl);
@@ -468,7 +532,6 @@ app.post('/api/scrape', async (req, res) => {
             console.warn("oEmbed failed, falling back to standard scraper");
         }
 
-        // 2. Standard Fetch
         const response = await fetch(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -484,7 +547,6 @@ app.post('/api/scrape', async (req, res) => {
             
             const html = await response.text();
             
-            // BEHANCE SCANNER
             if (url.includes('behance.net')) {
                 const cleanHtml = html.replace(/\\\//g, '/');
                 const behanceRegex = /https?:\/\/(?:mir-s3-cdn-cf|m)\.behance\.net\/project_modules\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif|avif)/gi;
@@ -492,18 +554,15 @@ app.post('/api/scrape', async (req, res) => {
                 if (matches) matches.forEach(m => { if (!m.includes('/min_') && !m.includes('/disp_')) extractedImages.add(m); });
             }
 
-            // DOM SCANNER
             const dom = new JSDOM(html);
             const doc = dom.window.document;
 
-            // Get Title if we didn't get it from oEmbed
             if (!scrapedTitle) {
                 scrapedTitle = doc.querySelector('title')?.textContent || '';
                 const ogTitle = doc.querySelector('meta[property="og:title"]')?.getAttribute('content');
                 if (ogTitle) scrapedTitle = ogTitle;
             }
 
-            // Get Images
             const metaSelectors = ['meta[property="og:image"]', 'meta[name="twitter:image"]', 'link[rel="image_src"]'];
             metaSelectors.forEach(selector => {
                 doc.querySelectorAll(selector).forEach((el: any) => {
@@ -630,7 +689,7 @@ app.post('/api/admin/regenerate-thumbnails', async (req, res) => {
                                 .webp({ quality: 80 })
                                 .toFile(thumbPath);
 
-                            const thumbUrl = subfolder ? `/thumbnails/${subfolder}/${thumbFilename}` : `/thumbnails/${thumbFilename}`;
+                            const thumbUrl = `/thumbnails/${subfolder}/${thumbFilename}`;
                             await run("UPDATE pins SET thumbnail = ? WHERE id = ?", [thumbUrl, pin.id]);
                             count++;
                         } catch (e: any) {
