@@ -8,6 +8,8 @@ import db from './database';
 import { Pin } from './types'; 
 import sharp from 'sharp'; 
 import { JSDOM } from 'jsdom'; 
+// @ts-ignore
+import bcrypt from 'bcryptjs';
 
 const app = express();
 const PORT = 3001;
@@ -16,15 +18,27 @@ const NEW_STEMS_ID = 'b-new-stems';
 const DATA_DIR = process.env.DATA_DIR || './data';
 const IMAGES_DIR = path.join(DATA_DIR, 'images');
 const THUMBNAILS_DIR = path.join(DATA_DIR, 'thumbnails');
+const AVATARS_DIR = path.join(DATA_DIR, 'avatars');
 
 // Ensure directories exist
 if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true });
 if (!fs.existsSync(THUMBNAILS_DIR)) fs.mkdirSync(THUMBNAILS_DIR, { recursive: true });
+if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
 
 app.use(cors());
 app.use(express.json());
+
+// Serve Static Files
 app.use('/images', express.static(IMAGES_DIR));
 app.use('/thumbnails', express.static(THUMBNAILS_DIR));
+// Removed static /avatars route in favor of API route below
+
+// --- SETUP MULTER ---
+const storage = multer.memoryStorage();
+const upload = multer({ 
+    storage,
+    limits: { fileSize: 50 * 1024 * 1024 } 
+});
 
 // --- DB Helpers ---
 const run = (sql: string, params: any[] = []) => new Promise((resolve, reject) => {
@@ -116,7 +130,8 @@ const runMigrations = async () => {
         
         const migrations = [
             { id: 1, name: 'add_deleted_at_to_pins', sql: "ALTER TABLE pins ADD COLUMN deletedAt INTEGER DEFAULT NULL" },
-            { id: 2, name: 'add_thumbnail_to_pins', sql: "ALTER TABLE pins ADD COLUMN thumbnail TEXT DEFAULT NULL" }
+            { id: 2, name: 'add_thumbnail_to_pins', sql: "ALTER TABLE pins ADD COLUMN thumbnail TEXT DEFAULT NULL" },
+            { id: 3, name: 'add_password_to_users', sql: "ALTER TABLE users ADD COLUMN password TEXT DEFAULT NULL" }
         ];
 
         for (const m of migrations) {
@@ -142,10 +157,6 @@ const runMigrations = async () => {
 
 const ensureDefaultData = async () => {
     try {
-        const user = await get("SELECT * FROM users LIMIT 1");
-        if (!user) {
-            await run(`INSERT INTO users (id, username, email, isAdmin, usedQuota, maxQuota, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`, ['u1', 'Admin', 'admin@tallo.local', 1, '0GB', '5GB', Date.now()]);
-        }
         const board = await get("SELECT * FROM boards WHERE id = ?", [NEW_STEMS_ID]);
         if (!board) {
             await run(`INSERT INTO boards (id, title, ownerId) VALUES (?, ?, ?)`, [NEW_STEMS_ID, 'New Stems', 'u1']);
@@ -155,48 +166,208 @@ const ensureDefaultData = async () => {
     }
 };
 
-runMigrations().then(ensureDefaultData);
-
 // --- ROUTES ---
 
 app.get('/', (req, res) => res.send('Tallo API Running'));
 
-app.get('/api/users', async (req, res) => {
-    const rows = await all("SELECT * FROM users");
-    res.json(rows);
-});
-app.get('/api/users/current', async (req, res) => {
-  let user = await get("SELECT * FROM users LIMIT 1");
-  if (!user) user = { id: 'u1', username: 'Fallback Admin', isAdmin: true };
-  res.json(user);
+// --- AVATAR ROUTES (FIXED) ---
+
+// 1. Get list of avatar filenames
+app.get('/api/avatars', async (req, res) => {
+    try {
+        const files = await fs.promises.readdir(AVATARS_DIR);
+        const images = files.filter(f => /\.(png|jpg|jpeg|webp|svg)$/i.test(f));
+        res.json(images);
+    } catch (e) {
+        console.error("Error reading avatars:", e);
+        res.json([]);
+    }
 });
 
-// COLLECTIONS
+// 2. Serve the actual avatar image (PROXY FRIENDLY)
+app.get('/api/avatars/image/:filename', (req, res) => {
+    const filename = req.params.filename;
+    // Basic sanitization to prevent directory traversal
+    const safeFilename = path.basename(filename);
+    const filepath = path.join(AVATARS_DIR, safeFilename);
+
+    if (fs.existsSync(filepath)) {
+        res.sendFile(filepath);
+    } else {
+        res.status(404).send('Avatar not found');
+    }
+});
+
+
+// --- AUTH ROUTES ---
+
+// Check if system is set up
+app.get('/api/system/status', async (req, res) => {
+    try {
+        const userCount = await get("SELECT COUNT(*) as count FROM users");
+        res.json({ isSetup: userCount.count > 0 });
+    } catch (e) {
+        res.status(500).json({ error: "DB Error" });
+    }
+});
+
+// Setup
+app.post('/api/setup', async (req, res) => {
+    const { username, password, email } = req.body;
+    
+    try {
+        const userCount = await get("SELECT COUNT(*) as count FROM users");
+        if (userCount.count > 0) {
+            return res.status(403).json({ error: "System is already set up." });
+        }
+
+        const existingName = await get("SELECT id FROM users WHERE lower(username) = lower(?)", [username]);
+        if (existingName) {
+            return res.status(400).json({ error: "Username already taken" });
+        }
+
+        // --- FIX: Random Avatar Selection ---
+        let randomAvatar = username; 
+        try {
+            if (fs.existsSync(AVATARS_DIR)) {
+                const files = await fs.promises.readdir(AVATARS_DIR);
+                const images = files.filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f));
+                if (images.length > 0) {
+                    randomAvatar = images[Math.floor(Math.random() * images.length)];
+                    console.log(`Assigned random avatar: ${randomAvatar}`);
+                } else {
+                    console.log("No avatar images found in /data/avatars");
+                }
+            }
+        } catch (e) {
+             console.log("Error selecting random avatar:", e);
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const id = 'u1'; 
+        const finalEmail = email && email.trim() !== '' ? email : null;
+
+        await run(
+            `INSERT INTO users (id, username, email, password, role, usedQuota, maxQuota, createdAt, avatarSeed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+            [id, username, finalEmail, hashedPassword, 'admin', '0GB', '20GB', Date.now(), randomAvatar]
+        );
+        
+        const user = await get("SELECT id, username, email, role, avatarSeed FROM users WHERE id = ?", [id]);
+        res.json(user);
+    } catch (e: any) {
+        console.error("Setup Error", e);
+        if (e.message && e.message.includes('UNIQUE constraint failed')) {
+            return res.status(400).json({ error: "Username already taken" });
+        }
+        res.status(500).json({ error: "Setup failed" });
+    }
+});
+
+// Login
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    
+    try {
+        const user = await get("SELECT * FROM users WHERE username = ?", [username]);
+        if (!user) {
+            return res.status(401).json({ error: "Invalid credentials" });
+        }
+
+        if (!user.password) {
+            return res.status(401).json({ error: "Account needs migration (no password set)" });
+        }
+
+        const match = await bcrypt.compare(password, user.password);
+        if (!match) {
+            return res.status(401).json({ error: "Invalid credentials" });
+        }
+
+        const { password: _, ...userInfo } = user;
+        res.json(userInfo);
+    } catch (e) {
+        console.error("Login Error", e);
+        res.status(500).json({ error: "Login failed" });
+    }
+});
+
+// --- USERS ROUTES ---
+
+app.get('/api/users', async (req, res) => {
+    try {
+        const rows = await all("SELECT id, username, email, role, usedQuota, maxQuota, avatarSeed, inviteCode FROM users");
+        res.json(rows);
+    } catch (e) {
+        res.status(500).json({ error: "Failed to fetch users" });
+    }
+});
+
+app.get('/api/users/current', async (req, res) => {
+  try {
+      const user = await get("SELECT id, username, email, role, avatarSeed FROM users LIMIT 1");
+      res.json(user || null);
+  } catch (e) {
+      res.status(500).json({ error: "DB Error" });
+  }
+});
+
+app.get('/api/users/:id', async (req, res) => {
+    try {
+        const user = await get("SELECT id, username, email, role, avatarSeed FROM users WHERE id = ?", [req.params.id]);
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+        res.json(user);
+    } catch (e) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+app.put('/api/users/:id', async (req, res) => {
+    const { avatarSeed, email } = req.body;
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    if (avatarSeed !== undefined) { updates.push("avatarSeed = ?"); values.push(avatarSeed); }
+    if (email !== undefined) { updates.push("email = ?"); values.push(email); }
+
+    if (updates.length > 0) {
+        values.push(req.params.id);
+        try {
+             await run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
+        } catch(e) {
+             console.error("Update User Error", e);
+             return res.status(500).json({error: "Update failed"});
+        }
+    }
+    
+    // Return updated user
+    try {
+        const user = await get("SELECT id, username, email, role, avatarSeed FROM users WHERE id = ?", [req.params.id]);
+        res.json(user);
+    } catch(e) {
+        res.status(500).json({error: "Fetch updated user failed"});
+    }
+});
+
+// --- COLLECTIONS ---
 app.get('/api/collections', async (req, res) => {
   const rows = await all("SELECT * FROM collections WHERE ownerId = ?", [req.query.userId]);
   res.json(rows);
 });
 
-// --- UPDATED CREATE COLLECTION (Dupe Check) ---
 app.post('/api/collections', async (req, res) => {
   const { title, ownerId } = req.body;
-  
-  // Check for duplicate title (case insensitive) for this owner
   const existing = await get("SELECT id FROM collections WHERE lower(title) = lower(?) AND ownerId = ?", [title, ownerId]);
   if (existing) {
       return res.status(400).json({ error: "A collection with this name already exists." });
   }
-
   const id = uuidv4();
   await run("INSERT INTO collections (id, title, ownerId) VALUES (?, ?, ?)", [id, title, ownerId]);
   res.json(await get("SELECT * FROM collections WHERE id = ?", [id]));
 });
 
-// --- UPDATED UPDATE COLLECTION (Dupe Check) ---
 app.put('/api/collections/:id', async (req, res) => {
     const { title } = req.body;
-    
-    // If title is changing, check for duplicates
     if (title !== undefined) {
         const currentCol = await get("SELECT ownerId FROM collections WHERE id = ?", [req.params.id]);
         if (currentCol) {
@@ -206,23 +377,17 @@ app.put('/api/collections/:id', async (req, res) => {
             }
         }
     }
-
     await run("UPDATE collections SET title = ? WHERE id = ?", [title, req.params.id]);
     res.json({ success: true });
 });
 
-// --- NEW DELETE COLLECTION ---
 app.delete('/api/collections/:id', async (req, res) => {
-    // 1. Move all boards in this collection to "Unorganized" (collectionId = NULL)
     await run("UPDATE boards SET collectionId = NULL WHERE collectionId = ?", [req.params.id]);
-    
-    // 2. Delete the collection
     await run("DELETE FROM collections WHERE id = ?", [req.params.id]);
-    
     res.json({ success: true });
 });
 
-// BOARDS
+// --- BOARDS ---
 app.get('/api/boards', async (req, res) => {
   const rows = await all("SELECT * FROM boards WHERE ownerId = ? OR id = ?", [req.query.userId, NEW_STEMS_ID]);
   res.json(rows);
@@ -265,7 +430,7 @@ app.delete('/api/boards/:id', async (req, res) => {
   res.json({ success: true });
 });
 
-// GET SINGLE PIN (For Deep Linking)
+// --- PINS ---
 app.get('/api/pins/:id', async (req, res) => {
   try {
       const pin = await get("SELECT * FROM pins WHERE id = ?", [req.params.id]);
@@ -277,7 +442,6 @@ app.get('/api/pins/:id', async (req, res) => {
   }
 });
 
-// PINS
 app.get('/api/pins', async (req, res) => {
   try {
       const page = parseInt(req.query.page as string) || 1;
@@ -520,6 +684,50 @@ app.post('/api/pins/ungroup', async (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).send('No file uploaded.');
+  const date = new Date();
+  const folder = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  
+  const targetDir = path.join(IMAGES_DIR, folder);
+  const thumbTargetDir = path.join(THUMBNAILS_DIR, folder);
+  
+  if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+  if (!fs.existsSync(thumbTargetDir)) fs.mkdirSync(thumbTargetDir, { recursive: true });
+
+  const filename = `${Date.now()}-${req.file.originalname}`;
+  const originalPath = path.join(targetDir, filename);
+
+  const isVideo = req.file.mimetype.startsWith('video/');
+  let thumbFilename = filename.replace(/\.[^/.]+$/, "") + ".webp"; 
+  if(isVideo) thumbFilename = filename; 
+
+  const thumbnailPath = path.join(thumbTargetDir, thumbFilename);
+
+  try {
+      // Create Buffer from memory (since we use memoryStorage now)
+      await fs.promises.writeFile(originalPath, req.file.buffer);
+      let thumbUrl = null;
+
+      if (!isVideo) {
+          await sharp(req.file.buffer)
+            .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
+            .webp({ quality: 80 })
+            .toFile(thumbnailPath);
+          thumbUrl = `/thumbnails/${folder}/${thumbFilename}`;
+      }
+
+      res.json({ 
+          url: `/images/${folder}/${filename}`,
+          thumbnail: thumbUrl
+      });
+  } catch (err) {
+      console.error("Upload failed", err);
+      if (!fs.existsSync(originalPath)) await fs.promises.writeFile(originalPath, req.file.buffer);
+      res.json({ url: `/images/${folder}/${filename}` });
+  }
+});
+
 app.post('/api/scrape', async (req, res) => {
     try {
         const { url } = req.body;
@@ -536,10 +744,6 @@ app.post('/api/scrape', async (req, res) => {
             
             if (oembedData.title) scrapedTitle = oembedData.title;
             if (oembedData.thumbnail_url) extractedImages.add(oembedData.thumbnail_url);
-            
-            if (oembedData.provider_name === 'YouTube' || oembedData.provider_name === 'Vimeo') {
-                console.log(`[Scraper] Detected Video via oEmbed: ${oembedData.title}`);
-            }
         } catch (e) {
             console.warn("oEmbed failed, falling back to standard scraper");
         }
@@ -609,52 +813,6 @@ app.post('/api/scrape', async (req, res) => {
     }
 });
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
-
-app.post('/api/upload', upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).send('No file uploaded.');
-  const date = new Date();
-  const folder = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-  
-  const targetDir = path.join(IMAGES_DIR, folder);
-  const thumbTargetDir = path.join(THUMBNAILS_DIR, folder);
-  
-  if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-  if (!fs.existsSync(thumbTargetDir)) fs.mkdirSync(thumbTargetDir, { recursive: true });
-
-  const filename = `${Date.now()}-${req.file.originalname}`;
-  const originalPath = path.join(targetDir, filename);
-
-  const isVideo = req.file.mimetype.startsWith('video/');
-  let thumbFilename = filename.replace(/\.[^/.]+$/, "") + ".webp"; 
-  if(isVideo) thumbFilename = filename; 
-
-  const thumbnailPath = path.join(thumbTargetDir, thumbFilename);
-
-  try {
-      await fs.promises.writeFile(originalPath, req.file.buffer);
-      let thumbUrl = null;
-
-      if (!isVideo) {
-          await sharp(req.file.buffer)
-            .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
-            .webp({ quality: 80 })
-            .toFile(thumbnailPath);
-          thumbUrl = `/thumbnails/${folder}/${thumbFilename}`;
-      }
-
-      res.json({ 
-          url: `/images/${folder}/${filename}`,
-          thumbnail: thumbUrl
-      });
-  } catch (err) {
-      console.error("Upload failed", err);
-      if (!fs.existsSync(originalPath)) await fs.promises.writeFile(originalPath, req.file.buffer);
-      res.json({ url: `/images/${folder}/${filename}` });
-  }
-});
-
 app.get('/api/settings', async (req, res) => {
   let settings = await get("SELECT * FROM settings WHERE id = 'default'");
   res.json(settings || { maxUploadSize: '50MB' });
@@ -669,7 +827,7 @@ app.post('/api/admin/regenerate-thumbnails', async (req, res) => {
         console.log("Starting thumbnail regeneration...");
         const pins = await all("SELECT * FROM pins WHERE thumbnail IS NULL OR thumbnail = ''");
         let count = 0;
-        const errors = [];
+        const errors: string[] = [];
 
         for (const pin of pins) {
             if (pin.imageUrl && pin.imageUrl.startsWith('http')) {
@@ -718,4 +876,14 @@ app.post('/api/admin/regenerate-thumbnails', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+// --- SERVER STARTUP ---
+const startServer = async () => {
+    // 1. Run migrations first
+    await runMigrations();
+    // 2. Ensure default data
+    await ensureDefaultData();
+    // 3. Start listening
+    app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+};
+
+startServer();

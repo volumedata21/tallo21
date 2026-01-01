@@ -20,15 +20,17 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
 
 // Initialize Tables
 db.serialize(() => {
-    // Users
+    // Users - UPDATED: Added UNIQUE to username
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
-        username TEXT,
+        username TEXT UNIQUE,
         email TEXT,
-        profileImage TEXT,
-        isAdmin INTEGER,
+        password TEXT, 
+        role TEXT,
         usedQuota TEXT,
         maxQuota TEXT,
+        avatarSeed TEXT,
+        inviteCode TEXT,
         createdAt INTEGER
     )`);
 
@@ -53,6 +55,7 @@ db.serialize(() => {
         title TEXT,
         description TEXT,
         imageUrl TEXT,
+        thumbnail TEXT,
         gallery TEXT, 
         boardIds TEXT,
         link TEXT,
@@ -61,7 +64,8 @@ db.serialize(() => {
         tags TEXT,
         ownerId TEXT,
         createdAt INTEGER,
-        favorite INTEGER
+        favorite INTEGER,
+        deletedAt INTEGER
     )`);
 
     // Settings

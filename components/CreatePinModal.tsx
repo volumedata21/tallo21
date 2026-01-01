@@ -410,8 +410,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                </>
                            ) : (
                                <div 
-                                 className={`flex flex-col items-center justify-center w-full max-w-lg h-64 rounded-xl border-2 border-dashed transition-all cursor-pointer bg-[#0F1522]
-                                   ${dragActive ? 'border-emerald-500 bg-emerald-500/5' : 'border-gray-800 hover:bg-[#131B2C] hover:border-gray-700'}
+                                 className={`flex flex-col items-center justify-center w-full max-w-lg h-64 rounded-xl border-2 border-dashed transition-all cursor-pointer bg-[#06080e]
+                                   ${dragActive ? 'border-emerald-500 bg-emerald-500/5' : 'border-gray-800 hover:bg-[#0c111f] hover:border-gray-700'}
                                  `}
                                  onDragEnter={handleDrag}
                                  onDragLeave={handleDrag}
