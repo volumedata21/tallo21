@@ -70,15 +70,28 @@ const processExternalImage = async (url: string) => {
 
         const id = Date.now() + '-' + Math.round(Math.random() * 1000);
         const contentType = response.headers.get('content-type');
+        
+        // --- VIDEO SUPPORT ---
+        const isVideo = contentType?.startsWith('video/');
+        
         let ext = '.jpg';
         if (contentType?.includes('png')) ext = '.png';
         if (contentType?.includes('webp')) ext = '.webp';
         if (contentType?.includes('gif')) ext = '.gif';
+        if (isVideo) ext = '.mp4';
         
         const filename = `${id}${ext}`;
         const originalPath = path.join(targetDir, filename);
         
         await fs.promises.writeFile(originalPath, buffer);
+
+        // If video, skip sharp optimization
+        if (isVideo) {
+             return {
+                url: `/images/${folder}/${filename}`,
+                thumbnail: null 
+            };
+        }
 
         const thumbFilename = `${id}.webp`;
         const thumbPath = path.join(thumbDir, thumbFilename);
@@ -212,11 +225,42 @@ app.get('/api/pins', async (req, res) => {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
       const offset = (page - 1) * limit;
+      
+      const { sort, search, boardId, favorites, tag } = req.query;
 
       let sql = "SELECT * FROM pins WHERE deletedAt IS NULL";
       const params: any[] = [];
+
+      // --- FILTERS ---
+      if (favorites === 'true') {
+          sql += " AND favorite = 1";
+      }
       
-      sql += " ORDER BY createdAt DESC";
+      if (search) {
+          sql += " AND (title LIKE ? OR description LIKE ?)";
+          params.push(`%${search}%`, `%${search}%`);
+      }
+
+      if (boardId) {
+          // Since boardIds is a JSON string, we use LIKE as a simple containment check
+          sql += " AND boardIds LIKE ?";
+          params.push(`%${boardId}%`);
+      }
+
+      if (tag) {
+          sql += " AND tags LIKE ?";
+          params.push(`%${tag}%`);
+      }
+      
+      // --- SORTING ---
+      let orderBy = 'createdAt DESC'; // Default (Newest)
+      
+      if (sort === 'oldest') orderBy = 'createdAt ASC';
+      else if (sort === 'az') orderBy = 'title ASC';
+      else if (sort === 'za') orderBy = 'title DESC';
+      else if (sort === 'random') orderBy = 'RANDOM()'; // <--- THIS FIXES SHUFFLE
+
+      sql += ` ORDER BY ${orderBy}`;
       sql += " LIMIT ? OFFSET ?";
       params.push(limit, offset);
 
@@ -228,29 +272,6 @@ app.get('/api/pins', async (req, res) => {
       console.error("Fetch pins error:", e);
       res.status(500).json({ error: "Failed to fetch pins" });
   }
-});
-
-app.post('/api/pins', async (req, res) => {
-    const pin = req.body;
-    const id = uuidv4();
-    let boardIds = pin.boardIds || [];
-    if (boardIds.length === 0) boardIds = [NEW_STEMS_ID];
-
-    let finalImageUrl = pin.imageUrl;
-    let finalThumbnail = pin.thumbnail;
-
-    if (pin.imageUrl && pin.imageUrl.startsWith('http')) {
-        const processed = await processExternalImage(pin.imageUrl);
-        finalImageUrl = processed.url;
-        if (processed.thumbnail) finalThumbnail = processed.thumbnail;
-    }
-
-    await run(
-      `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), JSON.stringify(boardIds), pin.link, JSON.stringify(pin.location || null), pin.aspectRatio, JSON.stringify(pin.tags || []), pin.ownerId, Date.now(), 0, null]
-    );
-    res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
 
 app.put('/api/pins/:id', async (req, res) => {
@@ -421,14 +442,33 @@ app.post('/api/pins/ungroup', async (req, res) => {
   res.json({ success: true });
 });
 
-// --- UPDATED SCRAPER (Added GIF/AVIF support) ---
+// --- UPDATED SUPER SCRAPER (With oEmbed for Title/Video) ---
 app.post('/api/scrape', async (req, res) => {
     try {
         const { url } = req.body;
         if (!url) return res.status(400).json({ error: 'URL required' });
 
         console.log(`Scraping: ${url}`);
+        const extractedImages = new Set<string>();
+        let scrapedTitle = '';
 
+        // 1. OEmbed (Fastest for YouTube/Vimeo/Soundcloud)
+        try {
+            const oembedUrl = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
+            const oembedRes = await fetch(oembedUrl);
+            const oembedData = await oembedRes.json();
+            
+            if (oembedData.title) scrapedTitle = oembedData.title;
+            if (oembedData.thumbnail_url) extractedImages.add(oembedData.thumbnail_url);
+            
+            if (oembedData.provider_name === 'YouTube' || oembedData.provider_name === 'Vimeo') {
+                console.log(`[Scraper] Detected Video via oEmbed: ${oembedData.title}`);
+            }
+        } catch (e) {
+            console.warn("oEmbed failed, falling back to standard scraper");
+        }
+
+        // 2. Standard Fetch
         const response = await fetch(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -436,91 +476,61 @@ app.post('/api/scrape', async (req, res) => {
             }
         });
 
-        if (!response.ok) throw new Error(`Failed to fetch ${url}`);
-
-        const contentType = response.headers.get('content-type') || '';
-        if (contentType.startsWith('image/')) {
-            return res.json({ images: [url] });
-        }
-
-        let html = await response.text();
-        const extractedImages = new Set<string>();
-
-        // ------------------------------------------------------------------
-        // STRATEGY 1: BEHANCE SPECIFIC (UNESCAPE + REGEX)
-        // ------------------------------------------------------------------
-        if (url.includes('behance.net')) {
-            console.log('[Scraper] Applying Behance-specific Logic');
-            
-            // 1. Unescape JSON slashes (https:\/\/ -> https://)
-            const cleanHtml = html.replace(/\\\//g, '/');
-
-            // 2. Regex Updated: Added 'gif' and 'avif' to allowed extensions
-            //    Also matches typical Behance patterns
-            const behanceRegex = /https?:\/\/(?:mir-s3-cdn-cf|m)\.behance\.net\/project_modules\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif|avif)/gi;
-            
-            const matches = cleanHtml.match(behanceRegex);
-            if (matches) {
-                console.log(`[Scraper] Behance Regex found ${matches.length} raw matches`);
-                matches.forEach(m => {
-                    // Filter out tiny thumbnails, but allow 'disp' (common for GIFs)
-                    if (!m.includes('/min_')) {
-                        extractedImages.add(m);
-                    }
-                });
+        if (response.ok) {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.startsWith('image/')) {
+                 return res.json({ images: [url], title: '' });
             }
-        }
+            
+            const html = await response.text();
+            
+            // BEHANCE SCANNER
+            if (url.includes('behance.net')) {
+                const cleanHtml = html.replace(/\\\//g, '/');
+                const behanceRegex = /https?:\/\/(?:mir-s3-cdn-cf|m)\.behance\.net\/project_modules\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif|avif)/gi;
+                const matches = cleanHtml.match(behanceRegex);
+                if (matches) matches.forEach(m => { if (!m.includes('/min_') && !m.includes('/disp_')) extractedImages.add(m); });
+            }
 
-        // ------------------------------------------------------------------
-        // STRATEGY 2: STANDARD DOM PARSING (Fallbacks)
-        // ------------------------------------------------------------------
-        const dom = new JSDOM(html);
-        const doc = dom.window.document;
+            // DOM SCANNER
+            const dom = new JSDOM(html);
+            const doc = dom.window.document;
 
-        const metaSelectors = [
-            'meta[property="og:image"]',
-            'meta[name="twitter:image"]',
-            'link[rel="image_src"]'
-        ];
+            // Get Title if we didn't get it from oEmbed
+            if (!scrapedTitle) {
+                scrapedTitle = doc.querySelector('title')?.textContent || '';
+                const ogTitle = doc.querySelector('meta[property="og:title"]')?.getAttribute('content');
+                if (ogTitle) scrapedTitle = ogTitle;
+            }
 
-        metaSelectors.forEach(selector => {
-            doc.querySelectorAll(selector).forEach((el: any) => {
-                const content = el.getAttribute('content') || el.getAttribute('href');
-                if (content) {
-                    try { extractedImages.add(new URL(content, url).href); } catch(e){}
+            // Get Images
+            const metaSelectors = ['meta[property="og:image"]', 'meta[name="twitter:image"]', 'link[rel="image_src"]'];
+            metaSelectors.forEach(selector => {
+                doc.querySelectorAll(selector).forEach((el: any) => {
+                    const content = el.getAttribute('content') || el.getAttribute('href');
+                    if (content) try { extractedImages.add(new URL(content, url).href); } catch(e){}
+                });
+            });
+
+            doc.querySelectorAll('img').forEach((img: any) => {
+                const candidateSrc = img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || img.src;
+                if (candidateSrc && !candidateSrc.startsWith('data:')) {
+                    try {
+                        const width = img.getAttribute('width');
+                        if (width && parseInt(width) < 50) return;
+                        extractedImages.add(new URL(candidateSrc, url).href);
+                    } catch (e) {}
                 }
             });
-        });
-
-        doc.querySelectorAll('img').forEach((img: any) => {
-            const candidateSrc = 
-                img.getAttribute('data-src') || 
-                img.getAttribute('data-lazy-src') || 
-                img.src;
-
-            if (candidateSrc && !candidateSrc.startsWith('data:')) {
-                try {
-                    const width = img.getAttribute('width');
-                    const height = img.getAttribute('height');
-                    if ((width && parseInt(width) < 50) || (height && parseInt(height) < 50)) return;
-                    extractedImages.add(new URL(candidateSrc, url).href);
-                } catch (e) {}
-            }
-            if (img.srcset) {
-                const sources = img.srcset.split(',');
-                const lastSource = sources[sources.length - 1];
-                const srcUrl = lastSource.trim().split(' ')[0];
-                if (srcUrl) {
-                    try { extractedImages.add(new URL(srcUrl, url).href); } catch(e){}
-                }
-            }
-        });
+        }
 
         const imageList = Array.from(extractedImages)
             .filter(img => !img.endsWith('.svg') && !img.includes('favicon'));
 
-        console.log(`[Scraper] Found ${imageList.length} images`);
-        res.json({ images: imageList.slice(0, 50) });
+        res.json({ 
+            images: imageList.slice(0, 50),
+            title: scrapedTitle.trim()
+        });
 
     } catch (error: any) {
         console.error("Scrape error:", error);
@@ -544,19 +554,28 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
   const filename = `${Date.now()}-${req.file.originalname}`;
   const originalPath = path.join(targetDir, filename);
-  const thumbFilename = filename.replace(/\.[^/.]+$/, "") + ".webp"; 
+
+  const isVideo = req.file.mimetype.startsWith('video/');
+  let thumbFilename = filename.replace(/\.[^/.]+$/, "") + ".webp"; 
+  if(isVideo) thumbFilename = filename; 
+
   const thumbnailPath = path.join(thumbTargetDir, thumbFilename);
 
   try {
       await fs.promises.writeFile(originalPath, req.file.buffer);
-      await sharp(req.file.buffer)
-        .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
-        .webp({ quality: 80 })
-        .toFile(thumbnailPath);
+      let thumbUrl = null;
+
+      if (!isVideo) {
+          await sharp(req.file.buffer)
+            .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
+            .webp({ quality: 80 })
+            .toFile(thumbnailPath);
+          thumbUrl = `/thumbnails/${folder}/${thumbFilename}`;
+      }
 
       res.json({ 
           url: `/images/${folder}/${filename}`,
-          thumbnail: `/thumbnails/${folder}/${thumbFilename}`
+          thumbnail: thumbUrl
       });
   } catch (err) {
       console.error("Upload failed", err);
@@ -583,16 +602,14 @@ app.post('/api/admin/regenerate-thumbnails', async (req, res) => {
 
         for (const pin of pins) {
             if (pin.imageUrl && pin.imageUrl.startsWith('http')) {
-                console.log(`Downloading external: ${pin.imageUrl}`);
                 const processed = await processExternalImage(pin.imageUrl);
                 if (processed.url !== pin.imageUrl) { 
                     await run("UPDATE pins SET imageUrl = ?, thumbnail = ? WHERE id = ?", [processed.url, processed.thumbnail, pin.id]);
                     count++;
-                } else {
-                    errors.push(`Failed to download: ${pin.imageUrl}`);
                 }
-            } 
-            else {
+            } else {
+                if (pin.imageUrl.endsWith('.mp4') || pin.imageUrl.endsWith('.mov')) continue;
+
                 const parts = pin.imageUrl.split('/').filter((p: string) => p.length > 0);
                 if (parts.length >= 2) {
                     const filename = parts[parts.length - 1];
