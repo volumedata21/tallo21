@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Heart, Copy, CheckCircle, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Heart, Copy, CheckCircle, ExternalLink, ChevronLeft, ChevronRight, Play } from 'lucide-react';
 import { Pin, UserSettings } from '../types';
 import { dataService } from '../services/dataService';
 
@@ -23,22 +23,22 @@ export const PinCard: React.FC<PinCardProps> = ({
   const [isFavorite, setIsFavorite] = useState(pin.favorite);
   const [isDraggable, setIsDraggable] = useState(true);
   const [isHovering, setIsHovering] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   
-  // --- OPTIMIZATION: Determine cover image ---
-  // If a thumbnail exists, use it by default. Fallback to full image.
-  const coverImage = pin.thumbnail || pin.imageUrl;
-  
-  // Gallery Cycling State
-  // Initialize with the cover image (optimized or full)
-  const [currentImage, setCurrentImage] = useState(coverImage);
+  // --- IMAGE STATE WITH FALLBACKS ---
+  // Start with the thumbnail, but be ready to switch if it fails
+  const [imgSrc, setImgSrc] = useState(pin.thumbnail || pin.imageUrl);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // The full gallery list always uses high-res images for consistency when cycling
+  // Full gallery for cycling
   const allImages = [pin.imageUrl, ...(pin.gallery || [])];
   const hasGallery = allImages.length > 1;
 
+  // --- VIDEO DETECTION ---
+  const isVideo = imgSrc?.match(/\.(mp4|webm|ogg|mov)$/i);
+  const isVideoLink = pin.link && (pin.link.includes('youtube') || pin.link.includes('vimeo') || pin.link.includes('youtu.be'));
+
   useEffect(() => {
-    // Disable drag on touch devices or small screens
     const checkDraggable = () => {
         const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
         const isSmallScreen = window.innerWidth < 768;
@@ -49,22 +49,53 @@ export const PinCard: React.FC<PinCardProps> = ({
     return () => window.removeEventListener('resize', checkDraggable);
   }, []);
 
-  // Reset index and image if the pin prop changes
+  // Reset when pin changes
   useEffect(() => {
       setCurrentIndex(0);
-      setCurrentImage(coverImage);
-  }, [pin.id, coverImage]);
+      setImgSrc(pin.thumbnail || pin.imageUrl);
+  }, [pin.id, pin.thumbnail, pin.imageUrl]);
 
-  // --- OPTIMIZATION: Reset to thumbnail when not hovering ---
+  // --- HOVER LOGIC ---
   useEffect(() => {
-    if (!isHovering && currentIndex === 0) {
-        setCurrentImage(coverImage);
-    } else if (isHovering && currentIndex === 0 && !pin.thumbnail) {
-         // Optional: If we don't have a thumbnail, we are already using full res.
-         // If we DID have a thumbnail, we might want to swap to full res on hover?
-         // For now, let's keep it simple: Stay on thumbnail until user cycles.
+    if (!isHovering) {
+        if (currentIndex !== 0) {
+            setImgSrc(pin.thumbnail || pin.imageUrl);
+            setCurrentIndex(0);
+        }
+        if (videoRef.current) {
+            videoRef.current.pause();
+            videoRef.current.currentTime = 0;
+        }
+    } else {
+        if (isVideo && videoRef.current) {
+            videoRef.current.play().catch(() => {}); 
+        }
     }
-  }, [isHovering, coverImage, currentIndex, pin.thumbnail]);
+  }, [isHovering, pin.thumbnail, pin.imageUrl, currentIndex, isVideo]);
+
+  // --- FALLBACK HANDLER (The Fix) ---
+  const handleImageError = () => {
+      // 1. If Thumbnail fails, try the main Image URL
+      if (imgSrc === pin.thumbnail && pin.imageUrl) {
+          setImgSrc(pin.imageUrl);
+          return;
+      }
+
+      // 2. If main Image fails (or we are already using it), try YouTube/Vimeo direct links
+      if (pin.link) {
+          // YouTube
+          const ytMatch = pin.link.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+          if (ytMatch && imgSrc !== `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`) {
+              setImgSrc(`https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`);
+              return;
+          }
+          // Vimeo (Basic fallback)
+          if (pin.link.includes('vimeo') && !imgSrc.startsWith('http')) {
+              // We can't easily guess vimeo CDN urls without an API call, 
+              // but we can stop the broken image icon by setting a placeholder or hiding it.
+          }
+      }
+  };
 
   const toggleFav = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -81,13 +112,12 @@ export const PinCard: React.FC<PinCardProps> = ({
     }
   };
 
-  // --- GALLERY HANDLERS ---
   const handleNext = (e: React.MouseEvent) => {
       e.stopPropagation();
       e.preventDefault();
       const nextIndex = (currentIndex + 1) % allImages.length;
       setCurrentIndex(nextIndex);
-      setCurrentImage(allImages[nextIndex]); // Load full res when cycling
+      setImgSrc(allImages[nextIndex]);
   };
 
   const handlePrev = (e: React.MouseEvent) => {
@@ -95,19 +125,16 @@ export const PinCard: React.FC<PinCardProps> = ({
       e.preventDefault();
       const prevIndex = (currentIndex - 1 + allImages.length) % allImages.length;
       setCurrentIndex(prevIndex);
-      setCurrentImage(allImages[prevIndex]); // Load full res when cycling
+      setImgSrc(allImages[prevIndex]);
   };
 
-  // --- SMART URL FORMATTER ---
   const getDomainInfo = (url: string) => {
       try {
           const hostname = new URL(url).hostname.replace(/^www\./, '');
           const parts = hostname.split('.');
-          if (parts.length > 1) parts.pop(); // Remove TLD
-          
+          if (parts.length > 1) parts.pop();
           const nameRaw = parts.join(' '); 
           const displayName = nameRaw.split(/[-_.]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
-
           return {
               displayName, 
               hostname,    
@@ -132,24 +159,44 @@ export const PinCard: React.FC<PinCardProps> = ({
     >
       <div className={`relative overflow-hidden rounded-xl bg-slate-800 shadow-xl border transition-all duration-300 ${isSelected ? 'border-teal-500 ring-2 ring-teal-500/50' : 'border-slate-800 group-hover:border-slate-700 group-hover:-translate-y-1'}`}>
         
-        {/* Main Image (Thumbnail or Full) */}
-        <img
-          src={currentImage}
-          alt={pin.title}
-          className={`w-full h-auto block object-cover transition-opacity ${isSelected ? 'opacity-75' : 'opacity-100'}`}
-          loading="lazy"
-        />
+        {/* MEDIA CONTENT */}
+        {isVideo ? (
+            <video
+                ref={videoRef}
+                src={imgSrc}
+                muted 
+                loop 
+                playsInline
+                className={`w-full h-auto block object-cover transition-opacity ${isSelected ? 'opacity-75' : 'opacity-100'}`}
+                onError={handleImageError} // Handle video load errors too
+            />
+        ) : (
+            <img
+                src={imgSrc}
+                alt={pin.title}
+                className={`w-full h-auto block object-cover transition-opacity ${isSelected ? 'opacity-75' : 'opacity-100'}`}
+                loading="lazy"
+                onError={handleImageError} // <--- CRITICAL FIX
+            />
+        )}
         
+        {/* Video Badge */}
+        {(isVideo || isVideoLink) && (
+            <div className="absolute top-3 right-3 z-20 w-6 h-6 bg-black/50 backdrop-blur rounded-full flex items-center justify-center pointer-events-none shadow-lg">
+                <Play size={10} className="text-white fill-white" />
+            </div>
+        )}
+
         {/* Selection Checkbox */}
         {(isSelectionMode || isSelected) && (
-            <div className={`absolute top-3 right-3 z-30 transition-all ${isSelected ? 'opacity-100 scale-100' : 'opacity-100 scale-100'}`}>
+            <div className={`absolute top-3 left-3 z-30 transition-all ${isSelected ? 'opacity-100 scale-100' : 'opacity-100 scale-100'}`}>
                 <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${isSelected ? 'bg-teal-500 border-teal-500' : 'bg-black/50 border-white/50'}`}>
                     {isSelected && <CheckCircle size={16} className="text-white" />}
                 </div>
             </div>
         )}
 
-        {/* Gallery Cycle Buttons (Visible on Hover) */}
+        {/* Gallery Cycle Buttons */}
         {hasGallery && !isSelectionMode && (
             <>
                 <button 
@@ -167,7 +214,7 @@ export const PinCard: React.FC<PinCardProps> = ({
             </>
         )}
 
-        {/* Gallery Indicator (Updates when cycling) */}
+        {/* Gallery Indicator */}
         {hasGallery && (
            <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/60 backdrop-blur rounded-md flex items-center gap-1.5 z-20 pointer-events-none">
               <Copy size={10} className="text-white" />
@@ -177,11 +224,10 @@ export const PinCard: React.FC<PinCardProps> = ({
            </div>
         )}
         
-        {/* --- HOVER OVERLAY --- */}
+        {/* Hover Overlay */}
         {!isSelectionMode && (
           <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col p-4 z-20 pointer-events-none">
              
-             {/* Top Row: URL & Like */}
              <div className="flex justify-between items-start pointer-events-auto">
                 {domainInfo ? (
                     <a 
@@ -207,10 +253,7 @@ export const PinCard: React.FC<PinCardProps> = ({
                 </button>
              </div>
              
-             {/* Bottom Section: Location & Tags */}
              <div className="mt-auto pt-4 flex flex-col gap-2 items-start pointer-events-auto">
-               
-               {/* Location */}
                {pin.location && (
                    <a 
                      href={`https://www.google.com/maps/search/?api=1&query=${pin.location.lat},${pin.location.lng}`}
@@ -224,7 +267,6 @@ export const PinCard: React.FC<PinCardProps> = ({
                    </a>
                )}
 
-               {/* Tags */}
                {pin.tags && pin.tags.length > 0 && (
                    <div className="flex flex-wrap gap-1.5 overflow-hidden max-h-[3.6em] relative w-full">
                        {pin.tags.map(tag => (
@@ -239,7 +281,6 @@ export const PinCard: React.FC<PinCardProps> = ({
         )}
       </div>
 
-      {/* Info Footer */}
       <div className="mt-3 px-1">
         {shouldShowTitle && (
           <div className="flex justify-between items-start gap-2">
