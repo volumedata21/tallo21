@@ -3,13 +3,55 @@ import { User, Pin, Board, Collection, LocationData, SystemSettings, SortOption 
 const API_URL = '/api'; 
 
 export const dataService = {
+  // --- AUTH & SYSTEM ---
+  
+  checkSystemSetup: async (): Promise<boolean> => {
+      const res = await fetch(`${API_URL}/system/status`);
+      const data = await res.json();
+      return data.isSetup;
+  },
+
+  setupAdmin: async (data: any): Promise<User> => {
+      const res = await fetch(`${API_URL}/setup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+      });
+      if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Setup failed");
+      }
+      return res.json();
+  },
+
+  login: async (credentials: any): Promise<User> => {
+      const res = await fetch(`${API_URL}/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(credentials)
+      });
+      if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Login failed");
+      }
+      return res.json();
+  },
+
+  getUserById: async (id: string): Promise<User> => {
+      const res = await fetch(`${API_URL}/users/${id}`);
+      if (!res.ok) {
+          throw new Error("User not found");
+      }
+      return res.json();
+  },
+
   // --- USERS ---
   getUsers: async (): Promise<User[]> => {
     const res = await fetch(`${API_URL}/users`);
     return res.json();
   },
   
-  getCurrentUser: async (): Promise<User> => {
+  getCurrentUser: async (): Promise<User | null> => {
     const res = await fetch(`${API_URL}/users/current`);
     return res.json();
   },
@@ -20,6 +62,22 @@ export const dataService = {
 
   deleteUser: async (id: string) => { /* Implement in server */ },
   resetPassword: async (id: string) => { return true; },
+
+  // --- AVATARS & PROFILE ---
+  getAvatars: async (): Promise<string[]> => {
+      const res = await fetch(`${API_URL}/avatars`);
+      return res.json();
+  },
+
+  updateProfile: async (id: string, data: Partial<User>): Promise<User> => {
+      const res = await fetch(`${API_URL}/users/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+      });
+      if (!res.ok) throw new Error("Failed to update profile");
+      return res.json();
+  },
 
   // --- COLLECTIONS ---
   getCollections: async (userId: string): Promise<Collection[]> => {
@@ -98,30 +156,21 @@ export const dataService = {
   },
 
   // --- PINS ---
-  
-  // 1. Fetch Single Pin (for Share Links)
   getPin: async (id: string): Promise<Pin> => {
     const res = await fetch(`${API_URL}/pins/${id}`);
     if (!res.ok) throw new Error("Pin not found");
     return res.json();
   },
 
-  // 2. Fetch All Pins (with filters)
   getPins: async (filter: any = {}, sort: SortOption = 'newest', search = '', userId = '', page = 1): Promise<Pin[]> => {
     const params = new URLSearchParams();
-    
-    // Filters
     if (filter.collectionId) params.append('collectionId', filter.collectionId);
     if (filter.boardId) params.append('boardId', filter.boardId);
     if (filter.favorites) params.append('favorites', 'true');
     if (filter.tag) params.append('tag', filter.tag);
-    
-    // Search & Sort
     if (sort) params.append('sort', sort);
     if (search) params.append('search', search);
     if (userId) params.append('userId', userId);
-    
-    // Pagination (Load 50 at a time)
     params.append('page', page.toString());
     params.append('limit', '50'); 
 
@@ -176,7 +225,6 @@ export const dataService = {
       return data.url; 
   },
 
-  // --- UPDATED: Return Title ---
   getImagesFromUrl: async (url: string): Promise<{ images: string[], title: string }> => {
      try {
          const res = await fetch(`${API_URL}/scrape`, {
@@ -207,6 +255,16 @@ export const dataService = {
     return false;
   },
   
+  // --- USER SELF-MANAGEMENT ---
+
+  changePassword: async (id: string, currentPass: string, newPass: string) => {
+      return true;
+  },
+
+  logout: () => {
+      localStorage.removeItem('tallo_user');
+  },
+
   // --- LOCATION ---
   searchLocation: async (query: string): Promise<LocationData[]> => {
       try {
