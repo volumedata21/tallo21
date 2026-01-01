@@ -141,7 +141,8 @@ export const dataService = {
       return data.url; 
   },
 
-  getImagesFromUrl: async (url: string): Promise<string[]> => {
+  // --- UPDATED: Return Title ---
+  getImagesFromUrl: async (url: string): Promise<{ images: string[], title: string }> => {
      try {
          const res = await fetch(`${API_URL}/scrape`, {
              method: 'POST',
@@ -150,10 +151,13 @@ export const dataService = {
          });
          if (!res.ok) throw new Error("Scrape failed");
          const data = await res.json();
-         return data.images || [];
+         return { 
+             images: data.images || [],
+             title: data.title || ''
+         };
      } catch (e) {
          console.error(e);
-         return [];
+         return { images: [], title: '' };
      }
   },
 

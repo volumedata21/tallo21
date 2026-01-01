@@ -21,7 +21,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   const [showInfo, setShowInfo] = useState(true);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   
-  // Editable Fields
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>([]);
@@ -34,7 +33,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   const [isCopying, setIsCopying] = useState(false);
   const [viewingUrl, setViewingUrl] = useState('');
   
-  // Location Search State
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [locationResults, setLocationResults] = useState<LocationData[]>([]);
@@ -140,7 +138,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   
   const handleClose = () => { handleSave(false); onClose(); };
 
-  // --- CHANGED: Removed confirm() ---
   const handleDelete = (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
@@ -244,6 +241,61 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       onUpdate();
   };
 
+  // --- VIDEO PLAYER COMPONENT ---
+  const renderContent = () => {
+    // 1. Direct Video File Upload
+    if (viewingUrl.endsWith('.mp4') || viewingUrl.endsWith('.mov')) {
+        return (
+            <video 
+                src={viewingUrl} 
+                controls 
+                autoPlay 
+                loop 
+                className="max-w-full max-h-full object-contain relative z-10"
+            />
+        );
+    }
+
+    // 2. Scraped Video Embed (YouTube/Vimeo)
+    // Only show embed if we are viewing the "Main" cover image, AND the link is a valid video.
+    // If user clicks a gallery image, we show the image, not the video.
+    const isMainImage = viewingUrl === pin.imageUrl;
+    
+    if (isMainImage && pin.link) {
+        const ytMatch = pin.link.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+        if (ytMatch) {
+            return (
+                <iframe 
+                    className="w-full h-full aspect-video z-10"
+                    src={`https://www.youtube.com/embed/${ytMatch[1]}?autoplay=1`}
+                    title="YouTube video player"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                />
+            );
+        }
+
+        const vimeoMatch = pin.link.match(/vimeo\.com\/(?:channels\/(?:\w+\/)?|groups\/(?:[^\/]*)\/videos\/|album\/(?:\d+)\/video\/|video\/|)(\d+)/);
+        if (vimeoMatch) {
+            return (
+                 <iframe 
+                    src={`https://player.vimeo.com/video/${vimeoMatch[1]}?autoplay=1`} 
+                    className="w-full h-full aspect-video z-10" 
+                    frameBorder="0" 
+                    allow="autoplay; fullscreen; picture-in-picture" 
+                    allowFullScreen 
+                  />
+            );
+        }
+    }
+
+    // 3. Default Image
+    return (
+        <img src={viewingUrl} className="max-w-full max-h-full object-contain relative z-10" alt={pin.title} />
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 sm:bg-slate-950/95 sm:backdrop-blur-md sm:p-8" onClick={handleClose}>
        {hasPrev && (
@@ -287,7 +339,10 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
 
              <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-[#050505]">
                  <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#1e293b 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
-                 <img src={viewingUrl} className="max-w-full max-h-full object-contain relative z-10" alt={pin.title} />
+                 
+                 {/* --- RENDER CONTENT (VIDEO OR IMAGE) --- */}
+                 {renderContent()}
+
                  {galleryImages.length > 1 && (
                     <>
                        <button onClick={handlePrevImage} className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 hover:bg-black/70 text-white transition opacity-0 group-hover:opacity-100 hidden md:block z-20">

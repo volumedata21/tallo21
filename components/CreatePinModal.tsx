@@ -45,6 +45,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   const [selectedScrapedImages, setSelectedScrapedImages] = useState<string[]>([]);
   const [isScraping, setIsScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState('');
+  const [scrapedTitle, setScrapedTitle] = useState(''); // Store title
 
   const [syncChanges, setSyncChanges] = useState(true);
 
@@ -74,21 +75,17 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       setScrapedImages([]);
       setSelectedScrapedImages([]);
       setScrapeError('');
+      setScrapedTitle('');
   };
 
   if (!isOpen) return null;
 
   const currentDraft = drafts.find(d => d.id === selectedDraftId);
 
-  // --- UPDATED LOGIC: Prefer 'New Stems' ---
   const getDefaultBoardId = () => {
     if (!boards || boards.length === 0) return '';
-    
-    // 1. Try to find the 'New Stems' permanent board
     const newStems = boards.find(b => b.title === 'New Stems');
     if (newStems) return newStems.id;
-    
-    // 2. Fallback to Moodboard or Unorganized
     const moodboard = boards.find(b => b.title === 'Moodboard') || boards.find(b => !b.collectionId) || boards[0];
     return moodboard ? moodboard.id : '';
   };
@@ -129,7 +126,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                       id: Math.random().toString(36) + Date.now(),
                       file, 
                       previewUrl: e.target?.result as string,
-                      title: '', 
+                      title: file.name.split('.')[0], 
                       description: '',
                       boardIds: defaultBoardId ? [defaultBoardId] : [], 
                       tags: [],
@@ -172,14 +169,15 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
       setScrapedImages([]);
       
       try {
-          const images = await dataService.getImagesFromUrl(sanitized);
+          const { images, title } = await dataService.getImagesFromUrl(sanitized);
           if (images.length === 0) {
               setScrapeError('No images found.');
           } else if (images.length === 1) {
-              addUrlToDrafts(images[0], sanitized);
+              addUrlToDrafts(images[0], sanitized, title);
               resetUrlImport();
           } else {
               setScrapedImages(images);
+              setScrapedTitle(title);
           }
       } catch (err) {
           setScrapeError('Failed to fetch URL.');
@@ -196,17 +194,17 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
   const addScrapedImagesToDrafts = () => {
       const sourceUrl = dataService.sanitizeUrl(urlInput);
-      selectedScrapedImages.forEach(img => addUrlToDrafts(img, sourceUrl));
+      selectedScrapedImages.forEach(img => addUrlToDrafts(img, sourceUrl, scrapedTitle));
       resetUrlImport();
       setActiveTab('upload');
   };
 
-  const addUrlToDrafts = (url: string, sourceLink: string = '') => {
+  const addUrlToDrafts = (url: string, sourceLink: string = '', autoTitle: string = '') => {
       const defaultBoardId = getDefaultBoardId();
       const newDraft: DraftPin = {
            id: Math.random().toString(36) + Date.now(),
            previewUrl: url,
-           title: '',
+           title: autoTitle,
            description: '',
            boardIds: defaultBoardId ? [defaultBoardId] : [], 
            tags: [],
@@ -344,7 +342,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
         className="bg-[#0B1120] w-full max-w-5xl h-[700px] rounded-2xl border border-gray-800 shadow-2xl flex flex-col overflow-hidden transition-all" 
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex justify-between items-center px-6 py-4 border-b border-gray-800 bg-[#0B1120] shrink-0">
            <div className="flex items-center gap-3">
                <h2 className="font-bold text-white text-lg">Create</h2>
@@ -364,10 +361,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
             
             <input type="file" multiple accept="image/*,video/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
 
-            {/* --- MAIN CONTENT AREA --- */}
             <div className="flex-1 bg-[#0B1120] overflow-hidden flex flex-col w-full h-full">
                
-               {/* EMPTY STATE / URL IMPORT (Center View) */}
                {drafts.length === 0 ? (
                    <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#0B1120]">
                        <div className="max-w-md w-full">
@@ -434,7 +429,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                        </div>
                    </div>
 
-               // EDIT VIEW (2 COLUMNS)
                ) : currentDraft ? (
                    <div className="flex flex-col md:flex-row h-full overflow-hidden">
                        
@@ -445,7 +439,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                            <div className="flex-1 flex items-center justify-center p-8 relative overflow-hidden bg-black/50">
                                <img src={currentDraft.previewUrl} className="max-w-full max-h-full object-contain rounded shadow-2xl" />
                                
-                               {/* Delete Button */}
                                <button 
                                   onClick={() => removeDraft(currentDraft.id)}
                                   className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-red-500 text-white rounded-full transition-all backdrop-blur"
@@ -454,7 +447,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                    <Trash2 size={16} />
                                </button>
 
-                               {/* Sync Button */}
                                {drafts.length > 1 && (
                                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur border border-gray-700 rounded-full pl-3 pr-1 py-1 flex items-center gap-2 shadow-xl z-10">
                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Apply to All</span>
@@ -468,7 +460,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                )}
                            </div>
 
-                           {/* Thumbnail Strip */}
                            {drafts.length > 0 && (
                                <div className="h-24 bg-[#020408] border-t border-gray-800 flex items-center gap-3 px-4 overflow-x-auto custom-scrollbar shrink-0">
                                    {drafts.map(draft => (
@@ -481,7 +472,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                        </div>
                                    ))}
                                    
-                                   {/* Add Button in Strip */}
                                    <button 
                                       onClick={() => fileInputRef.current?.click()}
                                       className="h-16 w-16 rounded-lg border-2 border-dashed border-gray-700 hover:border-gray-500 hover:bg-gray-900 flex items-center justify-center text-gray-500 hover:text-white transition-all shrink-0"
@@ -497,7 +487,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                        <div className="flex-1 bg-[#0B1120] overflow-y-auto custom-scrollbar flex flex-col">
                            <div className="p-8 space-y-6">
                                
-                               {/* 1. Board Selection */}
                                <div>
                                     <label className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
                                         <Layers size={12} /> Board
@@ -531,7 +520,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                     )}
                                </div>
 
-                               {/* 2. Title */}
                                <div className="space-y-1">
                                    <div className="flex justify-between items-center">
                                        <label className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">
@@ -554,7 +542,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                    />
                                </div>
                                
-                               {/* 3. Description */}
                                <div className="space-y-1">
                                    <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">Description</label>
                                    <textarea 
@@ -565,7 +552,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                    />
                                </div>
 
-                               {/* 4. Link */}
                                <div className="space-y-1">
                                     <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Link</label>
                                     <div className="relative">
@@ -574,7 +560,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                     </div>
                                </div>
 
-                               {/* 5. Location */}
                                <div className="space-y-1">
                                     <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Location</label>
                                     {currentDraft.location ? (
@@ -604,7 +589,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                     )}
                                </div>
 
-                               {/* 6. Tags */}
                                <div className="space-y-1">
                                    <label className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
                                        <Grid size={12} /> Tags
@@ -626,7 +610,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
             </div>
         </div>
 
-        {/* Footer */}
         <div className="p-4 bg-[#0B1120] border-t border-gray-800 flex justify-end gap-3 shrink-0">
              {drafts.length > 0 && (
                  <>
