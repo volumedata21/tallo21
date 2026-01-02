@@ -151,6 +151,8 @@ function App() {
   // History/Back Button Handling
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
+        // When user presses browser Back, ensure we close everything
+        // This relies on the fact that opening a modal pushed a state
         if (selectedPin) setSelectedPin(null);
         if (isCreateOpen) setIsCreateOpen(false);
         if (isAdminOpen) setIsAdminOpen(false);
@@ -160,16 +162,24 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [selectedPin, isCreateOpen, isAdminOpen, isProfileOpen]);
 
-  // Close Modals Helper
+  // --- FIX: IMPROVED CLOSE MODAL LOGIC ---
   const closeModal = () => {
-      if (window.history.length > 1) {
+      // We check 'window.history.state' to see if *WE* pushed a modal state.
+      // If 'state.modal' exists, we can safely go back.
+      // If it doesn't (e.g., deep link entrance), we must manually close to avoid exiting the app.
+      if (window.history.state && window.history.state.modal) {
           window.history.back();
       } else {
+          // Manual Close
           setSelectedPin(null);
           setIsCreateOpen(false);
           setIsAdminOpen(false);
           setIsProfileOpen(false);
-          window.history.replaceState(null, '', window.location.pathname);
+          
+          // Silently clean up the URL query params without adding a new history entry
+          const url = new URL(window.location.href);
+          url.search = ""; 
+          window.history.replaceState(null, '', url.toString());
       }
   };
 
@@ -349,6 +359,7 @@ function App() {
           if (!isSelectionMode) setIsSelectionMode(true);
           toggleSelection(pin.id, e);
       } else {
+          // Push state when opening so history.back() works
           window.history.pushState({ modal: 'pin' }, '');
           setSelectedPin(pin);
       }
@@ -357,7 +368,10 @@ function App() {
   const resetFilters = () => { 
       setActiveFilter({ type: 'all', id: '' }); 
       setSearchQuery(''); 
-      window.history.pushState({}, '', window.location.pathname);
+      // Clear URL params
+      const url = new URL(window.location.href);
+      url.search = "";
+      window.history.pushState({}, '', url.toString());
   };
 
   const toggleTrendingTag = (tag: string) => {
