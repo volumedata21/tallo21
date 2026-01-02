@@ -54,7 +54,6 @@ const all = (sql: string, params: any[] = []) => new Promise<any[]>((resolve, re
 const parsePin = (pin: any): Pin => ({
   ...pin,
   gallery: JSON.parse(pin.gallery || '[]'),
-  // Handle boardIds: could be string "id1,id2" (from JOIN) or JSON array (legacy)
   boardIds: typeof pin.boardIds === 'string' && pin.boardIds.startsWith('[') 
     ? JSON.parse(pin.boardIds) 
     : (pin.boardIds ? pin.boardIds.split(',') : []),
@@ -63,11 +62,11 @@ const parsePin = (pin: any): Pin => ({
   favorite: !!pin.favorite,
   deletedAt: pin.deletedAt || undefined,
   thumbnail: pin.thumbnail || undefined,
-  ownerName: pin.ownerName,     // <--- New feature
-  ownerAvatar: pin.ownerAvatar  // <--- New feature
+  ownerName: pin.ownerName,     
+  ownerAvatar: pin.ownerAvatar 
 });
 
-// --- HELPER: DOWNLOAD & OPTIMIZE EXTERNAL IMAGES (Restored Video Support) ---
+// --- HELPER: DOWNLOAD & OPTIMIZE EXTERNAL IMAGES ---
 const processExternalImage = async (url: string) => {
     if (!url || !url.startsWith('http')) return { url, thumbnail: null };
 
@@ -90,7 +89,6 @@ const processExternalImage = async (url: string) => {
         const id = Date.now() + '-' + Math.round(Math.random() * 1000);
         const contentType = response.headers.get('content-type');
         
-        // VITAL: Video handling restored from your working file
         const isVideo = contentType?.startsWith('video/');
         
         let ext = '.jpg';
@@ -143,6 +141,8 @@ const runMigrations = async () => {
             { id: 6, name: 'create_favorites_table', sql: "CREATE TABLE IF NOT EXISTS favorites (userId TEXT, pinId TEXT, createdAt INTEGER, PRIMARY KEY (userId, pinId))" },
             { id: 7, name: 'migrate_legacy_favorites', sql: "INSERT OR IGNORE INTO favorites (userId, pinId, createdAt) SELECT ownerId, id, ? FROM pins WHERE favorite = 1" },
             { id: 8, name: 'create_pin_boards_table', sql: "CREATE TABLE IF NOT EXISTS pin_boards (userId TEXT, pinId TEXT, boardId TEXT, createdAt INTEGER, PRIMARY KEY (userId, pinId, boardId))" },
+            // NEW MIGRATION for Board Visibility
+            { id: 9, name: 'add_visibility_to_boards', sql: "ALTER TABLE boards ADD COLUMN visibility TEXT DEFAULT 'private'" }
         ];
 
         for (const m of migrations) {
@@ -168,7 +168,7 @@ const ensureDefaultData = async () => {
     try {
         const board = await get("SELECT * FROM boards WHERE id = ?", [NEW_STEMS_ID]);
         if (!board) {
-            await run(`INSERT INTO boards (id, title, ownerId) VALUES (?, ?, ?)`, [NEW_STEMS_ID, 'New Stems', 'u1']);
+            await run(`INSERT INTO boards (id, title, ownerId, visibility) VALUES (?, ?, ?, ?)`, [NEW_STEMS_ID, 'New Stems', 'u1', 'private']);
         }
     } catch (err) {
         console.error("Default data check failed", err);
@@ -280,9 +280,9 @@ app.get('/api/pins', async (req, res) => {
       const limit = parseInt(req.query.limit as string) || 20;
       const offset = (page - 1) * limit;
       
-      const { sort, search, boardId, favorites, tag, creatorId, userId } = req.query;
+      // 1. ADD collectionId to the list of params we read
+      const { sort, search, boardId, favorites, tag, creatorId, userId, collectionId } = req.query;
 
-      // SQL: Joins users (for avatar/name), favorites (per user), pin_boards (per user)
       let sql = `
         SELECT pins.*, 
         users.username as ownerName, 
@@ -313,8 +313,15 @@ app.get('/api/pins', async (req, res) => {
       }
 
       if (boardId) {
-          sql += " AND pb.boardId = ?";
+          sql += " AND EXISTS (SELECT 1 FROM pin_boards pb_filter WHERE pb_filter.pinId = pins.id AND pb_filter.boardId = ?)";
           params.push(boardId);
+      }
+
+      // 2. ADD THIS NEW BLOCK FOR COLLECTIONS
+      // It finds pins that are in ANY board belonging to the collection
+      if (collectionId) {
+          sql += " AND EXISTS (SELECT 1 FROM pin_boards pb_coll JOIN boards b_coll ON pb_coll.boardId = b_coll.id WHERE pb_coll.pinId = pins.id AND b_coll.collectionId = ?)";
+          params.push(collectionId);
       }
 
       if (tag) {
@@ -373,15 +380,23 @@ app.post('/api/pins', async (req, res) => {
         if (processed.thumbnail) finalThumbnail = processed.thumbnail;
     }
 
-    // 1. Create Pin
+    // 1. Create Pin (Legacy 'boardIds' column kept as empty array [], we rely on pin_boards now)
     await run(
       `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), '[]', pin.link, JSON.stringify(pin.location || null), pin.aspectRatio, JSON.stringify(pin.tags || []), pin.ownerId, Date.now(), 0, null]
     );
 
-    // 2. Add to Creator's "New Stems"
-    await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [pin.ownerId, id, NEW_STEMS_ID, Date.now()]);
+    // 2. Add to Boards (FIXED: Uses the boards sent from frontend)
+    // If frontend sent boards, use them. Otherwise default to NEW_STEMS_ID.
+    const boardsToJoin = (pin.boardIds && pin.boardIds.length > 0) ? pin.boardIds : [NEW_STEMS_ID];
+
+    for (const boardId of boardsToJoin) {
+         await run(
+             "INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", 
+             [pin.ownerId, id, boardId, Date.now()]
+         );
+    }
 
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
@@ -549,16 +564,42 @@ app.delete('/api/admin/invites/:id', async (req, res) => { await run("DELETE FRO
 app.get('/api/collections', async (req, res) => { res.json(await all("SELECT * FROM collections WHERE ownerId = ?", [req.query.userId])); });
 app.post('/api/collections', async (req, res) => { const id = uuidv4(); await run("INSERT INTO collections (id, title, ownerId) VALUES (?, ?, ?)", [id, req.body.title, req.body.ownerId]); res.json(await get("SELECT * FROM collections WHERE id = ?", [id])); });
 app.delete('/api/collections/:id', async (req, res) => { await run("DELETE FROM collections WHERE id = ?", [req.params.id]); res.json({ success: true }); });
-app.get('/api/boards', async (req, res) => { res.json(await all("SELECT * FROM boards WHERE ownerId = ? OR id = ?", [req.query.userId, NEW_STEMS_ID])); });
-app.post('/api/boards', async (req, res) => { const id = uuidv4(); await run("INSERT INTO boards (id, title, collectionId, ownerId) VALUES (?, ?, ?, ?)", [id, req.body.title, req.body.collectionId, req.body.ownerId]); res.json(await get("SELECT * FROM boards WHERE id = ?", [id])); });
+
+// --- UPDATED BOARD ROUTES (VISIBILITY) ---
+app.get('/api/boards', async (req, res) => { 
+    // Get all boards owned by user OR the system New Stems board
+    res.json(await all("SELECT * FROM boards WHERE ownerId = ? OR id = ?", [req.query.userId, NEW_STEMS_ID])); 
+});
+
+// NEW: Get Single Board (for sharing)
+app.get('/api/boards/:id', async (req, res) => {
+    const board = await get("SELECT * FROM boards WHERE id = ?", [req.params.id]);
+    if (!board) return res.status(404).json({ error: "Board not found" });
+    res.json(board);
+});
+
+// CREATE Board with Visibility
+app.post('/api/boards', async (req, res) => { 
+    const id = uuidv4(); 
+    const visibility = req.body.visibility || 'private';
+    await run(
+        "INSERT INTO boards (id, title, collectionId, ownerId, visibility) VALUES (?, ?, ?, ?, ?)", 
+        [id, req.body.title, req.body.collectionId, req.body.ownerId, visibility]
+    ); 
+    res.json(await get("SELECT * FROM boards WHERE id = ?", [id])); 
+});
+
 app.delete('/api/boards/:id', async (req, res) => { await run("DELETE FROM boards WHERE id = ?", [req.params.id]); res.json({ success: true }); });
+
+// UPDATE Board with Visibility
 app.put('/api/boards/:id', async (req, res) => {
     if (req.body.title !== undefined) await run("UPDATE boards SET title = ? WHERE id = ?", [req.body.title, req.params.id]);
     if (req.body.collectionId !== undefined) await run("UPDATE boards SET collectionId = ? WHERE id = ?", [req.body.collectionId, req.params.id]);
+    if (req.body.visibility !== undefined) await run("UPDATE boards SET visibility = ? WHERE id = ?", [req.body.visibility, req.params.id]);
     res.json({success: true});
 });
 
-// --- UPLOAD & SCRAPE (Restored from your working version) ---
+// --- UPLOAD & SCRAPE ---
 
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded.');

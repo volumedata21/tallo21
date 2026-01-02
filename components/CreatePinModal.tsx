@@ -493,7 +493,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                     </label>
                                     {isCreatingBoard ? (
                                         <div className="flex gap-2">
-                                            <input autoFocus value={newBoardName} onChange={e => setNewBoardName(e.target.value)} placeholder="Board name..." className="flex-1 bg-transparent border-b border-gray-700 py-2 text-white outline-none focus:border-emerald-500 text-sm" />
+                                            <input autoFocus value={newBoardName} onChange={e => setNewBoardName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreateBoard()} placeholder="Board name..." className="flex-1 bg-transparent border-b border-gray-700 py-2 text-white outline-none focus:border-emerald-500 text-sm" />
                                             <button onClick={handleCreateBoard} className="text-emerald-500 font-bold text-xs uppercase hover:text-emerald-400">Save</button>
                                             <button onClick={() => setIsCreatingBoard(false)} className="text-gray-500 font-bold text-xs uppercase hover:text-white">Cancel</button>
                                         </div>
