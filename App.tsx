@@ -220,6 +220,7 @@ function App() {
         if (activeFilter.type === 'collection') filterConfig.collectionId = activeFilter.id;
         if (activeFilter.type === 'board') filterConfig.boardId = activeFilter.id;
         if (activeFilter.type === 'tag') filterConfig.tag = activeFilter.id;
+        if (activeFilter.type === 'created') filterConfig.creatorId = activeFilter.id;
         
         const effectiveSort = isShuffle ? 'random' : sortBy;
         

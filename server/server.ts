@@ -31,7 +31,6 @@ app.use(express.json());
 // Serve Static Files
 app.use('/images', express.static(IMAGES_DIR));
 app.use('/thumbnails', express.static(THUMBNAILS_DIR));
-// Removed static /avatars route in favor of API route below
 
 // --- SETUP MULTER ---
 const storage = multer.memoryStorage();
@@ -51,18 +50,24 @@ const all = (sql: string, params: any[] = []) => new Promise<any[]>((resolve, re
   db.all(sql, params, (err, rows) => { if (err) reject(err); else resolve(rows); });
 });
 
+// UPDATED: Parses boardIds from string (New System) AND handles Owner info
 const parsePin = (pin: any): Pin => ({
   ...pin,
   gallery: JSON.parse(pin.gallery || '[]'),
-  boardIds: JSON.parse(pin.boardIds || '[]'),
+  // Handle boardIds: could be string "id1,id2" (from JOIN) or JSON array (legacy)
+  boardIds: typeof pin.boardIds === 'string' && pin.boardIds.startsWith('[') 
+    ? JSON.parse(pin.boardIds) 
+    : (pin.boardIds ? pin.boardIds.split(',') : []),
   location: pin.location ? JSON.parse(pin.location) : undefined,
   tags: JSON.parse(pin.tags || '[]'),
   favorite: !!pin.favorite,
   deletedAt: pin.deletedAt || undefined,
-  thumbnail: pin.thumbnail || undefined
+  thumbnail: pin.thumbnail || undefined,
+  ownerName: pin.ownerName,     // <--- New feature
+  ownerAvatar: pin.ownerAvatar  // <--- New feature
 });
 
-// --- HELPER: DOWNLOAD & OPTIMIZE EXTERNAL IMAGES ---
+// --- HELPER: DOWNLOAD & OPTIMIZE EXTERNAL IMAGES (Restored Video Support) ---
 const processExternalImage = async (url: string) => {
     if (!url || !url.startsWith('http')) return { url, thumbnail: null };
 
@@ -85,6 +90,7 @@ const processExternalImage = async (url: string) => {
         const id = Date.now() + '-' + Math.round(Math.random() * 1000);
         const contentType = response.headers.get('content-type');
         
+        // VITAL: Video handling restored from your working file
         const isVideo = contentType?.startsWith('video/');
         
         let ext = '.jpg';
@@ -131,7 +137,12 @@ const runMigrations = async () => {
         const migrations = [
             { id: 1, name: 'add_deleted_at_to_pins', sql: "ALTER TABLE pins ADD COLUMN deletedAt INTEGER DEFAULT NULL" },
             { id: 2, name: 'add_thumbnail_to_pins', sql: "ALTER TABLE pins ADD COLUMN thumbnail TEXT DEFAULT NULL" },
-            { id: 3, name: 'add_password_to_users', sql: "ALTER TABLE users ADD COLUMN password TEXT DEFAULT NULL" }
+            { id: 3, name: 'add_password_to_users', sql: "ALTER TABLE users ADD COLUMN password TEXT DEFAULT NULL" },
+            { id: 4, name: 'add_max_users_to_settings', sql: "ALTER TABLE settings ADD COLUMN maxUsers INTEGER DEFAULT 10" },
+            { id: 5, name: 'create_invites_table', sql: "CREATE TABLE IF NOT EXISTS invites (id TEXT PRIMARY KEY, code TEXT UNIQUE, assignedQuota TEXT, isUsed INTEGER DEFAULT 0, usedBy TEXT, createdAt INTEGER)" },
+            { id: 6, name: 'create_favorites_table', sql: "CREATE TABLE IF NOT EXISTS favorites (userId TEXT, pinId TEXT, createdAt INTEGER, PRIMARY KEY (userId, pinId))" },
+            { id: 7, name: 'migrate_legacy_favorites', sql: "INSERT OR IGNORE INTO favorites (userId, pinId, createdAt) SELECT ownerId, id, ? FROM pins WHERE favorite = 1" },
+            { id: 8, name: 'create_pin_boards_table', sql: "CREATE TABLE IF NOT EXISTS pin_boards (userId TEXT, pinId TEXT, boardId TEXT, createdAt INTEGER, PRIMARY KEY (userId, pinId, boardId))" },
         ];
 
         for (const m of migrations) {
@@ -139,14 +150,12 @@ const runMigrations = async () => {
             if (!exists) {
                 console.log(`Applying migration ${m.id}: ${m.name}...`);
                 try {
-                    await run(m.sql);
+                    if (m.id === 7) await run(m.sql, [Date.now()]);
+                    else await run(m.sql);
+                    
                     await run("INSERT INTO migrations (id, name, appliedAt) VALUES (?, ?, ?)", [m.id, m.name, Date.now()]);
                 } catch (e: any) {
-                    if (e.message.includes('duplicate column')) {
-                        await run("INSERT INTO migrations (id, name, appliedAt) VALUES (?, ?, ?)", [m.id, m.name, Date.now()]);
-                    } else {
-                        console.error(`Migration ${m.id} failed:`, e);
-                    }
+                    if (!e.message.includes('duplicate column')) console.error(`Migration ${m.id} failed:`, e);
                 }
             }
         }
@@ -170,277 +179,100 @@ const ensureDefaultData = async () => {
 
 app.get('/', (req, res) => res.send('Tallo API Running'));
 
-// --- AVATAR ROUTES (FIXED) ---
-
-// 1. Get list of avatar filenames
+// --- AVATAR ROUTES ---
 app.get('/api/avatars', async (req, res) => {
     try {
         const files = await fs.promises.readdir(AVATARS_DIR);
         const images = files.filter(f => /\.(png|jpg|jpeg|webp|svg)$/i.test(f));
         res.json(images);
-    } catch (e) {
-        console.error("Error reading avatars:", e);
-        res.json([]);
-    }
+    } catch (e) { res.json([]); }
 });
 
-// 2. Serve the actual avatar image (PROXY FRIENDLY)
 app.get('/api/avatars/image/:filename', (req, res) => {
     const filename = req.params.filename;
-    // Basic sanitization to prevent directory traversal
     const safeFilename = path.basename(filename);
     const filepath = path.join(AVATARS_DIR, safeFilename);
-
-    if (fs.existsSync(filepath)) {
-        res.sendFile(filepath);
-    } else {
-        res.status(404).send('Avatar not found');
-    }
+    if (fs.existsSync(filepath)) res.sendFile(filepath);
+    else res.status(404).send('Avatar not found');
 });
 
+// --- AUTH & SYSTEM ---
 
-// --- AUTH ROUTES ---
-
-// Check if system is set up
 app.get('/api/system/status', async (req, res) => {
-    try {
-        const userCount = await get("SELECT COUNT(*) as count FROM users");
-        res.json({ isSetup: userCount.count > 0 });
-    } catch (e) {
-        res.status(500).json({ error: "DB Error" });
-    }
+    const userCount = await get("SELECT COUNT(*) as count FROM users");
+    res.json({ isSetup: userCount.count > 0 });
 });
 
-// Setup
 app.post('/api/setup', async (req, res) => {
     const { username, password, email } = req.body;
-    
+    const userCount = await get("SELECT COUNT(*) as count FROM users");
+    if (userCount.count > 0) return res.status(403).json({ error: "System already set up." });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const id = 'u1'; 
+    let randomAvatar = username; 
     try {
+        const files = await fs.promises.readdir(AVATARS_DIR);
+        const images = files.filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f));
+        if (images.length > 0) randomAvatar = images[Math.floor(Math.random() * images.length)];
+    } catch (e) {}
+
+    await run(
+        `INSERT INTO users (id, username, email, password, role, usedQuota, maxQuota, createdAt, avatarSeed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+        [id, username, email || null, hashedPassword, 'admin', '0GB', 'Unlimited', Date.now(), randomAvatar]
+    );
+    const user = await get("SELECT * FROM users WHERE id = ?", [id]);
+    res.json(user);
+});
+
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    const user = await get("SELECT * FROM users WHERE username = ?", [username]);
+    if (!user) return res.status(401).json({ error: "Invalid credentials" });
+    if (!user.password) return res.status(401).json({ error: "Account needs migration" });
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ error: "Invalid credentials" });
+
+    const { password: _, ...userInfo } = user;
+    res.json(userInfo);
+});
+
+// Register (Invite Code)
+app.post('/api/register', async (req, res) => {
+    const { username, password, email, inviteCode } = req.body;
+    try {
+        const settings = await get("SELECT maxUsers FROM settings WHERE id = 'default'");
         const userCount = await get("SELECT COUNT(*) as count FROM users");
-        if (userCount.count > 0) {
-            return res.status(403).json({ error: "System is already set up." });
+        if (settings && settings.maxUsers && userCount.count >= settings.maxUsers) {
+            return res.status(403).json({ error: "User limit reached." });
         }
-
-        const existingName = await get("SELECT id FROM users WHERE lower(username) = lower(?)", [username]);
-        if (existingName) {
-            return res.status(400).json({ error: "Username already taken" });
-        }
-
-        // --- FIX: Random Avatar Selection ---
-        let randomAvatar = username; 
-        try {
-            if (fs.existsSync(AVATARS_DIR)) {
-                const files = await fs.promises.readdir(AVATARS_DIR);
-                const images = files.filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f));
-                if (images.length > 0) {
-                    randomAvatar = images[Math.floor(Math.random() * images.length)];
-                    console.log(`Assigned random avatar: ${randomAvatar}`);
-                } else {
-                    console.log("No avatar images found in /data/avatars");
-                }
-            }
-        } catch (e) {
-             console.log("Error selecting random avatar:", e);
-        }
+        const invite = await get("SELECT * FROM invites WHERE code = ? AND isUsed = 0", [inviteCode]);
+        if (!invite) return res.status(400).json({ error: "Invalid invite code." });
+        
+        const existing = await get("SELECT id FROM users WHERE lower(username) = lower(?)", [username]);
+        if (existing) return res.status(400).json({ error: "Username taken." });
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        const id = 'u1'; 
-        const finalEmail = email && email.trim() !== '' ? email : null;
+        const id = uuidv4();
+        let randomAvatar = username;
+        try {
+            const files = await fs.promises.readdir(AVATARS_DIR);
+            const images = files.filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f));
+            if (images.length > 0) randomAvatar = images[Math.floor(Math.random() * images.length)];
+        } catch (e) {}
 
         await run(
             `INSERT INTO users (id, username, email, password, role, usedQuota, maxQuota, createdAt, avatarSeed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
-            [id, username, finalEmail, hashedPassword, 'admin', '0GB', '20GB', Date.now(), randomAvatar]
+            [id, username, email || null, hashedPassword, 'user', '0GB', invite.assignedQuota || '20GB', Date.now(), randomAvatar]
         );
-        
+        await run("UPDATE invites SET isUsed = 1, usedBy = ? WHERE code = ?", [username, inviteCode]);
         const user = await get("SELECT id, username, email, role, avatarSeed FROM users WHERE id = ?", [id]);
         res.json(user);
-    } catch (e: any) {
-        console.error("Setup Error", e);
-        if (e.message && e.message.includes('UNIQUE constraint failed')) {
-            return res.status(400).json({ error: "Username already taken" });
-        }
-        res.status(500).json({ error: "Setup failed" });
-    }
+    } catch (e) { res.status(500).json({ error: "Registration failed" }); }
 });
 
-// Login
-app.post('/api/login', async (req, res) => {
-    const { username, password } = req.body;
-    
-    try {
-        const user = await get("SELECT * FROM users WHERE username = ?", [username]);
-        if (!user) {
-            return res.status(401).json({ error: "Invalid credentials" });
-        }
-
-        if (!user.password) {
-            return res.status(401).json({ error: "Account needs migration (no password set)" });
-        }
-
-        const match = await bcrypt.compare(password, user.password);
-        if (!match) {
-            return res.status(401).json({ error: "Invalid credentials" });
-        }
-
-        const { password: _, ...userInfo } = user;
-        res.json(userInfo);
-    } catch (e) {
-        console.error("Login Error", e);
-        res.status(500).json({ error: "Login failed" });
-    }
-});
-
-// --- USERS ROUTES ---
-
-app.get('/api/users', async (req, res) => {
-    try {
-        const rows = await all("SELECT id, username, email, role, usedQuota, maxQuota, avatarSeed, inviteCode FROM users");
-        res.json(rows);
-    } catch (e) {
-        res.status(500).json({ error: "Failed to fetch users" });
-    }
-});
-
-app.get('/api/users/current', async (req, res) => {
-  try {
-      const user = await get("SELECT id, username, email, role, avatarSeed FROM users LIMIT 1");
-      res.json(user || null);
-  } catch (e) {
-      res.status(500).json({ error: "DB Error" });
-  }
-});
-
-app.get('/api/users/:id', async (req, res) => {
-    try {
-        const user = await get("SELECT id, username, email, role, avatarSeed FROM users WHERE id = ?", [req.params.id]);
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-        res.json(user);
-    } catch (e) {
-        res.status(500).json({ error: "Server error" });
-    }
-});
-
-app.put('/api/users/:id', async (req, res) => {
-    const { avatarSeed, email } = req.body;
-    const updates: string[] = [];
-    const values: any[] = [];
-
-    if (avatarSeed !== undefined) { updates.push("avatarSeed = ?"); values.push(avatarSeed); }
-    if (email !== undefined) { updates.push("email = ?"); values.push(email); }
-
-    if (updates.length > 0) {
-        values.push(req.params.id);
-        try {
-             await run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
-        } catch(e) {
-             console.error("Update User Error", e);
-             return res.status(500).json({error: "Update failed"});
-        }
-    }
-    
-    // Return updated user
-    try {
-        const user = await get("SELECT id, username, email, role, avatarSeed FROM users WHERE id = ?", [req.params.id]);
-        res.json(user);
-    } catch(e) {
-        res.status(500).json({error: "Fetch updated user failed"});
-    }
-});
-
-// --- COLLECTIONS ---
-app.get('/api/collections', async (req, res) => {
-  const rows = await all("SELECT * FROM collections WHERE ownerId = ?", [req.query.userId]);
-  res.json(rows);
-});
-
-app.post('/api/collections', async (req, res) => {
-  const { title, ownerId } = req.body;
-  const existing = await get("SELECT id FROM collections WHERE lower(title) = lower(?) AND ownerId = ?", [title, ownerId]);
-  if (existing) {
-      return res.status(400).json({ error: "A collection with this name already exists." });
-  }
-  const id = uuidv4();
-  await run("INSERT INTO collections (id, title, ownerId) VALUES (?, ?, ?)", [id, title, ownerId]);
-  res.json(await get("SELECT * FROM collections WHERE id = ?", [id]));
-});
-
-app.put('/api/collections/:id', async (req, res) => {
-    const { title } = req.body;
-    if (title !== undefined) {
-        const currentCol = await get("SELECT ownerId FROM collections WHERE id = ?", [req.params.id]);
-        if (currentCol) {
-            const existing = await get("SELECT id FROM collections WHERE lower(title) = lower(?) AND ownerId = ? AND id != ?", [title, currentCol.ownerId, req.params.id]);
-            if (existing) {
-                return res.status(400).json({ error: "A collection with this name already exists." });
-            }
-        }
-    }
-    await run("UPDATE collections SET title = ? WHERE id = ?", [title, req.params.id]);
-    res.json({ success: true });
-});
-
-app.delete('/api/collections/:id', async (req, res) => {
-    await run("UPDATE boards SET collectionId = NULL WHERE collectionId = ?", [req.params.id]);
-    await run("DELETE FROM collections WHERE id = ?", [req.params.id]);
-    res.json({ success: true });
-});
-
-// --- BOARDS ---
-app.get('/api/boards', async (req, res) => {
-  const rows = await all("SELECT * FROM boards WHERE ownerId = ? OR id = ?", [req.query.userId, NEW_STEMS_ID]);
-  res.json(rows);
-});
-
-app.post('/api/boards', async (req, res) => {
-  const { title, collectionId, ownerId } = req.body;
-  const existing = await get("SELECT id FROM boards WHERE lower(title) = lower(?) AND ownerId = ?", [title, ownerId]);
-  if (existing) return res.status(400).json({ error: "A board with this name already exists." });
-
-  const id = uuidv4();
-  await run("INSERT INTO boards (id, title, collectionId, ownerId) VALUES (?, ?, ?, ?)", [id, title, collectionId, ownerId]);
-  res.json(await get("SELECT * FROM boards WHERE id = ?", [id]));
-});
-
-app.put('/api/boards/:id', async (req, res) => {
-    const { title, collectionId } = req.body;
-    if (title !== undefined) {
-        const currentBoard = await get("SELECT ownerId FROM boards WHERE id = ?", [req.params.id]);
-        if (currentBoard) {
-            const existing = await get("SELECT id FROM boards WHERE lower(title) = lower(?) AND ownerId = ? AND id != ?", [title, currentBoard.ownerId, req.params.id]);
-            if (existing) return res.status(400).json({ error: "A board with this name already exists." });
-        }
-    }
-
-    const updates: string[] = [];
-    const values: any[] = [];
-    if (title !== undefined) { updates.push("title = ?"); values.push(title); }
-    if (collectionId !== undefined) { updates.push("collectionId = ?"); values.push(collectionId); }
-    if (updates.length > 0) {
-        values.push(req.params.id);
-        await run(`UPDATE boards SET ${updates.join(', ')} WHERE id = ?`, values);
-    }
-    res.json({ success: true });
-});
-
-app.delete('/api/boards/:id', async (req, res) => {
-  if (req.params.id === NEW_STEMS_ID) return res.status(403).json({ error: "Cannot delete permanent board" });
-  await run("DELETE FROM boards WHERE id = ?", [req.params.id]);
-  res.json({ success: true });
-});
-
-// --- PINS ---
-app.get('/api/pins/:id', async (req, res) => {
-  try {
-      const pin = await get("SELECT * FROM pins WHERE id = ?", [req.params.id]);
-      if (!pin) return res.status(404).json({ error: "Pin not found" });
-      res.json(parsePin(pin));
-  } catch (e) {
-      console.error("Fetch single pin error:", e);
-      res.status(500).json({ error: "Failed to fetch pin" });
-  }
-});
+// --- PINS (MULTI-USER + AVATAR JOIN) ---
 
 app.get('/api/pins', async (req, res) => {
   try {
@@ -448,35 +280,54 @@ app.get('/api/pins', async (req, res) => {
       const limit = parseInt(req.query.limit as string) || 20;
       const offset = (page - 1) * limit;
       
-      const { sort, search, boardId, favorites, tag } = req.query;
+      const { sort, search, boardId, favorites, tag, creatorId, userId } = req.query;
 
-      let sql = "SELECT * FROM pins WHERE deletedAt IS NULL";
-      const params: any[] = [];
+      // SQL: Joins users (for avatar/name), favorites (per user), pin_boards (per user)
+      let sql = `
+        SELECT pins.*, 
+        users.username as ownerName, 
+        users.avatarSeed as ownerAvatar,
+        (CASE WHEN f.userId IS NOT NULL THEN 1 ELSE 0 END) as favorite,
+        GROUP_CONCAT(pb.boardId) as boardIds
+        FROM pins 
+        LEFT JOIN users ON pins.ownerId = users.id
+        LEFT JOIN favorites f ON pins.id = f.pinId AND f.userId = ?
+        LEFT JOIN pin_boards pb ON pins.id = pb.pinId AND pb.userId = ?
+        WHERE pins.deletedAt IS NULL
+      `;
+      
+      const params: any[] = [userId || '', userId || '']; 
 
       if (favorites === 'true') {
-          sql += " AND favorite = 1";
+          sql += " AND f.userId IS NOT NULL";
+      }
+      
+      if (creatorId) {
+          sql += " AND pins.ownerId = ?";
+          params.push(creatorId);
       }
       
       if (search) {
-          sql += " AND (title LIKE ? OR description LIKE ?)";
+          sql += " AND (pins.title LIKE ? OR pins.description LIKE ?)";
           params.push(`%${search}%`, `%${search}%`);
       }
 
       if (boardId) {
-          sql += " AND boardIds LIKE ?";
-          params.push(`%${boardId}%`);
+          sql += " AND pb.boardId = ?";
+          params.push(boardId);
       }
 
       if (tag) {
-          sql += " AND tags LIKE ?";
+          sql += " AND pins.tags LIKE ?";
           params.push(`%${tag}%`);
       }
       
-      let orderBy = 'createdAt DESC'; 
-      
-      if (sort === 'oldest') orderBy = 'createdAt ASC';
-      else if (sort === 'az') orderBy = 'title ASC';
-      else if (sort === 'za') orderBy = 'title DESC';
+      sql += " GROUP BY pins.id";
+
+      let orderBy = 'pins.createdAt DESC'; 
+      if (sort === 'oldest') orderBy = 'pins.createdAt ASC';
+      else if (sort === 'az') orderBy = 'pins.title ASC';
+      else if (sort === 'za') orderBy = 'pins.title DESC';
       else if (sort === 'random') orderBy = 'RANDOM()'; 
 
       sql += ` ORDER BY ${orderBy}`;
@@ -493,12 +344,26 @@ app.get('/api/pins', async (req, res) => {
   }
 });
 
+// Toggle Favorite (User Specific)
+app.post('/api/pins/toggle-favorite', async (req, res) => {
+    const { pinId, userId } = req.body;
+    if (!pinId || !userId) return res.status(400).json({ error: "Missing info" });
+    try {
+        const exists = await get("SELECT * FROM favorites WHERE userId = ? AND pinId = ?", [userId, pinId]);
+        if (exists) {
+            await run("DELETE FROM favorites WHERE userId = ? AND pinId = ?", [userId, pinId]);
+            res.json({ favorited: false });
+        } else {
+            await run("INSERT INTO favorites (userId, pinId, createdAt) VALUES (?, ?, ?)", [userId, pinId, Date.now()]);
+            res.json({ favorited: true });
+        }
+    } catch (e) { res.status(500).json({ error: "DB Error" }); }
+});
+
 app.post('/api/pins', async (req, res) => {
     const pin = req.body;
     const id = uuidv4();
-    let boardIds = pin.boardIds || [];
-    if (boardIds.length === 0) boardIds = [NEW_STEMS_ID];
-
+    
     let finalImageUrl = pin.imageUrl;
     let finalThumbnail = pin.thumbnail;
 
@@ -508,11 +373,16 @@ app.post('/api/pins', async (req, res) => {
         if (processed.thumbnail) finalThumbnail = processed.thumbnail;
     }
 
+    // 1. Create Pin
     await run(
       `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), JSON.stringify(boardIds), pin.link, JSON.stringify(pin.location || null), pin.aspectRatio, JSON.stringify(pin.tags || []), pin.ownerId, Date.now(), 0, null]
+      [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), '[]', pin.link, JSON.stringify(pin.location || null), pin.aspectRatio, JSON.stringify(pin.tags || []), pin.ownerId, Date.now(), 0, null]
     );
+
+    // 2. Add to Creator's "New Stems"
+    await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [pin.ownerId, id, NEW_STEMS_ID, Date.now()]);
+
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
 
@@ -522,145 +392,106 @@ app.put('/api/pins/:id', async (req, res) => {
     const fields: string[] = [];
     const values: any[] = [];
     
-    if (updates.boardIds && updates.boardIds.length === 0) {
-        updates.boardIds = [NEW_STEMS_ID];
-    }
-
     Object.keys(updates).forEach(key => {
-        if(key === 'id') return;
+        if(key === 'id' || key === 'boardIds' || key === 'favorite') return;
         let val = updates[key];
-        if (['gallery', 'boardIds', 'tags', 'location'].includes(key)) val = JSON.stringify(val);
-        if (key === 'favorite') val = val ? 1 : 0;
+        if (['gallery', 'tags', 'location'].includes(key)) val = JSON.stringify(val);
+        fields.push(`${key} = ?`);
+        values.push(val);
+    });
+    if (fields.length > 0) {
+        values.push(id);
+        await run(`UPDATE pins SET ${fields.join(', ')} WHERE id = ?`, values);
+    }
+    res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
+});
+
+app.delete('/api/pins/:id', async (req, res) => { await run("UPDATE pins SET deletedAt = ? WHERE id = ?", [Date.now(), req.params.id]); res.json({ success: true }); });
+app.post('/api/pins/restore', async (req, res) => { await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [req.body.id]); res.json({ success: true }); });
+app.post('/api/pins/bulk-delete', async (req, res) => { const ids = req.body.ids; await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${ids.map(()=>'?').join(',')})`, [Date.now(), ...ids]); res.json({ success: true }); });
+
+// --- BOARD MANAGEMENT (USER SPECIFIC) ---
+
+app.post('/api/pins/bulk-boards', async (req, res) => {
+    const { ids, boardId, userId } = req.body; 
+    if (!userId) return res.status(400).json({ error: "User ID required" });
+
+    for (const pinId of ids) {
+        if (boardId !== NEW_STEMS_ID) {
+             await run("DELETE FROM pin_boards WHERE userId = ? AND pinId = ? AND boardId = ?", [userId, pinId, NEW_STEMS_ID]);
+        }
+        await run("INSERT OR IGNORE INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [userId, pinId, boardId, Date.now()]);
+    }
+    res.json({ success: true });
+});
+
+app.post('/api/pins/bulk-boards-remove', async (req, res) => {
+    const { ids, boardId, userId } = req.body;
+    if (!userId) return res.status(400).json({ error: "User ID required" });
+
+    for (const pinId of ids) {
+        await run("DELETE FROM pin_boards WHERE userId = ? AND pinId = ? AND boardId = ?", [userId, pinId, boardId]);
+        const count = await get("SELECT COUNT(*) as c FROM pin_boards WHERE userId = ? AND pinId = ?", [userId, pinId]);
+        if (count.c === 0) {
+            await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [userId, pinId, NEW_STEMS_ID, Date.now()]);
+        }
+    }
+    res.json({ success: true });
+});
+
+app.post('/api/pins/bulk-update', async (req, res) => {
+    const { ids, updates } = req.body;
+    if (!ids || !ids.length) return res.json({ success: false });
+    const fields: string[] = [];
+    const values: any[] = [];
+    Object.keys(updates).forEach(key => {
+        let val = updates[key];
+        if (['location', 'tags', 'gallery'].includes(key)) val = JSON.stringify(val);
+        if (key === 'boardIds') return;
         fields.push(`${key} = ?`);
         values.push(val);
     });
     if (fields.length === 0) return res.json({ success: true });
-    values.push(id);
-    await run(`UPDATE pins SET ${fields.join(', ')} WHERE id = ?`, values);
-    res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
-});
-
-app.delete('/api/pins/:id', async (req, res) => {
-  await run("UPDATE pins SET deletedAt = ? WHERE id = ?", [Date.now(), req.params.id]);
-  res.json({ success: true });
-});
-
-app.post('/api/pins/restore', async (req, res) => {
-  const { id } = req.body;
-  await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [id]);
-  res.json({ success: true });
-});
-
-app.post('/api/pins/bulk-delete', async (req, res) => {
-  const { ids } = req.body;
-  const placeholders = ids.map(() => '?').join(',');
-  const params = [Date.now(), ...ids];
-  await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${placeholders})`, params);
-  res.json({ success: true });
-});
-
-app.post('/api/pins/bulk-update', async (req, res) => {
-  const { ids, updates } = req.body;
-  if (!ids || !ids.length) return res.json({ success: false });
-
-  if (updates.boardIds && updates.boardIds.length === 0) {
-      updates.boardIds = [NEW_STEMS_ID];
-  }
-
-  const fields: string[] = [];
-  const values: any[] = [];
-
-  Object.keys(updates).forEach(key => {
-      let val = updates[key];
-      if (['location', 'tags', 'boardIds', 'gallery'].includes(key)) val = JSON.stringify(val);
-      fields.push(`${key} = ?`);
-      values.push(val);
-  });
-
-  if (fields.length === 0) return res.json({ success: true });
-  values.push(...ids);
-  const placeholders = ids.map(() => '?').join(',');
-  await run(`UPDATE pins SET ${fields.join(', ')} WHERE id IN (${placeholders})`, values);
-  res.json({ success: true });
+    values.push(...ids);
+    const placeholders = ids.map(() => '?').join(',');
+    await run(`UPDATE pins SET ${fields.join(', ')} WHERE id IN (${placeholders})`, values);
+    res.json({ success: true });
 });
 
 app.post('/api/pins/bulk-tags', async (req, res) => {
-  const { ids, tags } = req.body;
-  const placeholders = ids.map(() => '?').join(',');
-  const rows = await all(`SELECT id, tags FROM pins WHERE id IN (${placeholders})`, ids);
-  for (const row of rows) {
-      const currentTags: string[] = JSON.parse(row.tags || '[]');
-      const newSet = new Set([...currentTags, ...tags]);
-      await run("UPDATE pins SET tags = ? WHERE id = ?", [JSON.stringify(Array.from(newSet)), row.id]);
-  }
-  res.json({ success: true });
-});
-
-app.post('/api/pins/bulk-boards', async (req, res) => {
-  const { ids, boardId } = req.body;
-  const placeholders = ids.map(() => '?').join(',');
-  const rows = await all(`SELECT id, boardIds FROM pins WHERE id IN (${placeholders})`, ids);
-  for (const row of rows) {
-      let currentBoards: string[] = JSON.parse(row.boardIds || '[]');
-      if (currentBoards.includes(NEW_STEMS_ID) && currentBoards.length === 1 && boardId !== NEW_STEMS_ID) {
-          currentBoards = [];
-      }
-      if (!currentBoards.includes(boardId)) {
-          currentBoards.push(boardId);
-          await run("UPDATE pins SET boardIds = ? WHERE id = ?", [JSON.stringify(currentBoards), row.id]);
-      }
-  }
-  res.json({ success: true });
-});
-
-app.post('/api/pins/bulk-boards-remove', async (req, res) => {
-  const { ids, boardId } = req.body;
-  const placeholders = ids.map(() => '?').join(',');
-  const rows = await all(`SELECT id, boardIds FROM pins WHERE id IN (${placeholders})`, ids);
-  for (const row of rows) {
-      let currentBoards: string[] = JSON.parse(row.boardIds || '[]');
-      if (currentBoards.includes(boardId)) {
-          currentBoards = currentBoards.filter(id => id !== boardId);
-          if (currentBoards.length === 0) currentBoards.push(NEW_STEMS_ID);
-          await run("UPDATE pins SET boardIds = ? WHERE id = ?", [JSON.stringify(currentBoards), row.id]);
-      }
-  }
-  res.json({ success: true });
+    const { ids, tags } = req.body;
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = await all(`SELECT id, tags FROM pins WHERE id IN (${placeholders})`, ids);
+    for (const row of rows) {
+        const currentTags: string[] = JSON.parse(row.tags || '[]');
+        const newSet = new Set([...currentTags, ...tags]);
+        await run("UPDATE pins SET tags = ? WHERE id = ?", [JSON.stringify(Array.from(newSet)), row.id]);
+    }
+    res.json({ success: true });
 });
 
 app.post('/api/pins/merge', async (req, res) => {
   const { ids } = req.body;
   if (!ids || ids.length < 2) return res.status(400).json({ error: "Need at least 2 pins" });
-  
   const placeholders = ids.map(() => '?').join(',');
   const pins = await all(`SELECT * FROM pins WHERE id IN (${placeholders})`, ids);
   if (pins.length < 2) return res.status(400).json({ error: "Pins not found" });
-
   const targetId = ids[0];
   const targetPin = pins.find(p => p.id === targetId);
   const sourcePins = pins.filter(p => p.id !== targetId);
-
   if (!targetPin) return res.status(404).json({ error: "Target pin not found" });
-
   let targetGallery: string[] = [];
   try { targetGallery = JSON.parse(targetPin.gallery || '[]'); } catch (e) {}
-
   const sourceImages: string[] = [];
   sourcePins.forEach(p => {
       sourceImages.push(p.imageUrl);
-      try {
-          const g = JSON.parse(p.gallery || '[]');
-          sourceImages.push(...g);
-      } catch (e) {}
+      try { const g = JSON.parse(p.gallery || '[]'); sourceImages.push(...g); } catch (e) {}
   });
-
   const newGallery = Array.from(new Set([...targetGallery, ...sourceImages]));
   await run("UPDATE pins SET gallery = ? WHERE id = ?", [JSON.stringify(newGallery), targetId]);
-
   const sourceIds = sourcePins.map(p => p.id);
   const delPlaceholders = sourceIds.map(() => '?').join(',');
   await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${delPlaceholders})`, [Date.now(), ...sourceIds]);
-
   res.json({ success: true, mergedPinId: targetId });
 });
 
@@ -668,21 +499,66 @@ app.post('/api/pins/ungroup', async (req, res) => {
   const { id } = req.body;
   const pin = await get("SELECT * FROM pins WHERE id = ?", [id]);
   if (!pin) return res.status(404).json({ error: "Pin not found" });
-
   const gallery: string[] = JSON.parse(pin.gallery || '[]');
   if (gallery.length === 0) return res.json({ success: true });
-
   for (const imgUrl of gallery) {
       const newId = uuidv4();
       await run(
         `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newId, pin.title, pin.description, imgUrl, null, '[]', pin.boardIds, pin.link, pin.location, 1, pin.tags, pin.ownerId, Date.now(), 0, null]
+        [newId, pin.title, pin.description, imgUrl, null, '[]', '[]', pin.link, pin.location, 1, pin.tags, pin.ownerId, Date.now(), 0, null]
       );
+      await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [pin.ownerId, newId, NEW_STEMS_ID, Date.now()]);
   }
   await run("UPDATE pins SET gallery = ? WHERE id = ?", ['[]', id]);
   res.json({ success: true });
 });
+
+// --- ADMIN & SETTINGS ---
+
+app.get('/api/users', async (req, res) => { res.json(await all("SELECT id, username, email, role, usedQuota, maxQuota, avatarSeed, inviteCode FROM users")); });
+app.get('/api/users/current', async (req, res) => { res.json(await get("SELECT id, username, email, role, avatarSeed FROM users LIMIT 1") || null); });
+app.get('/api/users/:id', async (req, res) => {
+    const user = await get("SELECT id, username, email, role, avatarSeed FROM users WHERE id = ?", [req.params.id]);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user);
+});
+app.put('/api/users/:id', async (req, res) => {
+    const { avatarSeed, email, maxQuota } = req.body;
+    const updates: string[] = [];
+    const values: any[] = [];
+    if (avatarSeed !== undefined) { updates.push("avatarSeed = ?"); values.push(avatarSeed); }
+    if (email !== undefined) { updates.push("email = ?"); values.push(email); }
+    if (maxQuota !== undefined) { updates.push("maxQuota = ?"); values.push(maxQuota); }
+    if (updates.length > 0) { values.push(req.params.id); await run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values); }
+    res.json(await get("SELECT id, username, email, role, avatarSeed, maxQuota FROM users WHERE id = ?", [req.params.id]));
+});
+app.delete('/api/users/:id', async (req, res) => { if (req.params.id === 'u1') return res.status(403).json({ error: "Root admin" }); await run("DELETE FROM users WHERE id = ?", [req.params.id]); res.json({ success: true }); });
+
+app.get('/api/settings', async (req, res) => { res.json(await get("SELECT * FROM settings WHERE id = 'default'") || { maxUploadSize: '50MB', maxUsers: 10 }); });
+app.post('/api/settings', async (req, res) => { await run("UPDATE settings SET maxUploadSize = ?, maxUsers = ? WHERE id = 'default'", [req.body.maxUploadSize, req.body.maxUsers]); res.json({ success: true }); });
+app.get('/api/admin/invites', async (req, res) => { res.json(await all("SELECT * FROM invites ORDER BY createdAt DESC")); });
+app.post('/api/admin/invites', async (req, res) => { 
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    await run("INSERT INTO invites (id, code, assignedQuota, isUsed, createdAt) VALUES (?, ?, ?, 0, ?)", [uuidv4(), code, req.body.quota || '20GB', Date.now()]);
+    res.json({ code, assignedQuota: req.body.quota });
+});
+app.delete('/api/admin/invites/:id', async (req, res) => { await run("DELETE FROM invites WHERE id = ?", [req.params.id]); res.json({ success: true }); });
+
+// --- COLLECTIONS & BOARDS ---
+app.get('/api/collections', async (req, res) => { res.json(await all("SELECT * FROM collections WHERE ownerId = ?", [req.query.userId])); });
+app.post('/api/collections', async (req, res) => { const id = uuidv4(); await run("INSERT INTO collections (id, title, ownerId) VALUES (?, ?, ?)", [id, req.body.title, req.body.ownerId]); res.json(await get("SELECT * FROM collections WHERE id = ?", [id])); });
+app.delete('/api/collections/:id', async (req, res) => { await run("DELETE FROM collections WHERE id = ?", [req.params.id]); res.json({ success: true }); });
+app.get('/api/boards', async (req, res) => { res.json(await all("SELECT * FROM boards WHERE ownerId = ? OR id = ?", [req.query.userId, NEW_STEMS_ID])); });
+app.post('/api/boards', async (req, res) => { const id = uuidv4(); await run("INSERT INTO boards (id, title, collectionId, ownerId) VALUES (?, ?, ?, ?)", [id, req.body.title, req.body.collectionId, req.body.ownerId]); res.json(await get("SELECT * FROM boards WHERE id = ?", [id])); });
+app.delete('/api/boards/:id', async (req, res) => { await run("DELETE FROM boards WHERE id = ?", [req.params.id]); res.json({ success: true }); });
+app.put('/api/boards/:id', async (req, res) => {
+    if (req.body.title !== undefined) await run("UPDATE boards SET title = ? WHERE id = ?", [req.body.title, req.params.id]);
+    if (req.body.collectionId !== undefined) await run("UPDATE boards SET collectionId = ? WHERE id = ?", [req.body.collectionId, req.params.id]);
+    res.json({success: true});
+});
+
+// --- UPLOAD & SCRAPE (Restored from your working version) ---
 
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded.');
@@ -705,7 +581,6 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   const thumbnailPath = path.join(thumbTargetDir, thumbFilename);
 
   try {
-      // Create Buffer from memory (since we use memoryStorage now)
       await fs.promises.writeFile(originalPath, req.file.buffer);
       let thumbUrl = null;
 
@@ -737,6 +612,7 @@ app.post('/api/scrape', async (req, res) => {
         const extractedImages = new Set<string>();
         let scrapedTitle = '';
 
+        // 1. Try noembed (YouTube, Vimeo, etc)
         try {
             const oembedUrl = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
             const oembedRes = await fetch(oembedUrl);
@@ -748,6 +624,7 @@ app.post('/api/scrape', async (req, res) => {
             console.warn("oEmbed failed, falling back to standard scraper");
         }
 
+        // 2. Standard Scrape
         const response = await fetch(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -813,21 +690,12 @@ app.post('/api/scrape', async (req, res) => {
     }
 });
 
-app.get('/api/settings', async (req, res) => {
-  let settings = await get("SELECT * FROM settings WHERE id = 'default'");
-  res.json(settings || { maxUploadSize: '50MB' });
-});
-app.post('/api/settings', async (req, res) => {
-  await run("UPDATE settings SET maxUploadSize = ? WHERE id = 'default'", [req.body.maxUploadSize]);
-  res.json({ success: true });
-});
-
 app.post('/api/admin/regenerate-thumbnails', async (req, res) => {
     try {
         console.log("Starting thumbnail regeneration...");
         const pins = await all("SELECT * FROM pins WHERE thumbnail IS NULL OR thumbnail = ''");
         let count = 0;
-        const errors: string[] = [];
+        const errors = [];
 
         for (const pin of pins) {
             if (pin.imageUrl && pin.imageUrl.startsWith('http')) {
