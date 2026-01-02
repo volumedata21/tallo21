@@ -22,6 +22,7 @@ export interface Board {
   title: string;
   collectionId?: string;
   ownerId: string;
+  visibility?: 'private' | 'public' | 'unlisted';
 }
 
 export interface LocationData {
