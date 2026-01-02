@@ -38,6 +38,14 @@ export const PinCard: React.FC<PinCardProps> = ({
   const isVideo = imgSrc?.match(/\.(mp4|webm|ogg|mov)$/i);
   const isVideoLink = pin.link && (pin.link.includes('youtube') || pin.link.includes('vimeo') || pin.link.includes('youtu.be'));
 
+  // --- AVATAR URL HELPER ---
+  const getAvatarUrl = (seed: string) => {
+      if (seed && (seed.includes('.') || seed.includes('/'))) {
+          return `/api/avatars/image/${seed}`;
+      }
+      return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}`;
+  };
+
   useEffect(() => {
     const checkDraggable = () => {
         const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -73,26 +81,17 @@ export const PinCard: React.FC<PinCardProps> = ({
     }
   }, [isHovering, pin.thumbnail, pin.imageUrl, currentIndex, isVideo]);
 
-  // --- FALLBACK HANDLER (The Fix) ---
+  // --- FALLBACK HANDLER ---
   const handleImageError = () => {
-      // 1. If Thumbnail fails, try the main Image URL
       if (imgSrc === pin.thumbnail && pin.imageUrl) {
           setImgSrc(pin.imageUrl);
           return;
       }
-
-      // 2. If main Image fails (or we are already using it), try YouTube/Vimeo direct links
       if (pin.link) {
-          // YouTube
           const ytMatch = pin.link.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
           if (ytMatch && imgSrc !== `https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`) {
               setImgSrc(`https://img.youtube.com/vi/${ytMatch[1]}/maxresdefault.jpg`);
               return;
-          }
-          // Vimeo (Basic fallback)
-          if (pin.link.includes('vimeo') && !imgSrc.startsWith('http')) {
-              // We can't easily guess vimeo CDN urls without an API call, 
-              // but we can stop the broken image icon by setting a placeholder or hiding it.
           }
       }
   };
@@ -168,7 +167,7 @@ export const PinCard: React.FC<PinCardProps> = ({
                 loop 
                 playsInline
                 className={`w-full h-auto block object-cover transition-opacity ${isSelected ? 'opacity-75' : 'opacity-100'}`}
-                onError={handleImageError} // Handle video load errors too
+                onError={handleImageError}
             />
         ) : (
             <img
@@ -176,7 +175,7 @@ export const PinCard: React.FC<PinCardProps> = ({
                 alt={pin.title}
                 className={`w-full h-auto block object-cover transition-opacity ${isSelected ? 'opacity-75' : 'opacity-100'}`}
                 loading="lazy"
-                onError={handleImageError} // <--- CRITICAL FIX
+                onError={handleImageError}
             />
         )}
         
@@ -291,6 +290,14 @@ export const PinCard: React.FC<PinCardProps> = ({
         {!settings.hideDescriptions && (
           <p className="text-xs text-slate-500 line-clamp-2">{pin.description}</p>
         )}
+        
+        {/* NEW: USER AVATAR & NAME */}
+        <div className="flex items-center gap-2 mt-2 opacity-70">
+            <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0">
+               <img src={getAvatarUrl(pin.ownerAvatar || pin.ownerId)} className="w-full h-full object-cover" />
+            </div>
+            <span className="text-[10px] text-slate-400 font-medium truncate max-w-[150px]">{pin.ownerName || 'Unknown'}</span>
+        </div>
       </div>
     </div>
   );

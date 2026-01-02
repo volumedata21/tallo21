@@ -23,12 +23,14 @@ db.serialize(() => {
     // Users
     db.run(`CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
-        username TEXT,
+        username TEXT UNIQUE,
         email TEXT,
-        profileImage TEXT,
-        isAdmin INTEGER,
+        password TEXT, 
+        role TEXT,
         usedQuota TEXT,
         maxQuota TEXT,
+        avatarSeed TEXT,
+        inviteCode TEXT,
         createdAt INTEGER
     )`);
 
@@ -53,15 +55,17 @@ db.serialize(() => {
         title TEXT,
         description TEXT,
         imageUrl TEXT,
+        thumbnail TEXT,
         gallery TEXT, 
-        boardIds TEXT,
+        boardIds TEXT, -- Deprecated in favor of pin_boards, kept for legacy safety
         link TEXT,
         location TEXT,
         aspectRatio REAL,
         tags TEXT,
         ownerId TEXT,
         createdAt INTEGER,
-        favorite INTEGER
+        favorite INTEGER, -- Deprecated in favor of favorites table
+        deletedAt INTEGER
     )`);
 
     // Settings
@@ -70,7 +74,35 @@ db.serialize(() => {
         maxUploadSize TEXT
     )`);
     
-    // Insert default settings if not exists
+    // Invites
+    db.run(`CREATE TABLE IF NOT EXISTS invites (
+        id TEXT PRIMARY KEY,
+        code TEXT UNIQUE,
+        assignedQuota TEXT,
+        isUsed INTEGER DEFAULT 0,
+        usedBy TEXT,
+        createdAt INTEGER
+    )`);
+
+    // Favorites (User-Specific)
+    db.run(`CREATE TABLE IF NOT EXISTS favorites (
+        userId TEXT,
+        pinId TEXT,
+        createdAt INTEGER,
+        PRIMARY KEY (userId, pinId)
+    )`);
+
+    // NEW: Pin Boards (User-Specific Organization)
+    // This allows User A to put Pin 1 in "Design" and User B to put Pin 1 in "Posters"
+    db.run(`CREATE TABLE IF NOT EXISTS pin_boards (
+        userId TEXT,
+        pinId TEXT,
+        boardId TEXT,
+        createdAt INTEGER,
+        PRIMARY KEY (userId, pinId, boardId)
+    )`);
+    
+    // Insert default settings
     db.run(`INSERT OR IGNORE INTO settings (id, maxUploadSize) VALUES ('default', '25MB')`);
 });
 
