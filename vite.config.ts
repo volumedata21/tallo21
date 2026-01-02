@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
       server: {
+        allowedHosts: true, // Allows any URL/host to access the app
         port: 3000,
         host: '0.0.0.0',
         proxy: {
