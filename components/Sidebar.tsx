@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout, Plus, Layers, Folder, Trash2, Heart, Link as LinkIcon, Settings, Shield, ArrowDownAZ, ArrowUpNarrowWide, Github, ChevronsUp, ChevronLeft, ChevronRight, FolderInput, X, Check, Pencil, MoreHorizontal, Layers2, Activity, User as UserIcon } from 'lucide-react';
+import { Layout, Plus, Layers, Folder, Trash2, Heart, Link as LinkIcon, Settings, Shield, ArrowDownAZ, ArrowUpNarrowWide, Github, ChevronsUp, ChevronLeft, ChevronRight, FolderInput, X, Check, Pencil, MoreHorizontal, Layers2, Activity, User as UserIcon, Lock, Globe, EyeOff } from 'lucide-react';
 import { Collection, Board, User, ActiveFilter } from '../types';
 import { dataService } from '../services/dataService';
 
@@ -36,9 +36,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const [dragOverId, setDragOverId] = useState<string | null>(null);
     const [sortList, setSortList] = useState<'az' | 'newest'>('az');
 
+    // --- BOARD EDITING STATE (Modal for Title + Visibility) ---
+    const [boardToEdit, setBoardToEdit] = useState<Board | null>(null);
+    const [editTitle, setEditTitle] = useState('');
+    const [editVisibility, setEditVisibility] = useState<'private' | 'public' | 'unlisted'>('private');
+
+    // --- BOARD MOVING STATE ---
     const [boardToMove, setBoardToMove] = useState<Board | null>(null);
 
-    // Renaming State
+    // --- COLLECTION RENAMING STATE (Inline) ---
     const [renamingId, setRenamingId] = useState<string | null>(null);
     const [renameValue, setRenameValue] = useState('');
 
@@ -77,24 +83,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }
     };
 
-    const startRenaming = (e: React.MouseEvent, id: string, currentTitle: string) => {
+    // --- INLINE RENAME (Collections Only) ---
+    const startRenamingCollection = (e: React.MouseEvent, id: string, currentTitle: string) => {
         e.stopPropagation();
         e.preventDefault();
         setRenamingId(id);
         setRenameValue(currentTitle);
     };
 
-    const submitRename = async (type: 'collection' | 'board') => {
-        if (!renameValue.trim()) {
+    const submitCollectionRename = async () => {
+        if (!renamingId || !renameValue.trim()) {
             setRenamingId(null);
             return;
         }
         try {
-            if (type === 'collection') {
-                await dataService.updateCollection(renamingId!, { title: renameValue });
-            } else {
-                await dataService.updateBoard(renamingId!, { title: renameValue });
-            }
+            await dataService.updateCollection(renamingId, { title: renameValue });
             onUpdate();
         } catch (e: any) {
             alert(e.message || "Rename failed");
@@ -103,18 +106,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }
     };
 
+    // --- MODAL EDIT (Boards) ---
+    const openEditBoardModal = (e: React.MouseEvent, board: Board) => {
+        e.stopPropagation();
+        setBoardToEdit(board);
+        setEditTitle(board.title);
+        setEditVisibility(board.visibility || 'private');
+    };
+
+    const handleUpdateBoard = async () => {
+        if (!boardToEdit || !editTitle.trim()) return;
+        try {
+            await dataService.updateBoard(boardToEdit.id, { 
+                title: editTitle,
+                visibility: editVisibility 
+            });
+            onUpdate();
+            setBoardToEdit(null);
+        } catch (e: any) {
+            alert(e.message || "Update failed");
+        }
+    };
+
+    // --- DRAG AND DROP & ACTIONS ---
     const handleDeleteCollection = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
         if (confirm('Delete this collection? Boards inside will be moved to "Boards".')) {
             await dataService.deleteCollection(id);
             onUpdate();
         }
-    };
-
-    const handlePinDropOnBoard = (pinId: string, boardId: string) => {
-        dataService.addPinToBoard(pinId, boardId);
-        onUpdate();
-        setDragOverId(null);
     };
 
     const handleBoardDropOnCollection = (boardId: string, collectionId: string) => {
@@ -154,17 +174,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (window.innerWidth < 768) onCloseMobile();
     };
 
-    // --- AVATAR URL HELPER ---
-    const getAvatarUrl = (seed: string) => {
-        if (seed && (seed.includes('.') || seed.includes('/'))) {
-            return `/api/avatars/image/${seed}`;
-        }
-        return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}`;
+    const getVisibilityIcon = (vis?: string) => {
+        if (vis === 'public') return <Globe size={10} className="text-teal-400" />;
+        if (vis === 'unlisted') return <EyeOff size={10} className="text-slate-400" />;
+        return <Lock size={10} className="text-slate-500" />;
     };
 
     return (
         <>
-            {/* Mobile Overlay - z-40 to sit above Header (z-30) but below Sidebar (z-50) */}
             {isOpen && (
                 <div
                     className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
@@ -172,7 +189,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
             )}
 
-            {/* --- MOVE BOARD MODAL (High Z-Index) --- */}
+            {/* --- EDIT BOARD MODAL (Title & Visibility) --- */}
+            {boardToEdit && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setBoardToEdit(null)}>
+                    <div className="bg-[#0B1120] border border-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-[#020617]">
+                            <h3 className="font-bold text-white text-sm">Edit Board</h3>
+                            <button onClick={() => setBoardToEdit(null)}><X size={18} className="text-slate-400 hover:text-white transition-colors" /></button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Board Title</label>
+                                <input
+                                    autoFocus
+                                    value={editTitle}
+                                    onChange={e => setEditTitle(e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-500 outline-none"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Visibility</label>
+                                <div className="grid grid-cols-1 gap-2">
+                                    {[
+                                        { id: 'private', label: 'Private', icon: Lock, desc: 'Only you can see this board' },
+                                        { id: 'unlisted', label: 'Unlisted', icon: EyeOff, desc: 'Anyone with the link can view' },
+                                        { id: 'public', label: 'Public', icon: Globe, desc: 'Visible on your profile' }
+                                    ].map((opt) => (
+                                        <button
+                                            key={opt.id}
+                                            onClick={() => setEditVisibility(opt.id as any)}
+                                            className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${editVisibility === opt.id ? 'bg-teal-500/10 border-teal-500/50' : 'bg-slate-900 border-slate-800 hover:border-slate-700'}`}
+                                        >
+                                            <div className={`p-2 rounded-full ${editVisibility === opt.id ? 'bg-teal-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                                                <opt.icon size={16} />
+                                            </div>
+                                            <div>
+                                                <div className={`text-sm font-medium ${editVisibility === opt.id ? 'text-white' : 'text-slate-300'}`}>{opt.label}</div>
+                                                <div className="text-[10px] text-slate-500">{opt.desc}</div>
+                                            </div>
+                                            {editVisibility === opt.id && <Check size={16} className="ml-auto text-teal-500" />}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-4 bg-[#020617] border-t border-slate-800 flex justify-end gap-2">
+                            <button onClick={() => setBoardToEdit(null)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-white transition-colors">Cancel</button>
+                            <button onClick={handleUpdateBoard} className="px-6 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-xs font-bold transition-colors">Save Changes</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- MOVE BOARD MODAL --- */}
             {boardToMove && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setBoardToMove(null)}>
                     <div className="bg-[#0B1120] border border-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -212,7 +282,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ${isOpen ? 'w-64 translate-x-0' : '-translate-x-full w-0 md:opacity-100 md:translate-x-0 md:w-20'}
         `}
             >
-                {/* TOGGLE BUTTON (z-50 from parent, effectively z-50). With Header at z-30, this stays visible. */}
+                {/* TOGGLE BUTTON */}
                 <button
                     onClick={onToggleSidebar}
                     className="absolute -right-3 top-9 bg-slate-900 border border-slate-700 text-slate-400 hover:text-white p-1 rounded-full shadow-lg transition-colors hidden md:flex items-center justify-center h-6 w-6 z-50"
@@ -325,8 +395,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                                 autoFocus
                                                 value={renameValue}
                                                 onChange={e => setRenameValue(e.target.value)}
-                                                onKeyDown={e => e.key === 'Enter' && submitRename('collection')}
-                                                onBlur={() => submitRename('collection')}
+                                                onKeyDown={e => e.key === 'Enter' && submitCollectionRename()}
+                                                onBlur={() => submitCollectionRename()}
                                                 className="w-full bg-slate-900 border border-teal-500 rounded px-2 py-1 text-sm text-white outline-none"
                                             />
                                         </div>
@@ -344,7 +414,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                                 <button onClick={(e) => handleShare(e, 'collection', col.id)} className="p-1 text-slate-500 hover:text-white" title="Share Collection">
                                                     <LinkIcon size={12} />
                                                 </button>
-                                                <button onClick={(e) => startRenaming(e, col.id, col.title)} className="p-1 text-slate-500 hover:text-teal-400" title="Rename">
+                                                <button onClick={(e) => startRenamingCollection(e, col.id, col.title)} className="p-1 text-slate-500 hover:text-teal-400" title="Rename">
                                                     <Pencil size={12} />
                                                 </button>
                                                 <button onClick={(e) => handleDeleteCollection(e, col.id)} className="p-1 text-slate-500 hover:text-red-500" title="Delete">
@@ -364,43 +434,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                                     onDragStart={(e) => e.dataTransfer.setData('boardId', board.id)}
                                                     className="group/board relative"
                                                 >
-                                                    {renamingId === board.id ? (
-                                                        <div className="px-1 py-0.5">
-                                                            <input
-                                                                autoFocus
-                                                                value={renameValue}
-                                                                onChange={e => setRenameValue(e.target.value)}
-                                                                onKeyDown={e => e.key === 'Enter' && submitRename('board')}
-                                                                onBlur={() => submitRename('board')}
-                                                                className="w-full bg-slate-900 border border-teal-500 rounded px-2 py-1 text-xs text-white outline-none"
-                                                            />
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <button
-                                                                onClick={() => handleFilterClick('board', board.id)}
-                                                                className={`w-full flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm transition-colors ${activeFilter.type === 'board' && activeFilter.id === board.id ? 'text-teal-400' : 'text-slate-500 hover:text-slate-300'}`}
-                                                            >
-                                                                <Folder size={14} />
-                                                                <span className="truncate pr-12">{board.title}</span>
-                                                            </button>
+                                                    <button
+                                                        onClick={() => handleFilterClick('board', board.id)}
+                                                        className={`w-full flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm transition-colors ${activeFilter.type === 'board' && activeFilter.id === board.id ? 'text-teal-400' : 'text-slate-500 hover:text-slate-300'}`}
+                                                    >
+                                                        <Folder size={14} />
+                                                        <span className="truncate pr-12">{board.title}</span>
+                                                        <div className="ml-auto scale-75">{getVisibilityIcon(board.visibility)}</div>
+                                                    </button>
 
-                                                            <div className="absolute right-1 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover/board:opacity-100 transition-opacity bg-slate-950/80 backdrop-blur rounded px-1">
-                                                                <button onClick={(e) => handleShare(e, 'board', board.id)} className="p-1 text-slate-500 hover:text-white" title="Share">
-                                                                    <LinkIcon size={12} />
-                                                                </button>
-                                                                <button onClick={(e) => startRenaming(e, board.id, board.title)} className="p-1 text-slate-500 hover:text-teal-400" title="Rename">
-                                                                    <Pencil size={12} />
-                                                                </button>
-                                                                <button onClick={(e) => { e.stopPropagation(); setBoardToMove(board); }} className="p-1 text-slate-500 hover:text-teal-400" title="Move">
-                                                                    <FolderInput size={12} />
-                                                                </button>
-                                                                <button onClick={(e) => handleDeleteBoard(e, board.id)} className="p-1 text-slate-500 hover:text-red-500" title="Delete">
-                                                                    <Trash2 size={12} />
-                                                                </button>
-                                                            </div>
-                                                        </>
-                                                    )}
+                                                    <div className="absolute right-1 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover/board:opacity-100 transition-opacity bg-slate-950/80 backdrop-blur rounded px-1">
+                                                        <button onClick={(e) => handleShare(e, 'board', board.id)} className="p-1 text-slate-500 hover:text-white" title="Share">
+                                                            <LinkIcon size={12} />
+                                                        </button>
+                                                        <button onClick={(e) => openEditBoardModal(e, board)} className="p-1 text-slate-500 hover:text-teal-400" title="Edit">
+                                                            <Pencil size={12} />
+                                                        </button>
+                                                        <button onClick={(e) => { e.stopPropagation(); setBoardToMove(board); }} className="p-1 text-slate-500 hover:text-teal-400" title="Move">
+                                                            <FolderInput size={12} />
+                                                        </button>
+                                                        <button onClick={(e) => handleDeleteBoard(e, board.id)} className="p-1 text-slate-500 hover:text-red-500" title="Delete">
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    </div>
                                                 </li>
                                             ))}
                                         </ul>
@@ -457,43 +513,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                         onDragStart={(e) => e.dataTransfer.setData('boardId', board.id)}
                                         className="group relative"
                                     >
-                                        {renamingId === board.id ? (
-                                            <div className="px-2 py-1">
-                                                <input
-                                                    autoFocus
-                                                    value={renameValue}
-                                                    onChange={e => setRenameValue(e.target.value)}
-                                                    onKeyDown={e => e.key === 'Enter' && submitRename('board')}
-                                                    onBlur={() => submitRename('board')}
-                                                    className="w-full bg-slate-900 border border-teal-500 rounded px-2 py-1 text-sm text-white outline-none"
-                                                />
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <button
-                                                    onClick={() => handleFilterClick('board', board.id)}
-                                                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${activeFilter.type === 'board' && activeFilter.id === board.id ? 'bg-teal-500/10 text-teal-500' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}
-                                                >
-                                                    <Folder size={16} strokeWidth={1.5} />
-                                                    <span className="font-medium text-sm truncate pr-14">{board.title}</span>
-                                                </button>
+                                        <button
+                                            onClick={() => handleFilterClick('board', board.id)}
+                                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${activeFilter.type === 'board' && activeFilter.id === board.id ? 'bg-teal-500/10 text-teal-500' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}
+                                        >
+                                            <Folder size={16} strokeWidth={1.5} />
+                                            <span className="font-medium text-sm truncate pr-14">{board.title}</span>
+                                            <div className="ml-auto">{getVisibilityIcon(board.visibility)}</div>
+                                        </button>
 
-                                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/80 backdrop-blur rounded px-1 py-0.5 border border-slate-800/50 shadow-sm">
-                                                    <button onClick={(e) => handleShare(e, 'board', board.id)} className="p-1 text-slate-500 hover:text-white" title="Share">
-                                                        <LinkIcon size={12} />
-                                                    </button>
-                                                    <button onClick={(e) => startRenaming(e, board.id, board.title)} className="p-1 text-slate-500 hover:text-teal-400" title="Rename">
-                                                        <Pencil size={12} />
-                                                    </button>
-                                                    <button onClick={(e) => { e.stopPropagation(); setBoardToMove(board); }} className="p-1 text-slate-500 hover:text-teal-400" title="Move">
-                                                        <FolderInput size={12} />
-                                                    </button>
-                                                    <button onClick={(e) => handleDeleteBoard(e, board.id)} className="p-1 text-slate-500 hover:text-red-500" title="Delete">
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                </div>
-                                            </>
-                                        )}
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/80 backdrop-blur rounded px-1 py-0.5 border border-slate-800/50 shadow-sm">
+                                            <button onClick={(e) => handleShare(e, 'board', board.id)} className="p-1 text-slate-500 hover:text-white" title="Share">
+                                                <LinkIcon size={12} />
+                                            </button>
+                                            <button onClick={(e) => openEditBoardModal(e, board)} className="p-1 text-slate-500 hover:text-teal-400" title="Edit">
+                                                <Pencil size={12} />
+                                            </button>
+                                            <button onClick={(e) => { e.stopPropagation(); setBoardToMove(board); }} className="p-1 text-slate-500 hover:text-teal-400" title="Move">
+                                                <FolderInput size={12} />
+                                            </button>
+                                            <button onClick={(e) => handleDeleteBoard(e, board.id)} className="p-1 text-slate-500 hover:text-red-500" title="Delete">
+                                                <Trash2 size={12} />
+                                            </button>
+                                        </div>
                                     </li>
                                 ))}
                             </ul>
@@ -503,9 +545,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                 {/* Footer (User Profile & Settings) */}
                 <div className="p-4 border-t border-slate-800 shrink-0 space-y-1">
-                    {/* User Profile Block */}
-                    
-
                     <button
                         onClick={onOpenSettings}
                         className={`w-full flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-colors group ${!isOpen ? 'justify-center' : ''}`}
@@ -515,7 +554,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <span className={`font-medium text-sm transition-all ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>View Settings</span>
                     </button>
                     
-
                     <div className={`pt-4 flex items-center gap-4 text-xs text-slate-600 px-3 ${!isOpen ? 'justify-center' : ''}`}>
                         <a href="https://github.com/volumedata21/tallo21/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-slate-400 transition-colors">
                             <Github size={14} />
