@@ -37,12 +37,53 @@ export const dataService = {
       return res.json();
   },
 
+  register: async (data: any): Promise<User> => {
+      const res = await fetch(`${API_URL}/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+      });
+      if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Registration failed");
+      }
+      return res.json();
+  },
+
   getUserById: async (id: string): Promise<User> => {
       const res = await fetch(`${API_URL}/users/${id}`);
       if (!res.ok) {
           throw new Error("User not found");
       }
       return res.json();
+  },
+
+  // --- ADMIN TOOLS ---
+  
+  getInvites: async (): Promise<any[]> => {
+      const res = await fetch(`${API_URL}/admin/invites`);
+      return res.json();
+  },
+
+  generateInvite: async (quota: string): Promise<any> => {
+      const res = await fetch(`${API_URL}/admin/invites`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quota })
+      });
+      return res.json();
+  },
+
+  deleteInvite: async (id: string) => {
+      await fetch(`${API_URL}/admin/invites/${id}`, { method: 'DELETE' });
+  },
+
+  updateUserQuota: async (id: string, maxQuota: string) => {
+      await fetch(`${API_URL}/users/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ maxQuota })
+      });
   },
 
   // --- USERS ---
@@ -56,12 +97,9 @@ export const dataService = {
     return res.json();
   },
 
-  addUser: async (user: Omit<User, 'id' | 'usedQuota'>): Promise<User> => {
-    return { ...user, id: Math.random().toString(), usedQuota: '0GB' } as User;
+  deleteUser: async (id: string) => { 
+      await fetch(`${API_URL}/users/${id}`, { method: 'DELETE' });
   },
-
-  deleteUser: async (id: string) => { /* Implement in server */ },
-  resetPassword: async (id: string) => { return true; },
 
   // --- AVATARS & PROFILE ---
   getAvatars: async (): Promise<string[]> => {
@@ -171,6 +209,8 @@ export const dataService = {
     if (sort) params.append('sort', sort);
     if (search) params.append('search', search);
     if (userId) params.append('userId', userId);
+    if (filter.creatorId) params.append('creatorId', filter.creatorId);
+    
     params.append('page', page.toString());
     params.append('limit', '50'); 
 
@@ -212,51 +252,22 @@ export const dataService = {
     });
   },
 
-  // --- UPLOAD & SCRAPE ---
-  uploadImage: async (file: File): Promise<string> => {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch(`${API_URL}/upload`, {
-          method: 'POST',
-          body: formData
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      const data = await res.json();
-      return data.url; 
-  },
-
-  getImagesFromUrl: async (url: string): Promise<{ images: string[], title: string }> => {
-     try {
-         const res = await fetch(`${API_URL}/scrape`, {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ url })
-         });
-         if (!res.ok) throw new Error("Scrape failed");
-         const data = await res.json();
-         return { 
-             images: data.images || [],
-             title: data.title || ''
-         };
-     } catch (e) {
-         console.error(e);
-         return { images: [], title: '' };
-     }
-  },
-
-  // --- INTERACTIONS ---
+  // --- INTERACTIONS (UPDATED) ---
   toggleFavorite: async (id: string) => {
-    const pins = await dataService.getAllPins(); 
-    const pin = pins.find(p => p.id === id);
-    if (pin) {
-        await dataService.updatePin(id, { favorite: !pin.favorite });
-        return !pin.favorite;
-    }
-    return false;
+    const stored = localStorage.getItem('tallo_user');
+    if (!stored) return false;
+    const user = JSON.parse(stored);
+
+    const res = await fetch(`${API_URL}/pins/toggle-favorite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinId: id, userId: user.id })
+    });
+    const data = await res.json();
+    return data.favorited;
   },
   
   // --- USER SELF-MANAGEMENT ---
-
   changePassword: async (id: string, currentPass: string, newPass: string) => {
       return true;
   },
@@ -325,7 +336,7 @@ export const dataService = {
     });
   },
   
-  // --- BULK ACTIONS ---
+  // --- BULK ACTIONS (UPDATED FOR USER CONTEXT) ---
   bulkUpdatePins: async (ids: string[], updates: Partial<Pin>) => {
     await fetch(`${API_URL}/pins/bulk-update`, {
         method: 'POST',
@@ -342,11 +353,16 @@ export const dataService = {
     });
   },
 
+  // FIX: Pass userId here
   bulkAddBoard: async (ids: string[], boardId: string) => {
+    const stored = localStorage.getItem('tallo_user');
+    if (!stored) return;
+    const user = JSON.parse(stored);
+
     await fetch(`${API_URL}/pins/bulk-boards`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ ids, boardId })
+        body: JSON.stringify({ ids, boardId, userId: user.id })
     });
   },
 
@@ -374,11 +390,16 @@ export const dataService = {
     });
   },
 
+  // FIX: Pass userId here
   bulkRemoveBoard: async (ids: string[], boardId: string) => {
+    const stored = localStorage.getItem('tallo_user');
+    if (!stored) return;
+    const user = JSON.parse(stored);
+
     await fetch(`${API_URL}/pins/bulk-boards-remove`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ ids, boardId })
+        body: JSON.stringify({ ids, boardId, userId: user.id })
     });
   },
 
@@ -392,6 +413,35 @@ export const dataService = {
 
   restorePins: async (pins: Pin[]) => {}, 
   
+  // --- UPLOAD & SCRAPE ---
+  uploadImage: async (file: File): Promise<string> => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_URL}/upload`, {
+          method: 'POST',
+          body: formData
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      return data.url; 
+  },
+
+  getImagesFromUrl: async (url: string): Promise<{ images: string[], title: string }> => {
+     try {
+         const res = await fetch(`${API_URL}/scrape`, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ url })
+         });
+         if (!res.ok) throw new Error("Scrape failed");
+         const data = await res.json();
+         return { 
+             images: data.images || [],
+             title: data.title || ''
+         };
+     } catch (e) { return { images: [], title: '' }; }
+  },
+
   swapHeroImage: async (id: string, url: string) => { 
       await dataService.updatePin(id, { imageUrl: url });
   }

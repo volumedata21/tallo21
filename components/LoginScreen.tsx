@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { dataService } from '../services/dataService';
 import { User } from '../types';
-import { Loader2, ArrowRight, ChevronsUp } from 'lucide-react';
+import { Loader2, ArrowRight, ChevronsUp, Ticket } from 'lucide-react';
 
 interface LoginScreenProps {
   onLogin: (user: User) => void;
@@ -9,6 +9,7 @@ interface LoginScreenProps {
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [isSetupMode, setIsSetupMode] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false); // NEW STATE
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -17,6 +18,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
+  const [inviteCode, setInviteCode] = useState(''); // NEW FIELD
 
   useEffect(() => {
     checkSystemStatus();
@@ -43,6 +45,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       let user: User;
       if (isSetupMode) {
         user = await dataService.setupAdmin({ username, password, email });
+      } else if (isRegistering) {
+        // REGISTER LOGIC
+        user = await dataService.register({ username, password, email, inviteCode });
       } else {
         user = await dataService.login({ username, password });
       }
@@ -66,20 +71,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
   return (
     <div className="h-screen w-screen relative overflow-hidden flex items-center justify-center p-4">
-      {/* --- BACKGROUND EFFECTS --- */}
+      {/* ... Background Effects ... */}
       <div className="absolute inset-0 bg-[#000208] z-0"></div>
-      
-      {/* Gradient Orbs */}
       <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-teal-600/20 rounded-full blur-[120px] opacity-40 animate-pulse"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vw] bg-blue-600/20 rounded-full blur-[120px] opacity-40 animate-pulse" style={{ animationDuration: '4s' }}></div>
-      
-      {/* Grid Pattern Overlay */}
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 z-0 mix-blend-overlay"></div>
 
-      {/* --- GLASS CARD --- */}
       <div className="w-full max-w-md relative z-10 animate-in fade-in zoom-in-95 duration-500">
-        
-        {/* Glow behind card */}
         <div className="absolute -inset-0.5 bg-gradient-to-r from-teal-500 to-blue-600 rounded-2xl blur opacity-30"></div>
         
         <div className="relative bg-slate-950/80 backdrop-blur-xl border border-slate-800/50 rounded-2xl shadow-2xl p-8 sm:p-10">
@@ -88,20 +86,37 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             <div className="relative inline-block mb-6">
                <div className="absolute inset-0 bg-teal-500 blur-xl opacity-20 rounded-full"></div>
                <div className="relative w-20 h-20 bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl flex items-center justify-center border border-slate-700 shadow-inner">
-                  {/* LOGO ICON */}
                   <ChevronsUp size={40} className="text-teal-500" strokeWidth={3} />
                </div>
             </div>
             
             <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-2">
-              {isSetupMode ? 'Setup Tallo' : 'Welcome Back'}
+              {isSetupMode ? 'Setup Tallo' : isRegistering ? 'Join Tallo' : 'Welcome Back'}
             </h1>
             <p className="text-slate-400 text-sm">
-              {isSetupMode ? 'Initialize your admin workspace.' : 'Enter your credentials to access the grid.'}
+              {isSetupMode ? 'Initialize your admin workspace.' : isRegistering ? 'Enter your invite code to create an account.' : 'Enter your credentials to access the grid.'}
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            
+            {/* INVITE CODE FIELD (Only in Register Mode) */}
+            {isRegistering && (
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-teal-500/80 uppercase tracking-widest ml-1 flex items-center gap-1">
+                        <Ticket size={12} /> Invite Code
+                    </label>
+                    <input 
+                        type="text" 
+                        required
+                        value={inviteCode}
+                        onChange={e => setInviteCode(e.target.value.toUpperCase())}
+                        className="w-full bg-teal-900/20 border border-teal-500/50 rounded-xl px-4 py-3.5 text-white placeholder-slate-600 focus:bg-slate-900 outline-none transition-all duration-200 font-mono tracking-widest"
+                        placeholder="XXXX-XXXX"
+                    />
+                </div>
+            )}
+
             <div className="space-y-1">
               <label className="text-xs font-semibold text-teal-500/80 uppercase tracking-widest ml-1">Username</label>
               <input 
@@ -109,12 +124,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 required
                 value={username}
                 onChange={e => setUsername(e.target.value)}
-                className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3.5 text-white placeholder-slate-600 focus:border-teal-500/50 focus:bg-slate-900 focus:ring-4 focus:ring-teal-500/10 outline-none transition-all duration-200"
-                placeholder="admin"
+                className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3.5 text-white placeholder-slate-600 focus:border-teal-500/50 focus:bg-slate-900 outline-none transition-all duration-200"
+                placeholder="username"
               />
             </div>
 
-            {isSetupMode && (
+            {(isSetupMode || isRegistering) && (
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-teal-500/80 uppercase tracking-widest ml-1">
                   Email <span className="text-slate-600 font-normal lowercase">(optional)</span>
@@ -123,8 +138,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                   type="email" 
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3.5 text-white placeholder-slate-600 focus:border-teal-500/50 focus:bg-slate-900 focus:ring-4 focus:ring-teal-500/10 outline-none transition-all duration-200"
-                  placeholder="admin@tallo.local"
+                  className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3.5 text-white placeholder-slate-600 focus:border-teal-500/50 focus:bg-slate-900 outline-none transition-all duration-200"
+                  placeholder="user@example.com"
                 />
               </div>
             )}
@@ -136,7 +151,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3.5 text-white placeholder-slate-600 focus:border-teal-500/50 focus:bg-slate-900 focus:ring-4 focus:ring-teal-500/10 outline-none transition-all duration-200"
+                className="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3.5 text-white placeholder-slate-600 focus:border-teal-500/50 focus:bg-slate-900 outline-none transition-all duration-200"
                 placeholder="••••••••"
               />
             </div>
@@ -156,11 +171,25 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
               <span className="relative flex items-center gap-2">
                 {submitting ? <Loader2 className="animate-spin" size={20} /> : (
                   <>
-                    {isSetupMode ? 'Initialize System' : 'Enter System'} <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                    {isSetupMode ? 'Initialize System' : isRegistering ? 'Create Account' : 'Enter System'} <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
                   </>
                 )}
               </span>
             </button>
+
+            {/* SWITCH MODE BUTTON */}
+            {!isSetupMode && (
+                <div className="text-center pt-2">
+                    <button 
+                        type="button"
+                        onClick={() => { setIsRegistering(!isRegistering); setError(''); }}
+                        className="text-slate-500 hover:text-teal-400 text-sm transition-colors"
+                    >
+                        {isRegistering ? "Already have an account? Log In" : "Have an invite? Sign Up"}
+                    </button>
+                </div>
+            )}
+
           </form>
         </div>
       </div>

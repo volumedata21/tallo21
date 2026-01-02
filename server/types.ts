@@ -5,7 +5,7 @@ export interface User {
   username: string;
   email: string;
   role: Role;
-  quota: string;
+  maxQuota: string;
   usedQuota: string;
   inviteCode?: string;
   avatarSeed: string;
@@ -36,7 +36,7 @@ export interface Pin {
   title: string;
   description: string;
   imageUrl: string;
-  thumbnail?: string; // <--- NEW: Optimized image for grid view
+  thumbnail?: string;
   gallery?: string[];
   boardIds: string[];
   link?: string;
@@ -44,9 +44,11 @@ export interface Pin {
   aspectRatio: number;
   tags: string[];
   ownerId: string;
+  ownerName?: string;   // <--- NEW
+  ownerAvatar?: string; // <--- NEW
   createdAt: number;
   favorite: boolean;
-  deletedAt?: number; // <--- NEW: For Soft Delete / Undo
+  deletedAt?: number;
 }
 
 export interface UserSettings {
@@ -58,6 +60,12 @@ export interface UserSettings {
 
 export interface SystemSettings {
   maxUploadSize: string;
+  maxUsers: number;
 }
 
 export type SortOption = 'newest' | 'oldest' | 'az' | 'za' | 'random';
+
+export interface ActiveFilter {
+  type: 'all' | 'collection' | 'board' | 'tag' | 'favorites' | 'created';
+  id: string;
+}

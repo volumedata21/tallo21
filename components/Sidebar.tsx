@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Layout, Plus, Layers, Folder, Trash2, Heart, Link as LinkIcon, Settings, Shield, ArrowDownAZ, ArrowUpNarrowWide, Github, ChevronsUp, ChevronLeft, ChevronRight, FolderInput, X, Check, Pencil, MoreHorizontal, Layers2, Activity } from 'lucide-react';
-import { Collection, Board, User } from '../types';
+import { Layout, Plus, Layers, Folder, Trash2, Heart, Link as LinkIcon, Settings, Shield, ArrowDownAZ, ArrowUpNarrowWide, Github, ChevronsUp, ChevronLeft, ChevronRight, FolderInput, X, Check, Pencil, MoreHorizontal, Layers2, Activity, User as UserIcon } from 'lucide-react';
+import { Collection, Board, User, ActiveFilter } from '../types';
 import { dataService } from '../services/dataService';
 
 interface SidebarProps {
     isOpen: boolean;
-    activeFilter: { type: 'all' | 'collection' | 'board' | 'tag' | 'favorites', id: string };
-    onFilterChange: (filter: { type: 'all' | 'collection' | 'board' | 'tag' | 'favorites', id: string }) => void;
+    activeFilter: ActiveFilter;
+    onFilterChange: (filter: ActiveFilter) => void;
     collections: Collection[];
     boards: Board[];
     allTags: string[];
@@ -144,7 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         alert('Link copied to clipboard');
     };
 
-    const handleFilterClick = (type: 'all' | 'collection' | 'board' | 'tag' | 'favorites', id: string) => {
+    const handleFilterClick = (type: ActiveFilter['type'], id: string) => {
         onFilterChange({ type, id });
         if (window.innerWidth < 768) onCloseMobile();
     };
@@ -250,6 +250,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 >
                                     <Layout size={20} strokeWidth={1.5} />
                                     <span className={`font-medium text-sm transition-all duration-200 ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>Tallos</span>
+                                </button>
+                            </li>
+                            <li>
+                                <button
+                                    onClick={() => handleFilterClick('created', currentUser.id)}
+                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group ${activeFilter.type === 'created' ? 'bg-teal-500/10 text-teal-500' : 'text-slate-400 hover:text-white hover:bg-slate-900'} ${!isOpen ? 'justify-center' : ''}`}
+                                    title="Mis Tallos"
+                                >
+                                    <UserIcon size={20} strokeWidth={1.5} />
+                                    <span className={`font-medium text-sm transition-all duration-200 ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>Mis Tallos</span>
                                 </button>
                             </li>
                             <li>
@@ -493,7 +503,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                 {/* Footer (User Profile & Settings) */}
                 <div className="p-4 border-t border-slate-800 shrink-0 space-y-1">
-                    
+                    {/* User Profile Block */}
+                    <div className={`flex items-center gap-3 mb-4 ${!isOpen ? 'justify-center' : ''}`}>
+                        <div className="w-9 h-9 rounded-full bg-slate-800 overflow-hidden ring-2 ring-slate-800 cursor-pointer hover:ring-teal-500 transition-all" onClick={onOpenSettings}>
+                            <img src={getAvatarUrl(currentUser.avatarSeed)} alt="User" className="w-full h-full object-cover" />
+                        </div>
+                        <div className={`flex flex-col ${!isOpen ? 'hidden' : 'block'}`}>
+                            <span className="text-sm font-bold text-white truncate max-w-[120px]">{currentUser.username}</span>
+                            <span className="text-[10px] text-teal-500 uppercase font-bold tracking-wider">{currentUser.role}</span>
+                        </div>
+                    </div>
 
                     <button
                         onClick={onOpenSettings}
@@ -504,7 +523,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <span className={`font-medium text-sm transition-all ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>View Settings</span>
                     </button>
 
-                    
+                    {currentUser.role === 'admin' && (
+                        <button
+                            onClick={onOpenAdmin}
+                            className={`w-full flex items-center gap-3 px-3 py-2 text-teal-500 hover:bg-teal-500/10 rounded-lg transition-colors group ${!isOpen ? 'justify-center' : ''}`}
+                            title="Admin"
+                        >
+                            <Shield size={20} strokeWidth={1.5} />
+                            <span className={`font-medium text-sm transition-all ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>Admin</span>
+                        </button>
+                    )}
 
                     <div className={`pt-4 flex items-center gap-4 text-xs text-slate-600 px-3 ${!isOpen ? 'justify-center' : ''}`}>
                         <a href="https://github.com/volumedata21/tallo21/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-slate-400 transition-colors">

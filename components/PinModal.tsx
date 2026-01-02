@@ -40,20 +40,27 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   const touchStartRef = useRef<number | null>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
+  const prevPinId = useRef<string | null>(null);
 
   useEffect(() => {
     if (pin) {
-        setTitle(pin.title);
-        setDescription(pin.description);
-        setTags(pin.tags || []);
-        setSelectedBoardIds(pin.boardIds || []);
-        setLink(pin.link || '');
-        setIsEditingLocation(false);
-        setSearchQuery('');
-        setLocationResults([]);
-        setIsFavorite(pin.favorite);
-        setViewingUrl(pin.imageUrl);
-        setIsDrawerOpen(false);
+        if (prevPinId.current !== pin.id) {
+            setTitle(pin.title);
+            setDescription(pin.description);
+            setTags(pin.tags || []);
+            setSelectedBoardIds(pin.boardIds || []);
+            setLink(pin.link || '');
+            setIsFavorite(pin.favorite);
+            
+            setIsEditingLocation(false);
+            setSearchQuery('');
+            setLocationResults([]);
+            setViewingUrl(pin.imageUrl);
+            setIsDrawerOpen(false);
+            setIsAddingBoard(false);
+            
+            prevPinId.current = pin.id;
+        }
     }
   }, [pin]);
 
@@ -136,7 +143,10 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
      if (shouldRefresh) onUpdate();
   };
   
-  const handleClose = () => { handleSave(false); onClose(); };
+  const handleClose = () => { 
+      handleSave(false); 
+      onClose(); 
+  };
 
   const handleDelete = (e: React.MouseEvent) => {
       e.preventDefault();
@@ -162,7 +172,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   const handleToggleFavorite = async () => {
       setIsFavorite(!isFavorite);
       await dataService.toggleFavorite(pin.id);
-      onUpdate();
   };
 
   const handleSetAsCover = async () => {
@@ -221,7 +230,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
           await dataService.updatePin(pin.id, { tags: newTags });
       }
       setTagInput('');
-      onUpdate();
     }
   };
 
@@ -229,21 +237,45 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       const newTags = tags.filter(t => t !== tag);
       setTags(newTags);
       await dataService.updatePin(pin.id, { tags: newTags });
-      onUpdate();
   };
   
   const toggleBoard = async (boardId: string) => {
+      const isRemoving = selectedBoardIds.includes(boardId);
+      
       let newBoardIds;
-      if (selectedBoardIds.includes(boardId)) newBoardIds = selectedBoardIds.filter(id => id !== boardId);
-      else newBoardIds = [...selectedBoardIds, boardId];
+      if (isRemoving) {
+          newBoardIds = selectedBoardIds.filter(id => id !== boardId);
+      } else {
+          newBoardIds = [...selectedBoardIds, boardId];
+      }
+      
+      let autoAddedNewStems = false;
+      const newStemsBoard = boards.find(b => b.title === 'New Stems');
+      
+      // If user removed the last board, auto-add 'New Stems' to prevent orphan state
+      if (newBoardIds.length === 0 && newStemsBoard) {
+          newBoardIds.push(newStemsBoard.id);
+          autoAddedNewStems = true;
+      }
+      
       setSelectedBoardIds(newBoardIds);
-      await dataService.updatePin(pin.id, { boardIds: newBoardIds });
-      onUpdate();
+
+      if (isRemoving) {
+          await dataService.bulkRemoveBoard([pin.id], boardId);
+      } else {
+          await dataService.addPinToBoard(pin.id, boardId);
+      }
+      
+      if (autoAddedNewStems && newStemsBoard) {
+          await dataService.addPinToBoard(pin.id, newStemsBoard.id);
+      }
   };
+  
+  // Calculate which boards to show (Hide "New Stems")
+  const visibleUncollectedBoards = boards.filter(b => !b.collectionId && b.title !== 'New Stems');
 
   // --- VIDEO PLAYER COMPONENT ---
   const renderContent = () => {
-    // 1. Direct Video File Upload
     if (viewingUrl.endsWith('.mp4') || viewingUrl.endsWith('.mov')) {
         return (
             <video 
@@ -256,9 +288,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
         );
     }
 
-    // 2. Scraped Video Embed (YouTube/Vimeo)
-    // Only show embed if we are viewing the "Main" cover image, AND the link is a valid video.
-    // If user clicks a gallery image, we show the image, not the video.
     const isMainImage = viewingUrl === pin.imageUrl;
     
     if (isMainImage && pin.link) {
@@ -290,7 +319,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
         }
     }
 
-    // 3. Default Image
     return (
         <img src={viewingUrl} className="max-w-full max-h-full object-contain relative z-10" alt={pin.title} />
     );
@@ -340,7 +368,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
              <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-[#050505]">
                  <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#1e293b 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
                  
-                 {/* --- RENDER CONTENT (VIDEO OR IMAGE) --- */}
                  {renderContent()}
 
                  {galleryImages.length > 1 && (
@@ -434,7 +461,11 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                             <div className="flex flex-wrap gap-2 mb-2">
                                 {selectedBoardIds.map(bid => {
                                     const board = boards.find(b => b.id === bid);
-                                    if (!board) return null;
+                                    // Also filter "New Stems" from the chip list if you want it hidden from view entirely
+                                    // even if implicitly added. If you want to show it but not let them remove it manually, keep it here.
+                                    // Based on prompt "User should not be able to add a stem to 'New Boards'", I will hide it from view here too
+                                    if (!board || board.title === 'New Stems') return null; 
+                                    
                                     return (
                                         <span key={bid} className="flex items-center gap-1 text-xs bg-slate-900 text-slate-200 px-3 py-1.5 rounded-full border border-slate-800">
                                             {board.title}
@@ -458,12 +489,18 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                                             ))}
                                         </div>
                                     ))}
-                                    <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase mt-1">New Boards</div>
-                                    {boards.filter(b => !b.collectionId).map(b => (
-                                        <button key={b.id} onClick={() => toggleBoard(b.id)} className={`w-full text-left px-4 py-2 text-xs rounded flex items-center justify-between ${selectedBoardIds.includes(b.id) ? 'bg-teal-500/20 text-teal-400' : 'text-slate-300 hover:bg-slate-800'}`}>
-                                            {b.title} {selectedBoardIds.includes(b.id) && <Check size={12} />}
-                                        </button>
-                                    ))}
+                                    
+                                    {/* Only show 'New Boards' header if there are actually OTHER uncollected boards */}
+                                    {visibleUncollectedBoards.length > 0 && (
+                                        <>
+                                            <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase mt-1">New Boards</div>
+                                            {visibleUncollectedBoards.map(b => (
+                                                <button key={b.id} onClick={() => toggleBoard(b.id)} className={`w-full text-left px-4 py-2 text-xs rounded flex items-center justify-between ${selectedBoardIds.includes(b.id) ? 'bg-teal-500/20 text-teal-400' : 'text-slate-300 hover:bg-slate-800'}`}>
+                                                    {b.title} {selectedBoardIds.includes(b.id) && <Check size={12} />}
+                                                </button>
+                                            ))}
+                                        </>
+                                    )}
                                 </div>
                             )}
                         </div>
