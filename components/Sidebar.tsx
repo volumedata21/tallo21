@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Layout, Plus, Layers, Folder, Trash2, Heart, Link as LinkIcon, Settings, Shield, ArrowDownAZ, ArrowUpNarrowWide, Github, ChevronsUp, ChevronLeft, ChevronRight, FolderInput, X, Check, Pencil, MoreHorizontal, Layers2, ChartNoAxesGantt } from 'lucide-react';
-import { Collection, Board, User } from '../types';
+import { Layout, Plus, Layers, Folder, Trash2, Heart, Link as LinkIcon, Settings, Shield, ArrowDownAZ, ArrowUpNarrowWide, Github, ChevronsUp, ChevronLeft, ChevronRight, FolderInput, X, Check, Pencil, MoreHorizontal, Layers2, Activity, User as UserIcon } from 'lucide-react';
+import { Collection, Board, User, ActiveFilter } from '../types';
 import { dataService } from '../services/dataService';
 
 interface SidebarProps {
     isOpen: boolean;
-    activeFilter: { type: 'all' | 'collection' | 'board' | 'tag' | 'favorites', id: string };
-    onFilterChange: (filter: { type: 'all' | 'collection' | 'board' | 'tag' | 'favorites', id: string }) => void;
+    activeFilter: ActiveFilter;
+    onFilterChange: (filter: ActiveFilter) => void;
     collections: Collection[];
     boards: Board[];
     allTags: string[];
@@ -144,7 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         alert('Link copied to clipboard');
     };
 
-    const handleFilterClick = (type: 'all' | 'collection' | 'board' | 'tag' | 'favorites', id: string) => {
+    const handleFilterClick = (type: ActiveFilter['type'], id: string) => {
         onFilterChange({ type, id });
         if (window.innerWidth < 768) onCloseMobile();
     };
@@ -154,9 +154,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (window.innerWidth < 768) onCloseMobile();
     };
 
+    // --- AVATAR URL HELPER ---
+    const getAvatarUrl = (seed: string) => {
+        if (seed && (seed.includes('.') || seed.includes('/'))) {
+            return `/api/avatars/image/${seed}`;
+        }
+        return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}`;
+    };
+
     return (
         <>
-            {/* Mobile Overlay */}
+            {/* Mobile Overlay - z-40 to sit above Header (z-30) but below Sidebar (z-50) */}
             {isOpen && (
                 <div
                     className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
@@ -164,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
             )}
 
-            {/* --- MOVE BOARD MODAL --- */}
+            {/* --- MOVE BOARD MODAL (High Z-Index) --- */}
             {boardToMove && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setBoardToMove(null)}>
                     <div className="bg-[#0B1120] border border-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
@@ -204,9 +212,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ${isOpen ? 'w-64 translate-x-0' : '-translate-x-full w-0 md:opacity-100 md:translate-x-0 md:w-20'}
         `}
             >
+                {/* TOGGLE BUTTON (z-50 from parent, effectively z-50). With Header at z-30, this stays visible. */}
                 <button
                     onClick={onToggleSidebar}
-                    className="absolute -right-3 top-9 z-50 bg-slate-900 border border-slate-700 text-slate-400 hover:text-white p-1 rounded-full shadow-lg transition-colors hidden md:flex items-center justify-center h-6 w-6"
+                    className="absolute -right-3 top-9 bg-slate-900 border border-slate-700 text-slate-400 hover:text-white p-1 rounded-full shadow-lg transition-colors hidden md:flex items-center justify-center h-6 w-6 z-50"
                     title={isOpen ? "Collapse" : "Expand"}
                 >
                     {isOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
@@ -241,6 +250,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 >
                                     <Layout size={20} strokeWidth={1.5} />
                                     <span className={`font-medium text-sm transition-all duration-200 ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>Tallos</span>
+                                </button>
+                            </li>
+                            <li>
+                                <button
+                                    onClick={() => handleFilterClick('created', currentUser.id)}
+                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group ${activeFilter.type === 'created' ? 'bg-teal-500/10 text-teal-500' : 'text-slate-400 hover:text-white hover:bg-slate-900'} ${!isOpen ? 'justify-center' : ''}`}
+                                    title="Mis Tallos"
+                                >
+                                    <UserIcon size={20} strokeWidth={1.5} />
+                                    <span className={`font-medium text-sm transition-all duration-200 ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>Mis Tallos</span>
                                 </button>
                             </li>
                             <li>
@@ -322,7 +341,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                             </button>
 
                                             <div className="absolute right-1 top-2 hidden group-hover:flex gap-1 bg-slate-950/80 backdrop-blur rounded px-1">
-                                                {/* --- SHARE BUTTON ADDED HERE --- */}
                                                 <button onClick={(e) => handleShare(e, 'collection', col.id)} className="p-1 text-slate-500 hover:text-white" title="Share Collection">
                                                     <LinkIcon size={12} />
                                                 </button>
@@ -423,9 +441,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                             onClick={() => handleFilterClick('board', newStemsBoard.id)}
                                             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors group ${activeFilter.type === 'board' && activeFilter.id === newStemsBoard.id ? 'bg-teal-500/10 text-teal-500' : 'text-slate-400 hover:text-white hover:bg-slate-900'}`}
                                         >
-                                            {/* Circle Highlight Wrapper */}
                                             <div className={`p-1.5 rounded-full ${activeFilter.id === newStemsBoard.id ? 'bg-teal-500 text-white' : 'bg-teal-500/20 text-teal-500 group-hover:bg-teal-500 group-hover:text-white'} transition-colors`}>
-                                                <ChartNoAxesGantt size={14} strokeWidth={2.5} />
+                                                <Activity size={14} strokeWidth={2.5} />
                                             </div>
                                             <span className="font-medium text-sm">New Stems</span>
                                         </button>
@@ -484,15 +501,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                 </div>
 
-                {/* Footer */}
+                {/* Footer (User Profile & Settings) */}
                 <div className="p-4 border-t border-slate-800 shrink-0 space-y-1">
+                    {/* User Profile Block */}
+                    <div className={`flex items-center gap-3 mb-4 ${!isOpen ? 'justify-center' : ''}`}>
+                        <div className="w-9 h-9 rounded-full bg-slate-800 overflow-hidden ring-2 ring-slate-800 cursor-pointer hover:ring-teal-500 transition-all" onClick={onOpenSettings}>
+                            <img src={getAvatarUrl(currentUser.avatarSeed)} alt="User" className="w-full h-full object-cover" />
+                        </div>
+                        <div className={`flex flex-col ${!isOpen ? 'hidden' : 'block'}`}>
+                            <span className="text-sm font-bold text-white truncate max-w-[120px]">{currentUser.username}</span>
+                            <span className="text-[10px] text-teal-500 uppercase font-bold tracking-wider">{currentUser.role}</span>
+                        </div>
+                    </div>
+
                     <button
                         onClick={onOpenSettings}
                         className={`w-full flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-900 rounded-lg transition-colors group ${!isOpen ? 'justify-center' : ''}`}
                         title="Settings"
                     >
                         <Settings size={20} strokeWidth={1.5} />
-                        <span className={`font-medium text-sm transition-all ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>Settings</span>
+                        <span className={`font-medium text-sm transition-all ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>View Settings</span>
                     </button>
 
                     {currentUser.role === 'admin' && (
