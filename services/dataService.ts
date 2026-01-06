@@ -268,8 +268,65 @@ export const dataService = {
   },
   
   // --- USER SELF-MANAGEMENT ---
-  changePassword: async (id: string, currentPass: string, newPass: string) => {
-      return true;
+  changePassword: async (id: string, currentPass: string, newPass: string): Promise<void> => {
+      const res = await fetch(`${API_URL}/users/${id}/password`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPass, newPass })
+      });
+
+      if (!res.ok) {
+          // Try to get the specific error message from the server
+          const err = await res.json();
+          throw new Error(err.error || err.message || "Failed to update password");
+      }
+  },
+
+  generateResetToken: async (userId: string): Promise<string> => {
+      const res = await fetch(`${API_URL}/admin/generate-reset-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId })
+      });
+      if (!res.ok) throw new Error("Failed to generate token");
+      const data = await res.json();
+      return data.token;
+  },
+
+  completePasswordReset: async (token: string, newPass: string) => {
+      const res = await fetch(`${API_URL}/auth/complete-reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, newPassword: newPass })
+      });
+      if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Reset failed");
+      }
+      return res.json();
+  },
+
+  generateResetToken: async (userId: string): Promise<string> => {
+      const res = await fetch(`${API_URL}/admin/generate-reset-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId })
+      });
+      const data = await res.json();
+      return data.token;
+  },
+
+  completePasswordReset: async (token: string, newPass: string) => {
+      const res = await fetch(`${API_URL}/auth/complete-reset`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, newPassword: newPass })
+      });
+      if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Reset failed");
+      }
+      return res.json();
   },
 
   logout: () => {

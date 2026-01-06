@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
-import { X, User as UserIcon, Lock, Save, LogOut, Check, Loader2 } from 'lucide-react';
+import { X, User as UserIcon, Lock, Save, LogOut, Check, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { dataService } from '../services/dataService';
 
 interface ProfileModalProps {
@@ -15,10 +15,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
   const [activeTab, setActiveTab] = useState<'general' | 'security'>('general');
   const [availableAvatars, setAvailableAvatars] = useState<string[]>([]);
   
-  // Form State
+  // General Form State
   const [selectedAvatar, setSelectedAvatar] = useState(user.avatarSeed || user.username);
   const [email, setEmail] = useState(user.email || '');
   
+  // Password Form State
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passMsg, setPassMsg] = useState<{type: 'error' | 'success', text: string} | null>(null);
+
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingAvatars, setIsLoadingAvatars] = useState(false);
 
@@ -33,10 +39,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
             
         setSelectedAvatar(user.avatarSeed || user.username);
         setEmail(user.email || '');
+        // Reset password fields
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setPassMsg(null);
     }
   }, [isOpen, user]);
 
-  const handleSave = async () => {
+  const handleSaveProfile = async () => {
       setIsSaving(true);
       try {
           await dataService.updateProfile(user.id, { 
@@ -52,9 +63,44 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
       }
   };
 
+  const handleUpdatePassword = async () => {
+      setPassMsg(null);
+      
+      // Validation
+      if (!currentPassword || !newPassword || !confirmPassword) {
+          return setPassMsg({ type: 'error', text: 'All fields are required.' });
+      }
+      if (newPassword !== confirmPassword) {
+          return setPassMsg({ type: 'error', text: 'New passwords do not match.' });
+      }
+      if (newPassword.length < 8) {
+          return setPassMsg({ type: 'error', text: 'Password must be at least 8 characters.' });
+      }
+
+      setIsSaving(true);
+      try {
+          // Verify we have the method before calling
+          if (typeof dataService.changePassword !== 'function') {
+              throw new Error("Service method not implemented");
+          }
+
+          await dataService.changePassword(user.id, currentPassword, newPassword);
+          setPassMsg({ type: 'success', text: 'Password updated successfully.' });
+          setCurrentPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+      } catch (e: any) {
+          console.error(e);
+          // Backend should return 401/403 if current password is wrong
+          const errorText = e.message || 'Failed to update password. Check your current password.';
+          setPassMsg({ type: 'error', text: errorText });
+      } finally {
+          setIsSaving(false);
+      }
+  };
+
   const getAvatarUrl = (seed: string) => {
       if (seed && (seed.includes('.') || seed.includes('/'))) {
-          // FIX: Use API route to avoid proxy issues
           return `/api/avatars/image/${seed}`;
       }
       return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}`;
@@ -63,14 +109,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
   if (!isOpen) return null;
 
   return (
-    // FIX: Full screen mobile (p-0, h-full), centered desktop (p-4)
     <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-slate-900 w-full h-full sm:h-[600px] sm:max-w-4xl sm:rounded-2xl border-0 sm:border border-slate-800 shadow-2xl flex flex-col md:flex-row overflow-hidden">
         
-        {/* SIDEBAR (Desktop) / TOP HEADER (Mobile) */}
+        {/* SIDEBAR */}
         <div className="w-full md:w-64 bg-slate-950 border-b md:border-b-0 md:border-r border-slate-800 p-4 md:p-6 flex flex-row md:flex-col items-center md:shrink-0 gap-4 md:gap-0 relative">
           
-          {/* Mobile Close Button (Top Right) */}
           <button onClick={onClose} className="absolute top-4 right-4 text-slate-500 hover:text-white md:hidden">
             <X size={24} />
           </button>
@@ -114,7 +158,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
               </button>
           </div>
 
-          {/* Desktop Close Button */}
           <button onClick={onClose} className="hidden md:block absolute top-4 right-4 text-slate-500 hover:text-white transition-colors z-10">
             <X size={24} />
           </button>
@@ -125,12 +168,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
             </h2>
 
             {activeTab === 'general' ? (
-              <div className="space-y-6 md:space-y-8">
+              <div className="space-y-6 md:space-y-8 animate-in slide-in-from-right-4 fade-in duration-300">
                 
-                {/* Avatar Selection Grid */}
+                {/* Avatar Selection */}
                 <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Choose Avatar</label>
-                    
                     {isLoadingAvatars ? (
                         <div className="flex items-center gap-2 text-slate-500 text-sm"><Loader2 className="animate-spin" size={14} /> Loading avatars...</div>
                     ) : availableAvatars.length === 0 ? (
@@ -138,7 +180,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
                             No avatars found in /data/avatars
                         </div>
                     ) : (
-                        // FIX: Responsive Grid (3 cols on mobile, 5-6 on desktop)
                         <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 gap-3">
                             {availableAvatars.map(fileName => (
                                 <button 
@@ -169,20 +210,63 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
                 </div>
 
                 <div className="pt-4 border-t border-slate-800">
-                  <button onClick={handleSave} disabled={isSaving} className="w-full md:w-auto bg-teal-600 hover:bg-teal-500 text-white px-8 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50">
+                  <button onClick={handleSaveProfile} disabled={isSaving} className="w-full md:w-auto bg-teal-600 hover:bg-teal-500 text-white px-8 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50">
                     {isSaving ? <><Loader2 className="animate-spin" size={18} /> Saving...</> : <><Save size={18} /> Save Changes</>}
                   </button>
                   
-                  {/* Mobile Logout (Inside Form) */}
                   <button onClick={onLogout} className="md:hidden mt-4 w-full flex items-center justify-center gap-2 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl border border-red-500/20">
                      <LogOut size={18} /> Sign Out
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-300 text-sm">
-                  Security settings (password changes) are handled by the system administrator in this version.
+              <div className="space-y-6 max-w-lg animate-in slide-in-from-right-4 fade-in duration-300">
+                <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700 text-slate-400 text-sm mb-6">
+                    To change your password, you must enter your current password first to verify your identity.
+                </div>
+
+                {passMsg && (
+                    <div className={`p-4 rounded-xl flex items-start gap-3 text-sm ${passMsg.type === 'error' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-teal-500/10 text-teal-400 border border-teal-500/20'}`}>
+                        {passMsg.type === 'error' ? <AlertCircle size={18} className="shrink-0 mt-0.5" /> : <CheckCircle2 size={18} className="shrink-0 mt-0.5" />}
+                        <span>{passMsg.text}</span>
+                    </div>
+                )}
+
+                <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Current Password</label>
+                    <input 
+                        type="password"
+                        value={currentPassword} 
+                        onChange={e => setCurrentPassword(e.target.value)} 
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:border-teal-500 outline-none transition-colors"
+                    />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">New Password</label>
+                        <input 
+                            type="password"
+                            value={newPassword} 
+                            onChange={e => setNewPassword(e.target.value)} 
+                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:border-teal-500 outline-none transition-colors"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Confirm New</label>
+                        <input 
+                            type="password"
+                            value={confirmPassword} 
+                            onChange={e => setConfirmPassword(e.target.value)} 
+                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white focus:border-teal-500 outline-none transition-colors"
+                        />
+                    </div>
+                </div>
+
+                <div className="pt-4 border-t border-slate-800">
+                  <button onClick={handleUpdatePassword} disabled={isSaving} className="w-full md:w-auto bg-slate-800 hover:bg-slate-700 text-white px-8 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50">
+                    {isSaving ? <><Loader2 className="animate-spin" size={18} /> Updating...</> : <><Lock size={18} /> Update Password</>}
+                  </button>
                 </div>
               </div>
             )}
