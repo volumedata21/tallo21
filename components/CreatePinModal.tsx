@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Layers, MapPin, Loader, Search, Check, Link as LinkIcon, ArrowRight, Image as ImageIcon, Grid, Type, Plus, Trash2, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Layers, MapPin, Loader, Search, Check, Link as LinkIcon, ArrowRight, Image as ImageIcon, Grid, Type, Plus, Trash2, FileText } from 'lucide-react';
 import { Collection, Board, LocationData } from '../types';
 import { dataService } from '../services/dataService';
 
@@ -45,7 +45,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   const [selectedScrapedImages, setSelectedScrapedImages] = useState<string[]>([]);
   const [isScraping, setIsScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState('');
-  const [scrapedTitle, setScrapedTitle] = useState(''); // Store title
+  const [scrapedTitle, setScrapedTitle] = useState('');
 
   const [syncChanges, setSyncChanges] = useState(true);
 
@@ -337,12 +337,14 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
   );
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm sm:p-6" onClick={onClose}>
+    // FIX: Removed fixed height, added h-full w-full for mobile, rounded corners only on desktop
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 sm:bg-black/80 backdrop-blur-sm sm:p-6" onClick={onClose}>
       <div 
-        className="bg-[#0B1120] w-full max-w-5xl h-[700px] rounded-2xl border border-gray-800 shadow-2xl flex flex-col overflow-hidden transition-all" 
+        className="bg-[#0B1120] w-full h-full sm:h-auto sm:max-h-[85vh] md:max-h-[700px] max-w-5xl md:rounded-2xl border-0 sm:border border-gray-800 shadow-2xl flex flex-col overflow-hidden transition-all" 
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-800 bg-[#0B1120] shrink-0">
+        {/* HEADER */}
+        <div className="flex justify-between items-center px-4 md:px-6 py-4 border-b border-gray-800 bg-[#0B1120] shrink-0">
            <div className="flex items-center gap-3">
                <h2 className="font-bold text-white text-lg">Create</h2>
                {drafts.length > 0 && (
@@ -352,8 +354,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                )}
            </div>
            
-           <button onClick={onClose} className="p-1.5 hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-white">
-               <X size={20} />
+           <button onClick={onClose} className="p-2 hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-white">
+               <X size={24} />
            </button>
         </div>
 
@@ -364,6 +366,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
             <div className="flex-1 bg-[#0B1120] overflow-hidden flex flex-col w-full h-full">
                
                {drafts.length === 0 ? (
+                   // EMPTY STATE
                    <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#0B1120]">
                        <div className="max-w-md w-full">
                            <ToggleSwitch />
@@ -383,7 +386,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                            value={urlInput}
                                            onChange={e => setUrlInput(e.target.value)}
                                            placeholder="Paste link here..."
-                                           className="w-full bg-[#131B2C] border border-gray-700 rounded-xl pl-4 pr-12 py-3 text-white focus:border-emerald-500 outline-none text-sm placeholder-gray-600 transition-all"
+                                           // FIX: text-base prevents auto-zoom on mobile
+                                           className="w-full bg-[#131B2C] border border-gray-700 rounded-xl pl-4 pr-12 py-3 text-base md:text-sm text-white focus:border-emerald-500 outline-none placeholder-gray-600 transition-all"
                                        />
                                        <button type="submit" disabled={isScraping || !urlInput.trim()} className="absolute right-2 top-2 bottom-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition flex items-center justify-center">
                                            {isScraping ? <Loader className="animate-spin" size={16} /> : <ArrowRight size={18} />}
@@ -402,7 +406,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                                    </div>
                                                ))}
                                            </div>
-                                           <button onClick={addScrapedImagesToDrafts} disabled={selectedScrapedImages.length === 0} className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-sm transition-all disabled:opacity-50">
+                                           <button onClick={addScrapedImagesToDrafts} disabled={selectedScrapedImages.length === 0} className="w-full py-3 md:py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-sm transition-all disabled:opacity-50">
                                                Add {selectedScrapedImages.length} Images
                                            </button>
                                        </div>
@@ -410,7 +414,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                </>
                            ) : (
                                <div 
-                                 className={`flex flex-col items-center justify-center w-full max-w-lg h-64 rounded-xl border-2 border-dashed transition-all cursor-pointer bg-[#06080e]
+                                 className={`flex flex-col items-center justify-center w-full max-w-lg h-64 rounded-xl border-2 border-dashed transition-all cursor-pointer bg-[#06080e] active:scale-95
                                    ${dragActive ? 'border-emerald-500 bg-emerald-500/5' : 'border-gray-800 hover:bg-[#0c111f] hover:border-gray-700'}
                                  `}
                                  onDragEnter={handleDrag}
@@ -422,21 +426,23 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                    <div className="w-14 h-14 bg-[#1A202C] rounded-full flex items-center justify-center mb-4 text-gray-400">
                                        <ImageIcon size={28} />
                                    </div>
-                                   <h3 className="text-lg font-bold text-gray-200 mb-1">Drop files to upload</h3>
-                                   <p className="text-gray-500 text-xs">or click to browse</p>
+                                   <h3 className="text-lg font-bold text-gray-200 mb-1">Tap to upload</h3>
+                                   <p className="text-gray-500 text-xs hidden sm:block">or drag and drop</p>
                                </div>
                            )}
                        </div>
                    </div>
 
                ) : currentDraft ? (
+                   // SPLIT VIEW (Preview Left/Top, Form Right/Bottom)
                    <div className="flex flex-col md:flex-row h-full overflow-hidden">
                        
-                       {/* LEFT COLUMN: PREVIEW + THUMBNAILS (45%) */}
-                       <div className="w-full md:w-[45%] bg-[#05080F] flex flex-col border-r border-gray-800 shrink-0">
+                       {/* IMAGE PREVIEW COLUMN */}
+                       {/* FIX: On mobile, max height 40vh so form is visible */}
+                       <div className="w-full h-auto max-h-[40vh] md:max-h-full md:w-[45%] md:h-full bg-[#05080F] flex flex-col border-b md:border-b-0 md:border-r border-gray-800 shrink-0">
                            
-                           {/* Main Image Preview */}
-                           <div className="flex-1 flex items-center justify-center p-8 relative overflow-hidden bg-black/50">
+                           {/* Main Image */}
+                           <div className="flex-1 flex items-center justify-center p-4 md:p-8 relative overflow-hidden bg-black/50">
                                <img src={currentDraft.previewUrl} className="max-w-full max-h-full object-contain rounded shadow-2xl" />
                                
                                <button 
@@ -448,8 +454,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                </button>
 
                                {drafts.length > 1 && (
-                                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur border border-gray-700 rounded-full pl-3 pr-1 py-1 flex items-center gap-2 shadow-xl z-10">
-                                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Apply to All</span>
+                                   <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur border border-gray-700 rounded-full pl-3 pr-1 py-1 flex items-center gap-2 shadow-xl z-10 whitespace-nowrap">
+                                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Apply All</span>
                                        <button 
                                           onClick={() => setSyncChanges(!syncChanges)}
                                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors ${syncChanges ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-400'}`}
@@ -460,13 +466,14 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                )}
                            </div>
 
+                           {/* Thumbnails */}
                            {drafts.length > 0 && (
-                               <div className="h-24 bg-[#020408] border-t border-gray-800 flex items-center gap-3 px-4 overflow-x-auto custom-scrollbar shrink-0">
+                               <div className="h-20 md:h-24 bg-[#020408] border-t border-gray-800 flex items-center gap-3 px-4 overflow-x-auto custom-scrollbar shrink-0">
                                    {drafts.map(draft => (
                                        <div 
                                           key={draft.id} 
                                           onClick={() => setSelectedDraftId(draft.id)}
-                                          className={`h-16 w-16 rounded-lg overflow-hidden cursor-pointer border-2 shrink-0 transition-all relative ${selectedDraftId === draft.id ? 'border-emerald-500 opacity-100' : 'border-transparent opacity-50 hover:opacity-100'}`}
+                                          className={`h-12 w-12 md:h-16 md:w-16 rounded-lg overflow-hidden cursor-pointer border-2 shrink-0 transition-all relative ${selectedDraftId === draft.id ? 'border-emerald-500 opacity-100' : 'border-transparent opacity-50 hover:opacity-100'}`}
                                        >
                                            <img src={draft.previewUrl} className="w-full h-full object-cover" />
                                        </div>
@@ -474,7 +481,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                    
                                    <button 
                                       onClick={() => fileInputRef.current?.click()}
-                                      className="h-16 w-16 rounded-lg border-2 border-dashed border-gray-700 hover:border-gray-500 hover:bg-gray-900 flex items-center justify-center text-gray-500 hover:text-white transition-all shrink-0"
+                                      className="h-12 w-12 md:h-16 md:w-16 rounded-lg border-2 border-dashed border-gray-700 hover:border-gray-500 hover:bg-gray-900 flex items-center justify-center text-gray-500 hover:text-white transition-all shrink-0"
                                       title="Add More"
                                    >
                                        <Plus size={24} />
@@ -483,17 +490,18 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                            )}
                        </div>
 
-                       {/* RIGHT COLUMN: FORM (55%) */}
+                       {/* FORM COLUMN */}
                        <div className="flex-1 bg-[#0B1120] overflow-y-auto custom-scrollbar flex flex-col">
-                           <div className="p-8 space-y-6">
+                           <div className="p-4 md:p-8 space-y-6">
                                
+                               {/* Board Selector */}
                                <div>
                                     <label className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
                                         <Layers size={12} /> Board
                                     </label>
                                     {isCreatingBoard ? (
                                         <div className="flex gap-2">
-                                            <input autoFocus value={newBoardName} onChange={e => setNewBoardName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreateBoard()} placeholder="Board name..." className="flex-1 bg-transparent border-b border-gray-700 py-2 text-white outline-none focus:border-emerald-500 text-sm" />
+                                            <input autoFocus value={newBoardName} onChange={e => setNewBoardName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreateBoard()} placeholder="Board name..." className="flex-1 bg-transparent border-b border-gray-700 py-2 text-white outline-none focus:border-emerald-500 text-base md:text-sm" />
                                             <button onClick={handleCreateBoard} className="text-emerald-500 font-bold text-xs uppercase hover:text-emerald-400">Save</button>
                                             <button onClick={() => setIsCreatingBoard(false)} className="text-gray-500 font-bold text-xs uppercase hover:text-white">Cancel</button>
                                         </div>
@@ -502,7 +510,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                             <select 
                                                 value={(currentDraft.boardIds && currentDraft.boardIds[0]) || ''}
                                                 onChange={(e) => { if (e.target.value === 'NEW') setIsCreatingBoard(true); else updateDraft({ boardIds: [e.target.value] }); }}
-                                                className="w-full bg-[#131B2C] border border-gray-800 text-white rounded-lg px-4 py-3 outline-none focus:border-emerald-500 appearance-none text-sm font-medium cursor-pointer hover:bg-[#1A2436] transition-colors"
+                                                className="w-full bg-[#131B2C] border border-gray-800 text-white rounded-lg px-4 py-3 outline-none focus:border-emerald-500 appearance-none text-base md:text-sm font-medium cursor-pointer hover:bg-[#1A2436] transition-colors"
                                             >
                                                 <option value="" disabled>Select a board</option>
                                                 <option value="NEW" className="text-emerald-400 font-bold bg-[#0B1120]">+ Create Board</option>
@@ -547,7 +555,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                    <textarea 
                                        value={currentDraft.description} 
                                        onChange={e => updateDraft({ description: e.target.value })} 
-                                       className="w-full bg-transparent border border-gray-800 rounded-lg p-3 text-white outline-none focus:border-emerald-500 text-sm placeholder-gray-700 h-24 resize-none transition-colors focus:bg-[#131B2C]"
+                                       className="w-full bg-transparent border border-gray-800 rounded-lg p-3 text-white outline-none focus:border-emerald-500 text-base md:text-sm placeholder-gray-700 h-24 resize-none transition-colors focus:bg-[#131B2C]"
                                        placeholder="Tell everyone what your pin is about..."
                                    />
                                </div>
@@ -556,7 +564,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                     <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">Link</label>
                                     <div className="relative">
                                         <LinkIcon className="absolute left-0 top-2.5 text-gray-600" size={14} />
-                                        <input value={currentDraft.link || ''} onChange={e => updateDraft({ link: e.target.value })} className="w-full bg-transparent border-b border-gray-800 py-2 pl-6 text-white outline-none focus:border-emerald-500 text-sm placeholder-gray-700 font-mono" placeholder="Add a destination link" />
+                                        <input value={currentDraft.link || ''} onChange={e => updateDraft({ link: e.target.value })} className="w-full bg-transparent border-b border-gray-800 py-2 pl-6 text-white outline-none focus:border-emerald-500 text-base md:text-sm placeholder-gray-700 font-mono" placeholder="Add a destination link" />
                                     </div>
                                </div>
 
@@ -573,7 +581,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                     ) : (
                                         <div className="relative">
                                             <MapPin className="absolute left-0 top-2.5 text-gray-600" size={14} />
-                                            <input value={locationQuery} onChange={e => setLocationQuery(e.target.value)} placeholder="Search for a place" className="w-full bg-transparent border-b border-gray-800 py-2 pl-6 text-white outline-none focus:border-emerald-500 text-sm placeholder-gray-700" />
+                                            <input value={locationQuery} onChange={e => setLocationQuery(e.target.value)} placeholder="Search for a place" className="w-full bg-transparent border-b border-gray-800 py-2 pl-6 text-white outline-none focus:border-emerald-500 text-base md:text-sm placeholder-gray-700" />
                                             <button onClick={handleLocationSearch} disabled={isSearchingLocation} className="absolute right-0 top-2 text-gray-500 hover:text-white"><Search size={14} /></button>
                                             {locationResults.length > 0 && (
                                                 <div className="absolute top-full left-0 right-0 mt-2 bg-[#1A2436] border border-gray-700 rounded-lg shadow-xl z-20 max-h-40 overflow-y-auto">
@@ -599,7 +607,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                                #{tag} <button onClick={() => removeTag(tag)} className="text-gray-600 group-hover:text-red-400"><X size={10} /></button>
                                            </span>
                                        ))}
-                                       <input value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleAddTag} placeholder="Type tag..." className="bg-transparent border-b border-transparent focus:border-emerald-500 text-white outline-none text-sm w-24 placeholder-gray-700 py-1" />
+                                       <input value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={handleAddTag} placeholder="Type tag..." className="bg-transparent border-b border-transparent focus:border-emerald-500 text-white outline-none text-base md:text-sm w-24 placeholder-gray-700 py-1" />
                                    </div>
                                </div>
 
@@ -610,7 +618,9 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
             </div>
         </div>
 
-        <div className="p-4 bg-[#0B1120] border-t border-gray-800 flex justify-end gap-3 shrink-0">
+        {/* FOOTER */}
+        {/* FIX: Extra padding for mobile safe area */}
+        <div className="p-4 md:p-4 pb-8 md:pb-4 bg-[#0B1120] border-t border-gray-800 flex justify-end gap-3 shrink-0">
              {drafts.length > 0 && (
                  <>
                     <button onClick={() => setDrafts([])} className="px-5 py-2 text-gray-500 text-xs font-bold hover:text-white transition-colors uppercase tracking-widest">Discard</button>

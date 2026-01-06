@@ -2,36 +2,64 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=0.93, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Tallo</title>
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="icon" type="image/png" href="/favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Leaflet Map CSS -->
+    
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-    <!-- Leaflet Map JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     
     <style>
+      /* 2. FORCE BOX SIZING (Fixes width+padding issues immediately) */
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+
+      /* 3. STRICT OVERFLOW CONTROL */
+      html {
+        -webkit-text-size-adjust: 100%; /* Prevents iOS text zoom */
+        touch-action: manipulation; /* Improves touch response */
+        overflow-x: hidden;
+        width: 100%;
+        height: 100%;
+      }
+      
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #000208; /* Extremely dark blue, darker than Slate 950 */
-        color: #e2e8f0; /* Slate 200 */
+        background-color: #000208;
+        color: #e2e8f0;
+        /* Force body to never exceed viewport */
+        width: 100%;
+        max-width: 100vw; 
+        min-height: 100%;
+        overflow-x: hidden;
+        position: relative;
+        overscroll-behavior-y: none;
+        -webkit-font-smoothing: antialiased;
       }
-      /* Hide scrollbar for chrome/safari/opera */
-      .no-scrollbar::-webkit-scrollbar {
-        display: none;
+
+      /* 4. ROOT CONTAINER LOCK */
+      #root {
+        width: 100%;
+        max-width: 100vw;
+        overflow-x: hidden;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
       }
-      /* Hide scrollbar for IE, Edge and Firefox */
-      .no-scrollbar {
-        -ms-overflow-style: none;  /* IE and Edge */
-        scrollbar-width: none;  /* Firefox */
-      }
-      /* Map marker fix */
+
+      /* Hide scrollbar */
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
       .leaflet-default-icon-path {
         background-image: url(https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png);
       }
     </style>
+    
     <script type="importmap">
     {
       "imports": {
@@ -42,9 +70,9 @@
       }
     }
     </script>
-  <link rel="stylesheet" href="/index.css">
-</head>
-  <body class="antialiased selection:bg-teal-600 selection:text-white">
+    <link rel="stylesheet" href="/index.css">
+  </head>
+  <body>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>
