@@ -10,8 +10,24 @@ import { BulkActionBar } from './components/BulkActionBar';
 import { LoginScreen } from './components/LoginScreen';
 import { ProfileModal } from './components/ProfileModal';
 import { dataService } from './services/dataService';
+import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { Pin, UserSettings, Collection, Board, SortOption, User } from './types';
 import { Sliders, Check, MousePointer2, Shuffle, CheckSquare, Tag as TagIcon, Undo, Loader2, AlertTriangle, ArrowUpDown, ChevronDown, Plus } from 'lucide-react';
+
+if (!(dataService as any).completePasswordReset) {
+    (dataService as any).completePasswordReset = async (token: string, newPass: string) => {
+        const res = await fetch('/api/auth/complete-reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, newPassword: newPass })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || "Reset failed");
+        }
+        return res.json();
+    };
+}
 
 // --- ERROR BOUNDARY (CATCHES CRASHES) ---
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error?: Error}> {
@@ -56,7 +72,9 @@ function App() {
   // --- STATE ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null); 
+  const [error, setError] = useState<string | null>(null);
+  // NEW: Reset Token State
+  const [resetToken, setResetToken] = useState<string | null>(null);
   
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
@@ -113,6 +131,19 @@ function App() {
 
   // --- EFFECTS ---
 
+  // Check for Magic Link (Reset Token)
+  useEffect(() => {
+      const params = new URLSearchParams(window.location.search);
+      // FIX: Check for 'token' (common in emails) OR 'resetToken' (admin tool)
+      const token = params.get('token') || params.get('resetToken');
+      
+      if (token) {
+          setResetToken(token);
+          // Optional: Remove token from URL so it doesn't look messy
+          window.history.replaceState({}, '', '/');
+      }
+  }, []);
+
   // Auth Check
   useEffect(() => {
     const checkAuth = async () => {
@@ -152,7 +183,6 @@ function App() {
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
         // When user presses browser Back, ensure we close everything
-        // This relies on the fact that opening a modal pushed a state
         if (selectedPin) setSelectedPin(null);
         if (isCreateOpen) setIsCreateOpen(false);
         if (isAdminOpen) setIsAdminOpen(false);
@@ -162,11 +192,8 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [selectedPin, isCreateOpen, isAdminOpen, isProfileOpen]);
 
-  // --- FIX: IMPROVED CLOSE MODAL LOGIC ---
+  // Close Modal Logic
   const closeModal = () => {
-      // We check 'window.history.state' to see if *WE* pushed a modal state.
-      // If 'state.modal' exists, we can safely go back.
-      // If it doesn't (e.g., deep link entrance), we must manually close to avoid exiting the app.
       if (window.history.state && window.history.state.modal) {
           window.history.back();
       } else {
@@ -176,7 +203,6 @@ function App() {
           setIsAdminOpen(false);
           setIsProfileOpen(false);
           
-          // Silently clean up the URL query params without adding a new history entry
           const url = new URL(window.location.href);
           url.search = ""; 
           window.history.replaceState(null, '', url.toString());
@@ -359,7 +385,6 @@ function App() {
           if (!isSelectionMode) setIsSelectionMode(true);
           toggleSelection(pin.id, e);
       } else {
-          // Push state when opening so history.back() works
           window.history.pushState({ modal: 'pin' }, '');
           setSelectedPin(pin);
       }
@@ -368,7 +393,6 @@ function App() {
   const resetFilters = () => { 
       setActiveFilter({ type: 'all', id: '' }); 
       setSearchQuery(''); 
-      // Clear URL params
       const url = new URL(window.location.href);
       url.search = "";
       window.history.pushState({}, '', url.toString());
@@ -400,7 +424,6 @@ function App() {
       
       const availableWidth = windowWidth - sidebarWidth;
       
-      // Mobile-friendly columns
       let colCount = 2; 
       if (availableWidth >= 1600) colCount = 5;
       else if (availableWidth >= 1100) colCount = 4;
@@ -439,7 +462,11 @@ function App() {
               </div>
           );
       }
-      return <LoginScreen onLogin={setCurrentUser} />;
+      // If we have a reset token, SHOW THE APP (empty state) instead of Login Screen
+      // This allows the modal to pop up over the empty app
+      if (!resetToken) {
+          return <LoginScreen onLogin={setCurrentUser} />;
+      }
   }
 
   // --- MAIN APP RENDER ---
@@ -447,178 +474,193 @@ function App() {
     <ErrorBoundary>
         <div className="h-screen bg-[#000208] text-slate-200 font-sans selection:bg-teal-500/30 overflow-hidden flex">
         
-        <Sidebar
-            isOpen={isSidebarOpen}
-            activeFilter={activeFilter}
-            onFilterChange={setActiveFilter}
-            collections={collections}
-            boards={boards}
-            allTags={allTags}
-            currentUser={currentUser}
-            onUpdate={() => refreshData(true)}
-            onCloseMobile={() => setIsSidebarOpen(false)}
-            onOpenSettings={() => setShowSettings(!showSettings)}
-            onOpenAdmin={() => {
-                window.history.pushState({ modal: 'admin' }, '');
-                setIsAdminOpen(true);
-            }}
-            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-        />
-
-        <div className={`flex flex-col h-full flex-1 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'md:ml-64' : 'md:ml-20'}`}>
-            
-            <Header 
-                user={currentUser}
-                viewMode={viewMode}
-                onToggleView={setViewMode}
-                onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-                onCreatePin={() => {
-                    window.history.pushState({ modal: 'create' }, '');
-                    setIsCreateOpen(true);
+        {/* Only show sidebar/header if logged in, otherwise just show the modal on a dark bg */}
+        {currentUser && (
+            <Sidebar
+                isOpen={isSidebarOpen}
+                activeFilter={activeFilter}
+                onFilterChange={setActiveFilter}
+                collections={collections}
+                boards={boards}
+                allTags={allTags}
+                currentUser={currentUser}
+                onUpdate={() => refreshData(true)}
+                onCloseMobile={() => setIsSidebarOpen(false)}
+                onOpenSettings={() => setShowSettings(!showSettings)}
+                onOpenAdmin={() => {
+                    window.history.pushState({ modal: 'admin' }, '');
+                    setIsAdminOpen(true);
                 }}
-                onLogoClick={resetFilters}
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                onOpenProfile={() => setIsProfileOpen(true)}
-                onOpenAdmin={() => setIsAdminOpen(true)}
-                onLogout={handleLogout}
+                onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
             />
+        )}
+
+        <div className={`flex flex-col h-full flex-1 transition-all duration-300 ease-in-out ${currentUser && isSidebarOpen ? 'md:ml-64' : (currentUser ? 'md:ml-20' : '')}`}>
+            
+            {currentUser && (
+                <Header 
+                    user={currentUser}
+                    viewMode={viewMode}
+                    onToggleView={setViewMode}
+                    onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+                    onCreatePin={() => {
+                        window.history.pushState({ modal: 'create' }, '');
+                        setIsCreateOpen(true);
+                    }}
+                    onLogoClick={resetFilters}
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                    onOpenProfile={() => setIsProfileOpen(true)}
+                    onOpenAdmin={() => setIsAdminOpen(true)}
+                    onLogout={handleLogout}
+                />
+            )}
 
             <main 
                 className="flex-1 relative overflow-y-auto no-scrollbar"
                 onScroll={handleScroll}
             >
-                {showSettings && (
-                <div className="sticky top-0 z-20 bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between shadow-md">
-                    <div className="flex items-center gap-2 text-teal-500">
-                        <Sliders size={20} strokeWidth={1.5} />
-                        <span className="font-bold">View Settings</span>
-                    </div>
-                    <div className="flex flex-wrap gap-4">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={userSettings.hideTitles} onChange={e => setUserSettings({...userSettings, hideTitles: e.target.checked})} className="accent-teal-600" />
-                            <span className="text-sm text-slate-300">Hide Titles</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={userSettings.hideDescriptions} onChange={e => setUserSettings({...userSettings, hideDescriptions: e.target.checked})} className="accent-teal-600" />
-                            <span className="text-sm text-slate-300">Hide Descriptions</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={userSettings.showTags} onChange={e => setUserSettings({...userSettings, showTags: e.target.checked})} className="accent-teal-600" />
-                            <span className="text-sm text-slate-300">Show Tags</span>
-                        </label>
-                    </div>
-                </div>
-                )}
-
-                {userSettings.showTags && trendingTags.length > 0 && viewMode === 'grid' && (
-                    <div className="px-4 sm:px-6 lg:px-8 pt-4 pb-0 overflow-x-auto no-scrollbar flex items-center gap-2">
-                        <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-[10px] font-bold uppercase tracking-wider shrink-0">
-                            <TagIcon size={10} /> Trending
+                {/* ... Main Content ... */}
+                {currentUser ? (
+                    <>
+                    {showSettings && (
+                    <div className="sticky top-0 z-20 bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between shadow-md">
+                        <div className="flex items-center gap-2 text-teal-500">
+                            <Sliders size={20} strokeWidth={1.5} />
+                            <span className="font-bold">View Settings</span>
                         </div>
-                        {trendingTags.map(tag => (
-                            <button key={tag} onClick={() => toggleTrendingTag(tag)} className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${activeFilter.type === 'tag' && activeFilter.id === tag ? 'bg-teal-500/10 border-teal-500/50 text-teal-400' : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
-                                #{tag}
-                            </button>
-                        ))}
+                        <div className="flex flex-wrap gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" checked={userSettings.hideTitles} onChange={e => setUserSettings({...userSettings, hideTitles: e.target.checked})} className="accent-teal-600" />
+                                <span className="text-sm text-slate-300">Hide Titles</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" checked={userSettings.hideDescriptions} onChange={e => setUserSettings({...userSettings, hideDescriptions: e.target.checked})} className="accent-teal-600" />
+                                <span className="text-sm text-slate-300">Hide Descriptions</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" checked={userSettings.showTags} onChange={e => setUserSettings({...userSettings, showTags: e.target.checked})} className="accent-teal-600" />
+                                <span className="text-sm text-slate-300">Show Tags</span>
+                            </label>
+                        </div>
                     </div>
-                )}
+                    )}
 
-                {viewMode === 'map' ? (
-                <div className="w-full h-[calc(100vh-80px)] relative z-0">
-                    <MapView pins={pins} onPinClick={(pin) => {
-                        window.history.pushState({ modal: 'pin' }, '');
-                        setSelectedPin(pin);
-                    }} />
-                </div>
-                ) : (
-                <div className="px-4 py-6 sm:px-6 lg:px-8">
-                    <div className="flex justify-between items-center mb-6">
-                        <div className="flex items-center gap-4 truncate max-w-md">
-                            <h2 className="text-xl font-bold text-white">
-                            {activeFilter.type === 'all' && 'Tallos'}
-                            {activeFilter.type === 'favorites' && 'Favorites'}
-                            {activeFilter.type === 'collection' && collections.find(c => c.id === activeFilter.id)?.title}
-                            {activeFilter.type === 'board' && boards.find(b => b.id === activeFilter.id)?.title}
-                            {activeFilter.type === 'tag' && `#${activeFilter.id}`}
-                            </h2>
-                            
-                            <div className="flex items-center bg-slate-900 rounded-full border border-slate-800 p-1 gap-1">
-                                <button onClick={handleSelectionModeToggle} className={`p-2 rounded-full transition-all ${isSelectionMode ? 'bg-teal-500 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Select Multiple">
-                                    <MousePointer2 size={16} />
+                    {userSettings.showTags && trendingTags.length > 0 && viewMode === 'grid' && (
+                        <div className="px-4 sm:px-6 lg:px-8 pt-4 pb-0 overflow-x-auto no-scrollbar flex items-center gap-2">
+                            <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400 text-[10px] font-bold uppercase tracking-wider shrink-0">
+                                <TagIcon size={10} /> Trending
+                            </div>
+                            {trendingTags.map(tag => (
+                                <button key={tag} onClick={() => toggleTrendingTag(tag)} className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${activeFilter.type === 'tag' && activeFilter.id === tag ? 'bg-teal-500/10 border-teal-500/50 text-teal-400' : 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+                                    #{tag}
                                 </button>
-                                {isSelectionMode && (
-                                    <button onClick={handleSelectAll} className={`p-2 rounded-full transition-all ${selectedPinIds.length === pins.length ? 'text-teal-400 bg-teal-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Select All">
-                                        <CheckSquare size={16} />
+                            ))}
+                        </div>
+                    )}
+
+                    {viewMode === 'map' ? (
+                    <div className="w-full h-[calc(100vh-80px)] relative z-0">
+                        <MapView pins={pins} onPinClick={(pin) => {
+                            window.history.pushState({ modal: 'pin' }, '');
+                            setSelectedPin(pin);
+                        }} />
+                    </div>
+                    ) : (
+                    <div className="px-4 py-6 sm:px-6 lg:px-8">
+                        <div className="flex justify-between items-center mb-6">
+                            <div className="flex items-center gap-4 truncate max-w-md">
+                                <h2 className="text-xl font-bold text-white">
+                                {activeFilter.type === 'all' && 'Tallos'}
+                                {activeFilter.type === 'favorites' && 'Favorites'}
+                                {activeFilter.type === 'collection' && collections.find(c => c.id === activeFilter.id)?.title}
+                                {activeFilter.type === 'board' && boards.find(b => b.id === activeFilter.id)?.title}
+                                {activeFilter.type === 'tag' && `#${activeFilter.id}`}
+                                </h2>
+                                
+                                <div className="flex items-center bg-slate-900 rounded-full border border-slate-800 p-1 gap-1">
+                                    <button onClick={handleSelectionModeToggle} className={`p-2 rounded-full transition-all ${isSelectionMode ? 'bg-teal-500 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Select Multiple">
+                                        <MousePointer2 size={16} />
                                     </button>
-                                )}
+                                    {isSelectionMode && (
+                                        <button onClick={handleSelectAll} className={`p-2 rounded-full transition-all ${selectedPinIds.length === pins.length ? 'text-teal-400 bg-teal-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Select All">
+                                            <CheckSquare size={16} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setIsShuffle(!isShuffle)} className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-medium ${isShuffle ? 'bg-purple-500/10 border-purple-500 text-purple-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'}`}>
+                                    <Shuffle size={14} />
+                                    <span className="hidden sm:inline">Shuffle</span>
+                                </button>
+
+                                <div className="relative" ref={sortRef}>
+                                    <button onClick={() => setIsSortOpen(!isSortOpen)} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full cursor-pointer transition-all border text-sm font-medium ${isSortOpen ? 'bg-slate-800 border-teal-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'} ${isShuffle ? 'opacity-50 cursor-not-allowed' : ''}`} disabled={isShuffle}>
+                                        <ArrowUpDown size={14} className={isSortOpen ? 'text-teal-500' : 'text-slate-400'} />
+                                        <span className="hidden sm:inline">Sort</span>
+                                        <ChevronDown size={14} className={`text-slate-500 transition-transform duration-200 ${isSortOpen ? 'rotate-180' : ''}`} />
+                                    </button>
+                                    
+                                    {isSortOpen && !isShuffle && (
+                                        <div className="absolute right-0 top-full mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-[100] p-1">
+                                            <div className="px-3 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</div>
+                                            <SortButton value="newest" label="Newest First" current={sortBy} />
+                                            <SortButton value="oldest" label="Oldest First" current={sortBy} />
+                                            <div className="h-px bg-slate-800 my-1"></div>
+                                            <div className="px-3 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">Title</div>
+                                            <SortButton value="az" label="Title (A-Z)" current={sortBy} />
+                                            <SortButton value="za" label="Title (Z-A)" current={sortBy} />
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <button onClick={() => setIsShuffle(!isShuffle)} className={`flex items-center gap-2 px-3 py-2 rounded-full border transition-all text-sm font-medium ${isShuffle ? 'bg-purple-500/10 border-purple-500 text-purple-400' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'}`}>
-                                <Shuffle size={14} />
-                                <span className="hidden sm:inline">Shuffle</span>
-                            </button>
-
-                            <div className="relative" ref={sortRef}>
-                                <button onClick={() => setIsSortOpen(!isSortOpen)} className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-full cursor-pointer transition-all border text-sm font-medium ${isSortOpen ? 'bg-slate-800 border-teal-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'} ${isShuffle ? 'opacity-50 cursor-not-allowed' : ''}`} disabled={isShuffle}>
-                                    <ArrowUpDown size={14} className={isSortOpen ? 'text-teal-500' : 'text-slate-400'} />
-                                    <span className="hidden sm:inline">Sort</span>
-                                    <ChevronDown size={14} className={`text-slate-500 transition-transform duration-200 ${isSortOpen ? 'rotate-180' : ''}`} />
-                                </button>
-                                
-                                {isSortOpen && !isShuffle && (
-                                    <div className="absolute right-0 top-full mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-[100] p-1">
-                                        <div className="px-3 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">Date</div>
-                                        <SortButton value="newest" label="Newest First" current={sortBy} />
-                                        <SortButton value="oldest" label="Oldest First" current={sortBy} />
-                                        <div className="h-px bg-slate-800 my-1"></div>
-                                        <div className="px-3 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">Title</div>
-                                        <SortButton value="az" label="Title (A-Z)" current={sortBy} />
-                                        <SortButton value="za" label="Title (Z-A)" current={sortBy} />
+                        {pins.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+                                <div className="w-20 h-20 bg-slate-900 rounded-full flex items-center justify-center mb-4">
+                                    <Plus size={40} className="text-slate-700" />
+                                </div>
+                                <h3 className="text-xl font-bold text-slate-300 mb-2">No Stems Found</h3>
+                                <p className="mb-6">{searchQuery ? `No results for "${searchQuery}"` : 'Upload an image to get started.'}</p>
+                                <button onClick={() => { window.history.pushState({ modal: 'create' }, ''); setIsCreateOpen(true); }} className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full font-medium transition">Add Stem</button>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="flex gap-4 justify-center mx-auto max-w-[2400px]">
+                                {masonryColumns.map((colPins, colIndex) => (
+                                    <div key={colIndex} className="flex-1 flex flex-col gap-4 min-w-0">
+                                        {colPins.map(pin => (
+                                            <PinCard 
+                                            key={pin.id} 
+                                            pin={pin} 
+                                            settings={userSettings}
+                                            onClick={handlePinClick}
+                                            isSelectionMode={isSelectionMode}
+                                            isSelected={selectedPinIds.includes(pin.id)}
+                                            onToggleSelection={toggleSelection}
+                                            />
+                                        ))}
+                                    </div>
+                                ))}
+                                </div>
+                                {isFetchingMore && (
+                                    <div className="w-full py-8 flex justify-center text-teal-500">
+                                        <Loader2 className="animate-spin w-8 h-8" />
                                     </div>
                                 )}
-                            </div>
-                        </div>
+                            </>
+                        )}
                     </div>
-
-                    {pins.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-20 text-slate-500">
-                            <div className="w-20 h-20 bg-slate-900 rounded-full flex items-center justify-center mb-4">
-                                <Plus size={40} className="text-slate-700" />
-                            </div>
-                            <h3 className="text-xl font-bold text-slate-300 mb-2">No Stems Found</h3>
-                            <p className="mb-6">{searchQuery ? `No results for "${searchQuery}"` : 'Upload an image to get started.'}</p>
-                            <button onClick={() => { window.history.pushState({ modal: 'create' }, ''); setIsCreateOpen(true); }} className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full font-medium transition">Add Stem</button>
-                        </div>
-                    ) : (
-                        <>
-                            <div className="flex gap-4 justify-center mx-auto max-w-[2400px]">
-                            {masonryColumns.map((colPins, colIndex) => (
-                                <div key={colIndex} className="flex-1 flex flex-col gap-4 min-w-0">
-                                    {colPins.map(pin => (
-                                        <PinCard 
-                                        key={pin.id} 
-                                        pin={pin} 
-                                        settings={userSettings}
-                                        onClick={handlePinClick}
-                                        isSelectionMode={isSelectionMode}
-                                        isSelected={selectedPinIds.includes(pin.id)}
-                                        onToggleSelection={toggleSelection}
-                                        />
-                                    ))}
-                                </div>
-                            ))}
-                            </div>
-                            {isFetchingMore && (
-                                <div className="w-full py-8 flex justify-center text-teal-500">
-                                    <Loader2 className="animate-spin w-8 h-8" />
-                                </div>
-                            )}
-                        </>
-                    )}
-                </div>
+                    )
+                    }
+                    </>
+                ) : (
+                    <div className="flex h-full items-center justify-center text-slate-500">
+                        {/* Empty state while modal is open */}
+                    </div>
                 )}
             </main>
         </div>
@@ -640,41 +682,52 @@ function App() {
         )}
 
         {/* MODALS */}
-        <AdminPanel isOpen={isAdminOpen} onClose={closeModal} users={users} onUpdate={() => refreshData(true)} />
-        
-        <PinModal 
-            pin={selectedPin} onClose={closeModal}
-            collections={collections} boards={boards} 
-            onUpdate={() => refreshData(true)} onDelete={handlePinDelete} 
-            pinList={pins} onNavigate={setSelectedPin}
-        />
-        
-        <CreatePinModal isOpen={isCreateOpen} onClose={closeModal} collections={collections} boards={boards} onCreated={() => refreshData(true)} userId={currentUser ? currentUser.id : ''} />
-        
-        <ProfileModal 
-            isOpen={isProfileOpen} 
-            onClose={() => setIsProfileOpen(false)} 
-            user={currentUser}
-            onLogout={handleLogout}
-            onUpdate={async () => {
-                // REFRESH DATA & RE-FETCH USER
-                await refreshData(true);
-                if (currentUser) {
-                    try {
-                        const updatedUser = await dataService.getUserById(currentUser.id);
-                        setCurrentUser(updatedUser);
-                    } catch (e) {
-                        console.error("Failed to refresh user profile", e);
-                    }
-                }
-            }}
-        />
+        {currentUser && (
+            <>
+                <AdminPanel isOpen={isAdminOpen} onClose={closeModal} users={users} onUpdate={() => refreshData(true)} />
+                
+                <PinModal 
+                    pin={selectedPin} onClose={closeModal}
+                    collections={collections} boards={boards} 
+                    onUpdate={() => refreshData(true)} onDelete={handlePinDelete} 
+                    pinList={pins} onNavigate={setSelectedPin}
+                />
+                
+                <CreatePinModal isOpen={isCreateOpen} onClose={closeModal} collections={collections} boards={boards} onCreated={() => refreshData(true)} userId={currentUser ? currentUser.id : ''} />
+                
+                <ProfileModal 
+                    isOpen={isProfileOpen} 
+                    onClose={() => setIsProfileOpen(false)} 
+                    user={currentUser}
+                    onLogout={handleLogout}
+                    onUpdate={async () => {
+                        await refreshData(true);
+                        if (currentUser) {
+                            try {
+                                const updatedUser = await dataService.getUserById(currentUser.id);
+                                setCurrentUser(updatedUser);
+                            } catch (e) {
+                                console.error("Failed to refresh user profile", e);
+                            }
+                        }
+                    }}
+                />
+            </>
+        )}
         
         {toast && (
             <div className="fixed bottom-8 right-8 z-[70] bg-slate-800 border border-slate-700 text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-4">
                 <span className="font-medium text-sm">{toast.message}</span>
                 <button onClick={() => { toast.onUndo(); setToast(null); }} className="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1"><Undo size={12} /> Undo</button>
             </div>
+        )}
+
+        {/* RESET PASSWORD MODAL - Works even if logged out */}
+        {resetToken && (
+            <ResetPasswordModal 
+                token={resetToken} 
+                onClose={() => setResetToken(null)}
+            />
         )}
         </div>
     </ErrorBoundary>
