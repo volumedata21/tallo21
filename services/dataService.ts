@@ -2,6 +2,16 @@ import { User, Pin, Board, Collection, LocationData, SystemSettings, SortOption 
 
 const API_URL = '/api'; 
 
+// --- HELPER: Get Auth Headers ---
+const getHeaders = () => {
+    const stored = localStorage.getItem('tallo_user');
+    const user = stored ? JSON.parse(stored) : null;
+    return {
+        'Content-Type': 'application/json',
+        'x-user-id': user ? user.id : ''
+    };
+};
+
 export const dataService = {
   // --- AUTH & SYSTEM ---
   
@@ -51,7 +61,10 @@ export const dataService = {
   },
 
   getUserById: async (id: string): Promise<User> => {
-      const res = await fetch(`${API_URL}/users/${id}`);
+      // Authenticated to allow seeing private details if needed
+      const res = await fetch(`${API_URL}/users/${id}`, {
+          headers: getHeaders()
+      });
       if (!res.ok) {
           throw new Error("User not found");
       }
@@ -61,44 +74,56 @@ export const dataService = {
   // --- ADMIN TOOLS ---
   
   getInvites: async (): Promise<any[]> => {
-      const res = await fetch(`${API_URL}/admin/invites`);
+      const res = await fetch(`${API_URL}/admin/invites`, {
+          headers: getHeaders()
+      });
       return res.json();
   },
 
   generateInvite: async (quota: string): Promise<any> => {
       const res = await fetch(`${API_URL}/admin/invites`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders(),
           body: JSON.stringify({ quota })
       });
       return res.json();
   },
 
   deleteInvite: async (id: string) => {
-      await fetch(`${API_URL}/admin/invites/${id}`, { method: 'DELETE' });
+      await fetch(`${API_URL}/admin/invites/${id}`, { 
+          method: 'DELETE',
+          headers: getHeaders() 
+      });
   },
 
   updateUserQuota: async (id: string, maxQuota: string) => {
       await fetch(`${API_URL}/users/${id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders(),
           body: JSON.stringify({ maxQuota })
       });
   },
 
   // --- USERS ---
   getUsers: async (): Promise<User[]> => {
-    const res = await fetch(`${API_URL}/users`);
+    const res = await fetch(`${API_URL}/users`, {
+        headers: getHeaders()
+    });
     return res.json();
   },
   
   getCurrentUser: async (): Promise<User | null> => {
-    const res = await fetch(`${API_URL}/users/current`);
+    const res = await fetch(`${API_URL}/users/current`, {
+        headers: getHeaders()
+    });
     return res.json();
   },
 
   deleteUser: async (id: string) => { 
-      await fetch(`${API_URL}/users/${id}`, { method: 'DELETE' });
+      await fetch(`${API_URL}/users/${id}`, { 
+          method: 'DELETE',
+          headers: getHeaders()
+      });
   },
 
   // --- AVATARS & PROFILE ---
@@ -110,7 +135,7 @@ export const dataService = {
   updateProfile: async (id: string, data: Partial<User>): Promise<User> => {
       const res = await fetch(`${API_URL}/users/${id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders(),
           body: JSON.stringify(data)
       });
       if (!res.ok) throw new Error("Failed to update profile");
@@ -126,7 +151,7 @@ export const dataService = {
   createCollection: async (title: string, ownerId: string): Promise<Collection> => {
     const res = await fetch(`${API_URL}/collections`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify({ title, ownerId })
     });
     
@@ -141,7 +166,7 @@ export const dataService = {
   updateCollection: async (id: string, updates: Partial<Collection>) => {
     const res = await fetch(`${API_URL}/collections/${id}`, {
         method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify(updates)
     });
 
@@ -152,7 +177,10 @@ export const dataService = {
   },
 
   deleteCollection: async (id: string) => {
-      await fetch(`${API_URL}/collections/${id}`, { method: 'DELETE' });
+      await fetch(`${API_URL}/collections/${id}`, { 
+          method: 'DELETE',
+          headers: getHeaders()
+      });
   },
 
   // --- BOARDS ---
@@ -164,7 +192,7 @@ export const dataService = {
   createBoard: async (title: string, collectionId: string | undefined, ownerId: string): Promise<Board> => {
     const res = await fetch(`${API_URL}/boards`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify({ title, collectionId, ownerId })
     });
     
@@ -179,7 +207,7 @@ export const dataService = {
   updateBoard: async (id: string, updates: Partial<Board>) => {
     const res = await fetch(`${API_URL}/boards/${id}`, {
         method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify(updates)
     });
 
@@ -190,7 +218,10 @@ export const dataService = {
   },
 
   deleteBoard: async (id: string) => {
-    await fetch(`${API_URL}/boards/${id}`, { method: 'DELETE' });
+    await fetch(`${API_URL}/boards/${id}`, { 
+        method: 'DELETE',
+        headers: getHeaders()
+    });
   },
 
   // --- PINS ---
@@ -226,20 +257,23 @@ export const dataService = {
   addPin: async (pin: Omit<Pin, 'id' | 'createdAt' | 'favorite'>): Promise<Pin> => {
     const res = await fetch(`${API_URL}/pins`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify(pin)
     });
     return res.json();
   },
 
   deletePin: async (id: string) => {
-    await fetch(`${API_URL}/pins/${id}`, { method: 'DELETE' });
+    await fetch(`${API_URL}/pins/${id}`, { 
+        method: 'DELETE',
+        headers: getHeaders()
+    });
   },
 
   updatePin: async (id: string, updates: Partial<Pin>) => {
     await fetch(`${API_URL}/pins/${id}`, {
         method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify(updates)
     });
   },
@@ -247,20 +281,21 @@ export const dataService = {
   bulkDeletePins: async (ids: string[]) => {
     await fetch(`${API_URL}/pins/bulk-delete`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify({ ids })
     });
   },
 
-  // --- INTERACTIONS (UPDATED) ---
+  // --- INTERACTIONS ---
   toggleFavorite: async (id: string) => {
+    // We can now use getHeaders() instead of manual localStorage
     const stored = localStorage.getItem('tallo_user');
     if (!stored) return false;
     const user = JSON.parse(stored);
 
     const res = await fetch(`${API_URL}/pins/toggle-favorite`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({ pinId: id, userId: user.id })
     });
     const data = await res.json();
@@ -271,21 +306,30 @@ export const dataService = {
   changePassword: async (id: string, currentPass: string, newPass: string): Promise<void> => {
       const res = await fetch(`${API_URL}/users/${id}/password`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders(),
           body: JSON.stringify({ currentPass, newPass })
       });
 
       if (!res.ok) {
-          // Try to get the specific error message from the server
           const err = await res.json();
           throw new Error(err.error || err.message || "Failed to update password");
       }
   },
 
+  generateApiToken: async (userId: string): Promise<string> => {
+      const res = await fetch(`${API_URL}/users/${userId}/token`, {
+          method: 'POST',
+          headers: getHeaders()
+      });
+      if (!res.ok) throw new Error("Failed to generate token");
+      const data = await res.json();
+      return data.token;
+  },
+
   generateResetToken: async (userId: string): Promise<string> => {
       const res = await fetch(`${API_URL}/admin/generate-reset-token`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: getHeaders(),
           body: JSON.stringify({ userId })
       });
       if (!res.ok) throw new Error("Failed to generate token");
@@ -294,29 +338,7 @@ export const dataService = {
   },
 
   completePasswordReset: async (token: string, newPass: string) => {
-      const res = await fetch(`${API_URL}/auth/complete-reset`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, newPassword: newPass })
-      });
-      if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.error || "Reset failed");
-      }
-      return res.json();
-  },
-
-  generateResetToken: async (userId: string): Promise<string> => {
-      const res = await fetch(`${API_URL}/admin/generate-reset-token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId })
-      });
-      const data = await res.json();
-      return data.token;
-  },
-
-  completePasswordReset: async (token: string, newPass: string) => {
+      // This is PUBLIC, so no Auth Headers needed
       const res = await fetch(`${API_URL}/auth/complete-reset`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -381,23 +403,25 @@ export const dataService = {
   },
   
   getSystemSettings: async (): Promise<SystemSettings> => {
-    const res = await fetch(`${API_URL}/settings`);
+    const res = await fetch(`${API_URL}/settings`, {
+        headers: getHeaders()
+    });
     return res.json();
   },
 
   updateSystemSettings: async (settings: Partial<SystemSettings>) => {
     await fetch(`${API_URL}/settings`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify(settings)
     });
   },
   
-  // --- BULK ACTIONS (UPDATED FOR USER CONTEXT) ---
+  // --- BULK ACTIONS ---
   bulkUpdatePins: async (ids: string[], updates: Partial<Pin>) => {
     await fetch(`${API_URL}/pins/bulk-update`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify({ ids, updates })
     });
   },
@@ -405,12 +429,11 @@ export const dataService = {
   bulkAddTags: async (ids: string[], tags: string[]) => {
     await fetch(`${API_URL}/pins/bulk-tags`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify({ ids, tags })
     });
   },
 
-  // FIX: Pass userId here
   bulkAddBoard: async (ids: string[], boardId: string) => {
     const stored = localStorage.getItem('tallo_user');
     if (!stored) return;
@@ -418,7 +441,7 @@ export const dataService = {
 
     await fetch(`${API_URL}/pins/bulk-boards`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify({ ids, boardId, userId: user.id })
     });
   },
@@ -434,7 +457,7 @@ export const dataService = {
   mergePins: async (ids: string[]) => {
      await fetch(`${API_URL}/pins/merge`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify({ ids })
     });
   },
@@ -442,12 +465,11 @@ export const dataService = {
   ungroupPin: async (id: string) => {
     await fetch(`${API_URL}/pins/ungroup`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify({ id })
     });
   },
 
-  // FIX: Pass userId here
   bulkRemoveBoard: async (ids: string[], boardId: string) => {
     const stored = localStorage.getItem('tallo_user');
     if (!stored) return;
@@ -455,7 +477,7 @@ export const dataService = {
 
     await fetch(`${API_URL}/pins/bulk-boards-remove`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: getHeaders(),
         body: JSON.stringify({ ids, boardId, userId: user.id })
     });
   },
@@ -463,7 +485,7 @@ export const dataService = {
   restorePin: async (pin: Pin) => {
       await fetch(`${API_URL}/pins/restore`, {
           method: 'POST',
-          headers: {'Content-Type': 'application/json'},
+          headers: getHeaders(),
           body: JSON.stringify({ id: pin.id })
       });
   },
@@ -474,8 +496,15 @@ export const dataService = {
   uploadImage: async (file: File): Promise<string> => {
       const formData = new FormData();
       formData.append('file', file);
+      
+      const stored = localStorage.getItem('tallo_user');
+      const user = stored ? JSON.parse(stored) : null;
+      
       const res = await fetch(`${API_URL}/upload`, {
           method: 'POST',
+          headers: {
+              'x-user-id': user ? user.id : ''
+          },
           body: formData
       });
       if (!res.ok) throw new Error("Upload failed");
@@ -487,7 +516,7 @@ export const dataService = {
      try {
          const res = await fetch(`${API_URL}/scrape`, {
              method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
+             headers: getHeaders(),
              body: JSON.stringify({ url })
          });
          if (!res.ok) throw new Error("Scrape failed");

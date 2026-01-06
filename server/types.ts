@@ -5,10 +5,11 @@ export interface User {
   username: string;
   email: string;
   role: Role;
-  maxQuota: string;
   usedQuota: string;
+  maxQuota: string; // Updated to match Server response
   inviteCode?: string;
   avatarSeed: string;
+  apiToken?: string; // <--- NEW: For Browser Extension Auth
 }
 
 export interface Collection {
@@ -22,7 +23,7 @@ export interface Board {
   title: string;
   collectionId?: string;
   ownerId: string;
-  visibility?: 'private' | 'public' | 'unlisted';
+  visibility?: 'private' | 'public'; // <--- NEW: Board Visibility support
 }
 
 export interface LocationData {
@@ -37,19 +38,19 @@ export interface Pin {
   title: string;
   description: string;
   imageUrl: string;
-  thumbnail?: string;
+  thumbnail?: string; 
   gallery?: string[];
   boardIds: string[];
   link?: string;
   location?: LocationData;
-  aspectRatio: number;
+  aspectRatio: number; 
   tags: string[];
   ownerId: string;
-  ownerName?: string;   // <--- NEW
-  ownerAvatar?: string; // <--- NEW
+  ownerName?: string;   // <--- NEW: For displaying "Created by..."
+  ownerAvatar?: string; // <--- NEW: For displaying owner avatar
   createdAt: number;
   favorite: boolean;
-  deletedAt?: number;
+  deletedAt?: number; 
 }
 
 export interface UserSettings {
@@ -61,12 +62,7 @@ export interface UserSettings {
 
 export interface SystemSettings {
   maxUploadSize: string;
-  maxUsers: number;
+  maxUsers: number; // <--- NEW: For limiting signups
 }
 
 export type SortOption = 'newest' | 'oldest' | 'az' | 'za' | 'random';
-
-export interface ActiveFilter {
-  type: 'all' | 'collection' | 'board' | 'tag' | 'favorites' | 'created';
-  id: string;
-}
