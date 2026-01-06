@@ -340,7 +340,7 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     // FIX: Removed fixed height, added h-full w-full for mobile, rounded corners only on desktop
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 sm:bg-black/80 backdrop-blur-sm sm:p-6" onClick={onClose}>
       <div 
-        className="bg-[#0B1120] w-full h-full sm:h-auto sm:max-h-[85vh] md:max-h-[700px] max-w-5xl md:rounded-2xl border-0 sm:border border-gray-800 shadow-2xl flex flex-col overflow-hidden transition-all" 
+        className="bg-[#0B1120] w-full h-full sm:h-[85vh] md:h-[700px] max-w-5xl md:rounded-2xl border-0 sm:border border-gray-800 shadow-2xl flex flex-col overflow-hidden transition-all" 
         onClick={e => e.stopPropagation()}
       >
         {/* HEADER */}
@@ -435,11 +435,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
                ) : currentDraft ? (
                    // SPLIT VIEW (Preview Left/Top, Form Right/Bottom)
-                   <div className="flex flex-col md:flex-row h-full overflow-hidden">
+                   // FIX: Switched 'h-full' to 'flex-1 min-h-0' to respect parent max-height on desktop
+                   <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
                        
                        {/* IMAGE PREVIEW COLUMN */}
-                       {/* FIX: On mobile, max height 40vh so form is visible */}
-                       <div className="w-full h-auto max-h-[40vh] md:max-h-full md:w-[45%] md:h-full bg-[#05080F] flex flex-col border-b md:border-b-0 md:border-r border-gray-800 shrink-0">
+                       <div className="w-full h-auto max-h-[40vh] md:max-h-full md:w-[45%] bg-[#05080F] flex flex-col border-b md:border-b-0 md:border-r border-gray-800 shrink-0">
                            
                            {/* Main Image */}
                            <div className="flex-1 flex items-center justify-center p-4 md:p-8 relative overflow-hidden bg-black/50">
@@ -491,10 +491,12 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                        </div>
 
                        {/* FORM COLUMN */}
-                       <div className="flex-1 bg-[#0B1120] overflow-y-auto custom-scrollbar flex flex-col">
-                           <div className="p-4 md:p-8 space-y-6">
+                       {/* FIX: Ensure flex-1 min-h-0 allows this column to shrink and scroll */}
+                       <div className="flex-1 bg-[#0B1120] overflow-y-auto custom-scrollbar flex flex-col min-h-0">
+                           <div className="p-4 md:p-8 pb-24 space-y-6">
                                
                                {/* Board Selector */}
+                               {/* ... (Rest of your form inputs remain exactly the same) ... */}
                                <div>
                                     <label className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
                                         <Layers size={12} /> Board
