@@ -142,7 +142,9 @@ const runMigrations = async () => {
             { id: 7, name: 'migrate_legacy_favorites', sql: "INSERT OR IGNORE INTO favorites (userId, pinId, createdAt) SELECT ownerId, id, ? FROM pins WHERE favorite = 1" },
             { id: 8, name: 'create_pin_boards_table', sql: "CREATE TABLE IF NOT EXISTS pin_boards (userId TEXT, pinId TEXT, boardId TEXT, createdAt INTEGER, PRIMARY KEY (userId, pinId, boardId))" },
             // NEW MIGRATION for Board Visibility
-            { id: 9, name: 'add_visibility_to_boards', sql: "ALTER TABLE boards ADD COLUMN visibility TEXT DEFAULT 'private'" }
+            { id: 9, name: 'add_visibility_to_boards', sql: "ALTER TABLE boards ADD COLUMN visibility TEXT DEFAULT 'private'" },
+            { id: 10, name: 'add_reset_token_to_users', sql: "ALTER TABLE users ADD COLUMN resetToken TEXT DEFAULT NULL" },
+            { id: 11, name: 'add_reset_expiry_to_users', sql: "ALTER TABLE users ADD COLUMN resetTokenExpiresAt INTEGER DEFAULT NULL" }
         ];
 
         for (const m of migrations) {
@@ -547,6 +549,81 @@ app.put('/api/users/:id', async (req, res) => {
     if (maxQuota !== undefined) { updates.push("maxQuota = ?"); values.push(maxQuota); }
     if (updates.length > 0) { values.push(req.params.id); await run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values); }
     res.json(await get("SELECT id, username, email, role, avatarSeed, maxQuota FROM users WHERE id = ?", [req.params.id]));
+});
+// --- NEW: PASSWORD CHANGE ROUTE ---
+app.put('/api/users/:id/password', async (req, res) => {
+    const { currentPass, newPass } = req.body;
+    const userId = req.params.id;
+
+    if (!currentPass || !newPass) {
+        return res.status(400).json({ error: "Missing password fields" });
+    }
+
+    try {
+        // 1. Get the user's current password hash
+        const user = await get("SELECT password FROM users WHERE id = ?", [userId]);
+        
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // 2. Verify current password
+        // Note: If user has no password (legacy account), you might want to allow setting it directly
+        if (user.password) {
+            const match = await bcrypt.compare(currentPass, user.password);
+            if (!match) {
+                return res.status(401).json({ error: "Current password is incorrect" });
+            }
+        }
+
+        // 3. Hash new password
+        const hashedPassword = await bcrypt.hash(newPass, 10);
+
+        // 4. Update database
+        await run("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, userId]);
+
+        res.json({ success: true });
+    } catch (e) {
+        console.error("Password update error:", e);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+// --- PASSWORD RESET FLOW ---
+
+// 1. Admin generates a token
+app.post('/api/admin/generate-reset-token', async (req, res) => {
+    const { userId } = req.body;
+    const token = uuidv4() + uuidv4(); 
+    
+    // 3 hours in milliseconds (3 * 60 * 60 * 1000 = 10800000)
+    const expiresAt = Date.now() + 10800000; 
+
+    await run("UPDATE users SET resetToken = ?, resetTokenExpiresAt = ? WHERE id = ?", [token, expiresAt, userId]);
+    res.json({ token });
+});
+
+// 2. User consumes the token
+app.post('/api/auth/complete-reset', async (req, res) => {
+    const { token, newPassword } = req.body;
+    
+    if (!token || !newPassword) return res.status(400).json({ error: "Missing fields" });
+    
+    const user = await get("SELECT * FROM users WHERE resetToken = ?", [token]);
+    
+    if (!user) {
+        return res.status(403).json({ error: "Invalid link" });
+    }
+
+    // CHECK EXPIRY
+    if (user.resetTokenExpiresAt && Date.now() > user.resetTokenExpiresAt) {
+        return res.status(403).json({ error: "Link expired (links are valid for 3 hours)" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    // Clear token and expiry
+    await run("UPDATE users SET password = ?, resetToken = NULL, resetTokenExpiresAt = NULL WHERE id = ?", [hashedPassword, user.id]);
+    
+    res.json({ success: true, username: user.username });
 });
 app.delete('/api/users/:id', async (req, res) => { if (req.params.id === 'u1') return res.status(403).json({ error: "Root admin" }); await run("DELETE FROM users WHERE id = ?", [req.params.id]); res.json({ success: true }); });
 
