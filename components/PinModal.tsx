@@ -241,7 +241,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   
   const toggleBoard = async (boardId: string) => {
       const isRemoving = selectedBoardIds.includes(boardId);
-      
       let newBoardIds;
       if (isRemoving) {
           newBoardIds = selectedBoardIds.filter(id => id !== boardId);
@@ -252,7 +251,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       let autoAddedNewStems = false;
       const newStemsBoard = boards.find(b => b.title === 'New Stems');
       
-      // If user removed the last board, auto-add 'New Stems' to prevent orphan state
       if (newBoardIds.length === 0 && newStemsBoard) {
           newBoardIds.push(newStemsBoard.id);
           autoAddedNewStems = true;
@@ -271,10 +269,8 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       }
   };
   
-  // Calculate which boards to show (Hide "New Stems")
   const visibleUncollectedBoards = boards.filter(b => !b.collectionId && b.title !== 'New Stems');
 
-  // --- VIDEO PLAYER COMPONENT ---
   const renderContent = () => {
     if (viewingUrl.endsWith('.mp4') || viewingUrl.endsWith('.mov')) {
         return (
@@ -325,7 +321,8 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 sm:bg-slate-950/95 sm:backdrop-blur-md sm:p-8" onClick={handleClose}>
+    // FIX: w-full and overflow-x-hidden on container to prevent right side cutoff
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 sm:bg-slate-950/95 sm:backdrop-blur-md sm:p-8 overflow-x-hidden" onClick={handleClose}>
        {hasPrev && (
            <button onClick={(e) => { e.stopPropagation(); handlePrev(); }} className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-slate-800/50 hover:bg-slate-700 text-white transition hidden md:flex z-50">
                <ChevronLeft size={32} />
@@ -461,11 +458,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                             <div className="flex flex-wrap gap-2 mb-2">
                                 {selectedBoardIds.map(bid => {
                                     const board = boards.find(b => b.id === bid);
-                                    // Also filter "New Stems" from the chip list if you want it hidden from view entirely
-                                    // even if implicitly added. If you want to show it but not let them remove it manually, keep it here.
-                                    // Based on prompt "User should not be able to add a stem to 'New Boards'", I will hide it from view here too
                                     if (!board || board.title === 'New Stems') return null; 
-                                    
                                     return (
                                         <span key={bid} className="flex items-center gap-1 text-xs bg-slate-900 text-slate-200 px-3 py-1.5 rounded-full border border-slate-800">
                                             {board.title}
@@ -489,8 +482,6 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                                             ))}
                                         </div>
                                     ))}
-                                    
-                                    {/* Only show 'New Boards' header if there are actually OTHER uncollected boards */}
                                     {visibleUncollectedBoards.length > 0 && (
                                         <>
                                             <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase mt-1">New Boards</div>

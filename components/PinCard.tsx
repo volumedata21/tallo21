@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Heart, Copy, CheckCircle, ExternalLink, ChevronLeft, ChevronRight, Play } from 'lucide-react';
+import { Heart, Copy, CheckCircle, ExternalLink, ChevronLeft, ChevronRight, Play, MapPin } from 'lucide-react';
 import { Pin, UserSettings } from '../types';
 import { dataService } from '../services/dataService';
 
@@ -25,20 +25,15 @@ export const PinCard: React.FC<PinCardProps> = ({
   const [isHovering, setIsHovering] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   
-  // --- IMAGE STATE WITH FALLBACKS ---
-  // Start with the thumbnail, but be ready to switch if it fails
   const [imgSrc, setImgSrc] = useState(pin.thumbnail || pin.imageUrl);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Full gallery for cycling
   const allImages = [pin.imageUrl, ...(pin.gallery || [])];
   const hasGallery = allImages.length > 1;
 
-  // --- VIDEO DETECTION ---
   const isVideo = imgSrc?.match(/\.(mp4|webm|ogg|mov)$/i);
   const isVideoLink = pin.link && (pin.link.includes('youtube') || pin.link.includes('vimeo') || pin.link.includes('youtu.be'));
 
-  // --- AVATAR URL HELPER ---
   const getAvatarUrl = (seed: string) => {
       if (seed && (seed.includes('.') || seed.includes('/'))) {
           return `/api/avatars/image/${seed}`;
@@ -57,13 +52,11 @@ export const PinCard: React.FC<PinCardProps> = ({
     return () => window.removeEventListener('resize', checkDraggable);
   }, []);
 
-  // Reset when pin changes
   useEffect(() => {
       setCurrentIndex(0);
       setImgSrc(pin.thumbnail || pin.imageUrl);
   }, [pin.id, pin.thumbnail, pin.imageUrl]);
 
-  // --- HOVER LOGIC ---
   useEffect(() => {
     if (!isHovering) {
         if (currentIndex !== 0) {
@@ -81,7 +74,6 @@ export const PinCard: React.FC<PinCardProps> = ({
     }
   }, [isHovering, pin.thumbnail, pin.imageUrl, currentIndex, isVideo]);
 
-  // --- FALLBACK HANDLER ---
   const handleImageError = () => {
       if (imgSrc === pin.thumbnail && pin.imageUrl) {
           setImgSrc(pin.imageUrl);
@@ -98,6 +90,7 @@ export const PinCard: React.FC<PinCardProps> = ({
 
   const toggleFav = (e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     const newState = dataService.toggleFavorite(pin.id);
     setIsFavorite(!!newState);
   };
@@ -154,7 +147,7 @@ export const PinCard: React.FC<PinCardProps> = ({
       onClick={handleClick}
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
-      className={`break-inside-avoid relative group cursor-pointer active:cursor-grabbing transition-transform duration-200 ${isSelected ? 'scale-95' : ''}`}
+      className={`break-inside-avoid relative group cursor-pointer active:cursor-grabbing transition-transform duration-200 ${isSelected ? 'scale-95' : 'active:scale-95'}`}
     >
       <div className={`relative overflow-hidden rounded-xl bg-slate-800 shadow-xl border transition-all duration-300 ${isSelected ? 'border-teal-500 ring-2 ring-teal-500/50' : 'border-slate-800 group-hover:border-slate-700 group-hover:-translate-y-1'}`}>
         
@@ -179,14 +172,64 @@ export const PinCard: React.FC<PinCardProps> = ({
             />
         )}
         
-        {/* Video Badge */}
+        {/* --- MOBILE ACTION ROW (Bottom Right) --- */}
+        <div className="md:hidden absolute bottom-2 right-2 z-30 flex items-center gap-2">
+            
+            {/* 1. Link (if exists) */}
+            {domainInfo && (
+                <a 
+                    href={pin.link} 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white shadow-sm"
+                >
+                    <ExternalLink size={14} />
+                </a>
+            )}
+
+            {/* 2. Map (if exists) */}
+            {pin.location && (
+                 <a 
+                    href={`https://www.google.com/maps/search/?api=1&query=${pin.location.lat},${pin.location.lng}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    onClick={(e) => e.stopPropagation()}
+                    className="p-2 bg-black/40 backdrop-blur-md rounded-full text-white shadow-sm"
+                >
+                    <MapPin size={14} />
+                </a>
+            )}
+
+            {/* 3. Heart (Rightmost for easiest access) */}
+            <button 
+                onClick={toggleFav}
+                className={`p-2 rounded-full backdrop-blur-md transition-colors shadow-sm ${isFavorite ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-black/60'}`}
+            >
+                <Heart size={14} fill={isFavorite ? "currentColor" : "none"} />
+            </button>
+        </div>
+
+        {/* --- OTHER BADGES --- */}
+
+        {/* Gallery Indicator - MOVED TO BOTTOM LEFT to avoid overlap */}
+        {hasGallery && (
+           <div className="absolute bottom-3 left-3 px-2 py-1 bg-black/60 backdrop-blur rounded-md flex items-center gap-1.5 z-20 pointer-events-none">
+              <Copy size={10} className="text-white" />
+              <span className="text-[10px] font-bold text-white">
+                  {currentIndex === 0 ? `+${pin.gallery!.length}` : `${currentIndex + 1}/${allImages.length}`}
+              </span>
+           </div>
+        )}
+
+        {/* Video Badge - Top Right */}
         {(isVideo || isVideoLink) && (
             <div className="absolute top-3 right-3 z-20 w-6 h-6 bg-black/50 backdrop-blur rounded-full flex items-center justify-center pointer-events-none shadow-lg">
                 <Play size={10} className="text-white fill-white" />
             </div>
         )}
 
-        {/* Selection Checkbox */}
+        {/* Selection Checkbox (Top Left) */}
         {(isSelectionMode || isSelected) && (
             <div className={`absolute top-3 left-3 z-30 transition-all ${isSelected ? 'opacity-100 scale-100' : 'opacity-100 scale-100'}`}>
                 <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${isSelected ? 'bg-teal-500 border-teal-500' : 'bg-black/50 border-white/50'}`}>
@@ -195,83 +238,41 @@ export const PinCard: React.FC<PinCardProps> = ({
             </div>
         )}
 
-        {/* Gallery Cycle Buttons */}
+        {/* Desktop Hover Nav Buttons */}
         {hasGallery && !isSelectionMode && (
             <>
-                <button 
-                    onClick={handlePrev}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity z-30"
-                >
-                    <ChevronLeft size={16} />
-                </button>
-                <button 
-                    onClick={handleNext}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity z-30"
-                >
-                    <ChevronRight size={16} />
-                </button>
+                <button onClick={handlePrev} className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity z-30 hidden md:flex"><ChevronLeft size={16} /></button>
+                <button onClick={handleNext} className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-black/50 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity z-30 hidden md:flex"><ChevronRight size={16} /></button>
             </>
         )}
-
-        {/* Gallery Indicator */}
-        {hasGallery && (
-           <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/60 backdrop-blur rounded-md flex items-center gap-1.5 z-20 pointer-events-none">
-              <Copy size={10} className="text-white" />
-              <span className="text-[10px] font-bold text-white">
-                  {currentIndex === 0 ? `+${pin.gallery!.length}` : `${currentIndex + 1}/${allImages.length}`}
-              </span>
-           </div>
-        )}
         
-        {/* Hover Overlay */}
+        {/* DESKTOP HOVER OVERLAY (Unchanged) */}
         {!isSelectionMode && (
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col p-4 z-20 pointer-events-none">
-             
+          <div className="hidden md:flex absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex-col p-4 z-20 pointer-events-none">
              <div className="flex justify-between items-start pointer-events-auto">
                 {domainInfo ? (
-                    <a 
-                        href={pin.link}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex items-center gap-2 bg-black/40 hover:bg-black/60 backdrop-blur rounded-full pl-1 pr-3 py-1 transition-colors max-w-[75%]"
-                    >
+                    <a href={pin.link} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-2 bg-black/40 hover:bg-black/60 backdrop-blur rounded-full pl-1 pr-3 py-1 transition-colors max-w-[75%]">
                         <img src={domainInfo.favicon} alt="" className="w-5 h-5 rounded-full bg-white/10" />
                         <span className="text-[10px] font-bold text-white truncate">{domainInfo.displayName}</span>
                         <ExternalLink size={10} className="text-slate-400 -ml-1" />
                     </a>
-                ) : (
-                    <div />
-                )}
-
-                <button 
-                  onClick={toggleFav}
-                  className={`p-2 backdrop-blur rounded-full transition-colors ${isFavorite ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-black/60'}`}
-                >
+                ) : <div />}
+                <button onClick={toggleFav} className={`p-2 backdrop-blur rounded-full transition-colors ${isFavorite ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-black/60'}`}>
                   <Heart size={14} fill={isFavorite ? "currentColor" : "none"} />
                 </button>
              </div>
              
              <div className="mt-auto pt-4 flex flex-col gap-2 items-start pointer-events-auto">
                {pin.location && (
-                   <a 
-                     href={`https://www.google.com/maps/search/?api=1&query=${pin.location.lat},${pin.location.lng}`}
-                     target="_blank"
-                     rel="noopener noreferrer"
-                     onClick={(e) => e.stopPropagation()}
-                     className="flex items-center gap-1.5 bg-black/40 hover:bg-black/60 backdrop-blur rounded-full px-2.5 py-1 transition-colors max-w-full group/location"
-                   >
+                   <a href={`https://www.google.com/maps/search/?api=1&query=${pin.location.lat},${pin.location.lng}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-1.5 bg-black/40 hover:bg-black/60 backdrop-blur rounded-full px-2.5 py-1 transition-colors max-w-full group/location">
                        <div className="w-1.5 h-1.5 rounded-full bg-teal-500 group-hover/location:scale-125 transition-transform"></div>
                        <span className="text-[10px] font-bold text-white truncate">{pin.location.name}</span>
                    </a>
                )}
-
                {pin.tags && pin.tags.length > 0 && (
                    <div className="flex flex-wrap gap-1.5 overflow-hidden max-h-[3.6em] relative w-full">
                        {pin.tags.map(tag => (
-                           <span key={tag} className="text-[10px] font-medium text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded-full border-slate-700/50 truncate max-w-[100px]">
-                               #{tag}
-                           </span>
+                           <span key={tag} className="text-[10px] font-medium text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded-full border-slate-700/50 truncate max-w-[100px]">#{tag}</span>
                        ))}
                    </div>
                )}
@@ -282,21 +283,20 @@ export const PinCard: React.FC<PinCardProps> = ({
 
       <div className="mt-3 px-1">
         {shouldShowTitle && (
-          <div className="flex justify-between items-start gap-2">
-             <h3 className={`font-semibold text-sm leading-tight mb-1 ${isSelected ? 'text-teal-400' : 'text-slate-200'}`}>{pin.title}</h3>
-             {isFavorite && <Heart size={12} className="text-red-500 shrink-0 mt-0.5" fill="currentColor" />}
-          </div>
+            <h3 className={`font-semibold text-sm leading-tight mb-1 ${isSelected ? 'text-teal-400' : 'text-slate-200'}`}>
+                {pin.title}
+            </h3>
         )}
+
         {!settings.hideDescriptions && (
           <p className="text-xs text-slate-500 line-clamp-2">{pin.description}</p>
         )}
         
-        {/* NEW: USER AVATAR & NAME */}
         <div className="flex items-center gap-2 mt-2 opacity-70">
-            <div className="w-7 h-7 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0">
+            <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 overflow-hidden shrink-0">
                <img src={getAvatarUrl(pin.ownerAvatar || pin.ownerId)} className="w-full h-full object-cover" />
             </div>
-            <span className="text-[10px] text-slate-400 font-medium truncate max-w-[150px]">{pin.ownerName || 'Unknown'}</span>
+            <span className="text-xs text-slate-400 font-medium truncate max-w-[150px]">{pin.ownerName || 'Unknown'}</span>
         </div>
       </div>
     </div>
