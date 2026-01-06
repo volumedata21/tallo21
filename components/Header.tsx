@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { Search, Map, Grid, Plus, Menu, Bell, User as UserIcon, LogOut, Settings, Shield, ChevronDown } from 'lucide-react';
+import { Search, Map, Grid, Plus, Menu, Settings, Shield, ChevronDown, LogOut } from 'lucide-react';
 
 interface HeaderProps {
   user: User;
@@ -23,7 +23,6 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
     const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
-    // Helper to resolve avatar URL
     const getAvatarUrl = (seed: string) => {
         if (seed && (seed.includes('.') || seed.includes('/'))) {
             return `/api/avatars/image/${seed}`;
@@ -32,19 +31,18 @@ export const Header: React.FC<HeaderProps> = ({
     };
 
     return (
-        // FIX: Changed z-50 to z-30. 
-        // This ensures the Sidebar (z-50) and its Toggle Button sit ON TOP of the header.
-        <header className="h-20 bg-[#000208]/90 backdrop-blur-md border-b border-slate-800 flex items-center justify-between px-4 sm:px-8 z-30 sticky top-0">
+        <header className="h-16 md:h-20 bg-[#000208]/90 backdrop-blur-md border-b border-slate-800 flex items-center justify-between px-4 sm:px-8 z-30 sticky top-0 transition-all">
             
             {/* Left: Mobile Menu & Search */}
-            <div className="flex items-center gap-4 flex-1">
+            <div className="flex items-center gap-2 md:gap-4 flex-1">
                 <button 
                     onClick={onToggleSidebar} 
-                    className="p-2 text-slate-400 hover:text-white md:hidden"
+                    className="p-2 -ml-2 text-slate-400 hover:text-white md:hidden active:scale-95 transition-transform"
                 >
                     <Menu size={24} />
                 </button>
 
+                {/* Mobile Search Icon (Expandable logic could go here, for now keeping simple) */}
                 <div className="relative w-full max-w-md hidden sm:block">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
                     <input 
@@ -52,7 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
                         placeholder="Search stems..." 
                         value={searchQuery}
                         onChange={(e) => onSearchChange(e.target.value)}
-                        className="w-full bg-slate-900/50 border border-slate-800 rounded-full pl-10 pr-4 py-2.5 text-sm text-white focus:border-teal-500 focus:bg-slate-900 outline-none transition-all"
+                        className="w-full bg-slate-900/50 border border-slate-800 rounded-full pl-10 pr-4 py-2 text-sm text-white focus:border-teal-500 focus:bg-slate-900 outline-none transition-all"
                     />
                 </div>
             </div>
@@ -60,54 +58,54 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Right: Actions & Profile */}
             <div className="flex items-center gap-2 sm:gap-4">
                 
-                {/* View Toggle */}
-                <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-800">
+                {/* View Toggle - Hidden on very small screens if needed, or kept compact */}
+                <div className="hidden xs:flex bg-slate-900 rounded-lg p-1 border border-slate-800">
                     <button 
                         onClick={() => onToggleView('grid')}
-                        className={`p-2 rounded-md transition-all ${viewMode === 'grid' ? 'bg-slate-800 text-teal-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
-                        title="Grid View"
+                        className={`p-1.5 md:p-2 rounded-md transition-all ${viewMode === 'grid' ? 'bg-slate-800 text-teal-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                     >
                         <Grid size={18} />
                     </button>
                     <button 
                         onClick={() => onToggleView('map')}
-                        className={`p-2 rounded-md transition-all ${viewMode === 'map' ? 'bg-slate-800 text-teal-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
-                        title="Map View"
+                        className={`p-1.5 md:p-2 rounded-md transition-all ${viewMode === 'map' ? 'bg-slate-800 text-teal-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
                     >
                         <Map size={18} />
                     </button>
                 </div>
 
+                {/* CREATE BUTTON - Now visible on mobile as a small Icon button, full button on desktop */}
                 <button 
                     onClick={onCreatePin}
-                    className="hidden sm:flex items-center gap-2 bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-full font-bold transition-all shadow-lg shadow-teal-900/20 active:scale-95"
+                    className="flex items-center gap-2 bg-teal-600 hover:bg-teal-500 text-white p-2 md:px-4 md:py-2 rounded-full font-bold transition-all shadow-lg shadow-teal-900/20 active:scale-95"
+                    title="Create Stem"
                 >
                     <Plus size={20} />
-                    <span>Create</span>
+                    <span className="hidden md:inline">Create</span>
                 </button>
 
-                <div className="h-8 w-px bg-slate-800 mx-2 hidden sm:block"></div>
+                <div className="h-8 w-px bg-slate-800 mx-1 hidden sm:block"></div>
 
                 {/* Profile Dropdown */}
                 <div className="relative">
                     <button 
                         onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
                         onBlur={() => setTimeout(() => setIsProfileMenuOpen(false), 200)}
-                        className="flex items-center gap-3 pl-2 pr-1 py-1 rounded-full hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all group"
+                        className="flex items-center gap-2 md:gap-3 pl-1 md:pl-2 pr-1 py-1 rounded-full hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all group"
                     >
                         <div className="text-right hidden md:block">
                             <div className="text-xs font-bold text-slate-200">{user.username}</div>
                             <div className="text-[10px] text-teal-500 uppercase font-bold tracking-wider">{user.role}</div>
                         </div>
-                        <div className="w-10 h-10 rounded-full bg-slate-800 border-2 border-slate-800 group-hover:border-teal-500/50 overflow-hidden transition-all">
+                        <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-slate-800 border-2 border-slate-800 group-hover:border-teal-500/50 overflow-hidden transition-all">
                             <img src={getAvatarUrl(user.avatarSeed)} alt="Profile" className="w-full h-full object-cover" />
                         </div>
-                        <ChevronDown size={14} className="text-slate-500 mr-2" />
+                        <ChevronDown size={14} className="text-slate-500 mr-2 hidden md:block" />
                     </button>
 
                     {/* Dropdown Menu */}
                     {isProfileMenuOpen && (
-                        <div className="absolute right-0 top-full mt-2 w-56 bg-slate-900 border border-slate-800 rounded-xl shadow-xl py-2 animate-in fade-in slide-in-from-top-2">
+                        <div className="absolute right-0 top-full mt-2 w-56 bg-slate-900 border border-slate-800 rounded-xl shadow-xl py-2 animate-in fade-in slide-in-from-top-2 z-50">
                             <div className="px-4 py-3 border-b border-slate-800 md:hidden">
                                 <div className="font-bold text-white">{user.username}</div>
                                 <div className="text-xs text-slate-500">{user.email}</div>

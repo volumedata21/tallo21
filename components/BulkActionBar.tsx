@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-// Changed imports: Added 'Folder', removed 'Copy' (unless you want to keep it available)
-import { X, Layers, Layers2, Tag, MapPin, Link as LinkIcon, Check, Trash2, Minus, Plus, Search, Folder, Copy } from 'lucide-react';
+import { X, Layers2, Tag, MapPin, Check, Trash2, Minus, Search, Folder } from 'lucide-react';
 import { Collection, Board, LocationData, Pin } from '../types';
 import { dataService } from '../services/dataService';
 
@@ -19,7 +18,6 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
   
   // States
   const [tagInput, setTagInput] = useState('');
-  const [linkInput, setLinkInput] = useState('');
   const [locQuery, setLocQuery] = useState('');
   const [locResults, setLocResults] = useState<LocationData[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -90,11 +88,12 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
   const canGroup = selectedIds.length > 1;
 
   return (
-    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-[#0B1120] border border-slate-700 rounded-2xl shadow-2xl z-50 flex flex-col items-center animate-in slide-in-from-bottom-4 duration-200">
+    // FIX: Docked to bottom on mobile (bottom-0 w-full), Floating on desktop (sm:bottom-8 sm:w-auto)
+    <div className="fixed bottom-0 left-0 right-0 sm:bottom-8 sm:left-1/2 sm:-translate-x-1/2 w-full sm:w-auto bg-[#0B1120] border-t sm:border border-slate-700 sm:rounded-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.5)] z-50 flex flex-col items-center animate-in slide-in-from-bottom-4 duration-200 pb-safe sm:pb-0">
         
         {/* Action Panel Content */}
         {activeAction && (
-            <div className="w-full sm:w-[400px] border-b border-slate-700 p-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
+            <div className="w-full sm:w-[400px] border-b border-slate-700 p-4 max-h-[50vh] sm:max-h-[60vh] overflow-y-auto custom-scrollbar bg-[#0B1120]">
                 
                 {/* 1. BOARD SELECTOR */}
                 {activeAction === 'board' && (
@@ -105,7 +104,8 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
                                 value={boardSearch}
                                 onChange={e => setBoardSearch(e.target.value)}
                                 placeholder="Filter boards..." 
-                                className="bg-transparent border-none text-sm text-white focus:ring-0 outline-none w-full placeholder-slate-600"
+                                // FIX: text-base prevents iOS zoom
+                                className="bg-transparent border-none text-base sm:text-sm text-white focus:ring-0 outline-none w-full placeholder-slate-600"
                                 autoFocus
                             />
                         </div>
@@ -124,7 +124,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
                                                     <button 
                                                         key={board.id} 
                                                         onClick={() => toggleBoard(board.id)} 
-                                                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group transition-colors"
+                                                        className="w-full text-left px-3 py-3 sm:py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group transition-colors"
                                                     >
                                                         <span className={`text-sm font-medium ${state !== 'none' ? 'text-teal-400' : 'text-slate-300'}`}>{board.title}</span>
                                                         <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${state === 'all' ? 'bg-teal-500 border-teal-500' : state === 'some' ? 'bg-yellow-500/20 border-yellow-500' : 'border-slate-600 group-hover:border-slate-400'}`}>
@@ -149,7 +149,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
                                             <button 
                                                 key={board.id} 
                                                 onClick={() => toggleBoard(board.id)} 
-                                                className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group transition-colors"
+                                                className="w-full text-left px-3 py-3 sm:py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group transition-colors"
                                             >
                                                 <span className={`text-sm font-medium ${state !== 'none' ? 'text-teal-400' : 'text-slate-300'}`}>{board.title}</span>
                                                 <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${state === 'all' ? 'bg-teal-500 border-teal-500' : state === 'some' ? 'bg-yellow-500/20 border-yellow-500' : 'border-slate-600 group-hover:border-slate-400'}`}>
@@ -172,7 +172,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
                            value={tagInput}
                            onChange={e => setTagInput(e.target.value)}
                            placeholder="Enter tags (comma separated)..."
-                           className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-teal-500"
+                           className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-base sm:text-sm text-white outline-none focus:border-teal-500"
                            autoFocus
                            onKeyDown={e => e.key === 'Enter' && handleAddTag()}
                         />
@@ -188,14 +188,14 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
                                 value={locQuery}
                                 onChange={e => setLocQuery(e.target.value)}
                                 placeholder="Search location..."
-                                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-teal-500"
+                                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-base sm:text-sm text-white outline-none focus:border-teal-500"
                                 autoFocus
                              />
                              <button type="submit" disabled={isSearching} className="bg-teal-600 hover:bg-teal-500 text-white p-2 rounded-lg disabled:opacity-50"><Search size={18} /></button>
                         </form>
                         <div className="max-h-40 overflow-y-auto space-y-1">
                             {locResults.map((loc, i) => (
-                                <button key={i} onClick={() => handleLocationSelect(loc)} className="w-full text-left px-3 py-2 hover:bg-slate-800 rounded-lg text-sm text-slate-300 hover:text-white truncate">
+                                <button key={i} onClick={() => handleLocationSelect(loc)} className="w-full text-left px-3 py-3 sm:py-2 hover:bg-slate-800 rounded-lg text-sm text-slate-300 hover:text-white truncate">
                                     {loc.name}
                                 </button>
                             ))}
@@ -206,65 +206,64 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
         )}
 
         {/* Main Bar */}
-        <div className="flex items-center gap-1 p-2">
-            <div className="px-3 text-xs font-bold text-teal-500 tabular-nums">
+        {/* FIX: justify-between on mobile to spread icons, overflow-x-auto for safety on tiny screens */}
+        <div className="flex items-center gap-1 p-2 md:p-2 w-full sm:w-auto justify-between sm:justify-start overflow-x-auto no-scrollbar">
+            <div className="px-3 text-xs font-bold text-teal-500 tabular-nums shrink-0">
                 {selectedIds.length} <span className="text-slate-500 font-normal hidden sm:inline">selected</span>
             </div>
             
-            <div className="w-px h-8 bg-slate-800 mx-1"></div>
+            <div className="w-px h-8 bg-slate-800 mx-1 hidden sm:block"></div>
 
             <button 
                onClick={() => setActiveAction(activeAction === 'board' ? null : 'board')}
-               className={`p-2.5 rounded-xl transition ${activeAction === 'board' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+               className={`p-3 sm:p-2.5 rounded-xl transition shrink-0 ${activeAction === 'board' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                title="Organize into Boards"
             >
-               {/* UPDATED ICON: Folder */}
-               <Folder size={18} />
+               <Folder size={20} className="sm:w-[18px] sm:h-[18px]" />
             </button>
 
             <button 
                onClick={() => setActiveAction(activeAction === 'tag' ? null : 'tag')}
-               className={`p-2.5 rounded-xl transition ${activeAction === 'tag' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+               className={`p-3 sm:p-2.5 rounded-xl transition shrink-0 ${activeAction === 'tag' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                title="Add Tags"
             >
-               <Tag size={18} />
+               <Tag size={20} className="sm:w-[18px] sm:h-[18px]" />
             </button>
 
             <button 
                onClick={() => setActiveAction(activeAction === 'location' ? null : 'location')}
-               className={`p-2.5 rounded-xl transition ${activeAction === 'location' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+               className={`p-3 sm:p-2.5 rounded-xl transition shrink-0 ${activeAction === 'location' ? 'bg-teal-500 text-white shadow-lg shadow-teal-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
                title="Set Location"
             >
-               <MapPin size={18} />
+               <MapPin size={20} className="sm:w-[18px] sm:h-[18px]" />
             </button>
 
-            <div className="w-px h-8 bg-slate-800 mx-1"></div>
+            <div className="w-px h-8 bg-slate-800 mx-1 hidden sm:block"></div>
 
             <button 
                onClick={handleGroup}
                disabled={!canGroup}
-               className={`p-2.5 rounded-xl transition flex items-center gap-2 ${canGroup ? 'text-slate-400 hover:bg-slate-800 hover:text-teal-400' : 'text-slate-700 opacity-50 cursor-not-allowed'}`}
+               className={`p-3 sm:p-2.5 rounded-xl transition flex items-center gap-2 shrink-0 ${canGroup ? 'text-slate-400 hover:bg-slate-800 hover:text-teal-400' : 'text-slate-700 opacity-50 cursor-not-allowed'}`}
                title="Group Together (Merge)"
             >
-               {/* UPDATED ICON: Layers */}
-               <Layers2 size={18} />
+               <Layers2 size={20} className="sm:w-[18px] sm:h-[18px]" />
             </button>
 
             <button 
               onClick={handleDelete}
-              className="ml-1 p-2.5 bg-slate-800 hover:bg-red-500/20 hover:text-red-500 text-slate-400 rounded-xl transition"
+              className="ml-1 p-3 sm:p-2.5 bg-slate-800 hover:bg-red-500/20 hover:text-red-500 text-slate-400 rounded-xl transition shrink-0"
               title="Delete Selected"
             >
-               <Trash2 size={18} />
+               <Trash2 size={20} className="sm:w-[18px] sm:h-[18px]" />
             </button>
 
-            <div className="w-px h-8 bg-slate-800 mx-1"></div>
+            <div className="w-px h-8 bg-slate-800 mx-1 hidden sm:block"></div>
 
             <button 
               onClick={onClear}
-              className="p-2.5 hover:bg-slate-800 text-slate-500 hover:text-white rounded-xl transition"
+              className="p-3 sm:p-2.5 hover:bg-slate-800 text-slate-500 hover:text-white rounded-xl transition shrink-0"
             >
-               <X size={18} />
+               <X size={20} className="sm:w-[18px] sm:h-[18px]" />
             </button>
         </div>
     </div>
