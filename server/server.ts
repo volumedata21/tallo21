@@ -12,7 +12,8 @@ import { JSDOM } from 'jsdom';
 import bcrypt from 'bcryptjs';
 
 const app = express();
-const PORT = 3001;
+// FIX 1: Use Environment Port if available, default to 3001
+const PORT = parseInt(process.env.PORT || '3001');
 const NEW_STEMS_ID = 'b-new-stems';
 
 const DATA_DIR = process.env.DATA_DIR || './data';
@@ -25,7 +26,14 @@ if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true });
 if (!fs.existsSync(THUMBNAILS_DIR)) fs.mkdirSync(THUMBNAILS_DIR, { recursive: true });
 if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
 
-app.use(cors());
+// FIX 2: Enhanced CORS Configuration
+// This allows the extension to send the custom 'x-api-token' header
+app.use(cors({
+    origin: '*', 
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-api-token', 'x-user-id']
+}));
+
 app.use(express.json());
 
 // Serve Static Files
@@ -50,7 +58,33 @@ const all = (sql: string, params: any[] = []) => new Promise<any[]>((resolve, re
   db.all(sql, params, (err, rows) => { if (err) reject(err); else resolve(rows); });
 });
 
-// UPDATED: Parses boardIds from string (New System) AND handles Owner info
+// --- AUTH MIDDLEWARE ---
+const requireAuth = async (req: any, res: any, next: any) => {
+    // 1. Check for Extension API Key
+    const apiToken = req.headers['x-api-token'];
+    if (apiToken) {
+        const user = await get("SELECT * FROM users WHERE apiToken = ?", [apiToken]);
+        if (user) {
+            req.user = user;
+            return next();
+        }
+    }
+
+    // 2. Check for Frontend Session (User ID)
+    const userId = req.headers['x-user-id'];
+    if (userId) {
+        const user = await get("SELECT * FROM users WHERE id = ?", [userId]);
+        if (user) {
+            req.user = user;
+            return next();
+        }
+    }
+
+    console.log(`Blocked unauthorized request to ${req.path}`);
+    res.status(401).json({ error: "Unauthorized" });
+};
+
+// HELPER: Parse Pin
 const parsePin = (pin: any): Pin => ({
   ...pin,
   gallery: JSON.parse(pin.gallery || '[]'),
@@ -66,7 +100,7 @@ const parsePin = (pin: any): Pin => ({
   ownerAvatar: pin.ownerAvatar 
 });
 
-// --- HELPER: DOWNLOAD & OPTIMIZE EXTERNAL IMAGES ---
+// --- HELPER: DOWNLOAD EXTERNAL IMAGES ---
 const processExternalImage = async (url: string) => {
     if (!url || !url.startsWith('http')) return { url, thumbnail: null };
 
@@ -88,7 +122,6 @@ const processExternalImage = async (url: string) => {
 
         const id = Date.now() + '-' + Math.round(Math.random() * 1000);
         const contentType = response.headers.get('content-type');
-        
         const isVideo = contentType?.startsWith('video/');
         
         let ext = '.jpg';
@@ -103,10 +136,7 @@ const processExternalImage = async (url: string) => {
         await fs.promises.writeFile(originalPath, buffer);
 
         if (isVideo) {
-             return {
-                url: `/images/${folder}/${filename}`,
-                thumbnail: null 
-            };
+             return { url: `/images/${folder}/${filename}`, thumbnail: null };
         }
 
         const thumbFilename = `${id}.webp`;
@@ -141,10 +171,10 @@ const runMigrations = async () => {
             { id: 6, name: 'create_favorites_table', sql: "CREATE TABLE IF NOT EXISTS favorites (userId TEXT, pinId TEXT, createdAt INTEGER, PRIMARY KEY (userId, pinId))" },
             { id: 7, name: 'migrate_legacy_favorites', sql: "INSERT OR IGNORE INTO favorites (userId, pinId, createdAt) SELECT ownerId, id, ? FROM pins WHERE favorite = 1" },
             { id: 8, name: 'create_pin_boards_table', sql: "CREATE TABLE IF NOT EXISTS pin_boards (userId TEXT, pinId TEXT, boardId TEXT, createdAt INTEGER, PRIMARY KEY (userId, pinId, boardId))" },
-            // NEW MIGRATION for Board Visibility
             { id: 9, name: 'add_visibility_to_boards', sql: "ALTER TABLE boards ADD COLUMN visibility TEXT DEFAULT 'private'" },
             { id: 10, name: 'add_reset_token_to_users', sql: "ALTER TABLE users ADD COLUMN resetToken TEXT DEFAULT NULL" },
-            { id: 11, name: 'add_reset_expiry_to_users', sql: "ALTER TABLE users ADD COLUMN resetTokenExpiresAt INTEGER DEFAULT NULL" }
+            { id: 11, name: 'add_reset_expiry_to_users', sql: "ALTER TABLE users ADD COLUMN resetTokenExpiresAt INTEGER DEFAULT NULL" },
+            { id: 12, name: 'add_api_token_to_users', sql: "ALTER TABLE users ADD COLUMN apiToken TEXT DEFAULT NULL" }
         ];
 
         for (const m of migrations) {
@@ -161,9 +191,7 @@ const runMigrations = async () => {
                 }
             }
         }
-    } catch (e) {
-        console.error("Migration check failed", e);
-    }
+    } catch (e) { console.error("Migration check failed", e); }
 };
 
 const ensureDefaultData = async () => {
@@ -172,9 +200,7 @@ const ensureDefaultData = async () => {
         if (!board) {
             await run(`INSERT INTO boards (id, title, ownerId, visibility) VALUES (?, ?, ?, ?)`, [NEW_STEMS_ID, 'New Stems', 'u1', 'private']);
         }
-    } catch (err) {
-        console.error("Default data check failed", err);
-    }
+    } catch (err) { console.error("Default data check failed", err); }
 };
 
 // --- ROUTES ---
@@ -274,15 +300,12 @@ app.post('/api/register', async (req, res) => {
     } catch (e) { res.status(500).json({ error: "Registration failed" }); }
 });
 
-// --- PINS (MULTI-USER + AVATAR JOIN) ---
-
+// --- PINS ROUTE ---
 app.get('/api/pins', async (req, res) => {
   try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
       const offset = (page - 1) * limit;
-      
-      // 1. ADD collectionId to the list of params we read
       const { sort, search, boardId, favorites, tag, creatorId, userId, collectionId } = req.query;
 
       let sql = `
@@ -297,39 +320,14 @@ app.get('/api/pins', async (req, res) => {
         LEFT JOIN pin_boards pb ON pins.id = pb.pinId AND pb.userId = ?
         WHERE pins.deletedAt IS NULL
       `;
-      
       const params: any[] = [userId || '', userId || '']; 
 
-      if (favorites === 'true') {
-          sql += " AND f.userId IS NOT NULL";
-      }
-      
-      if (creatorId) {
-          sql += " AND pins.ownerId = ?";
-          params.push(creatorId);
-      }
-      
-      if (search) {
-          sql += " AND (pins.title LIKE ? OR pins.description LIKE ?)";
-          params.push(`%${search}%`, `%${search}%`);
-      }
-
-      if (boardId) {
-          sql += " AND EXISTS (SELECT 1 FROM pin_boards pb_filter WHERE pb_filter.pinId = pins.id AND pb_filter.boardId = ?)";
-          params.push(boardId);
-      }
-
-      // 2. ADD THIS NEW BLOCK FOR COLLECTIONS
-      // It finds pins that are in ANY board belonging to the collection
-      if (collectionId) {
-          sql += " AND EXISTS (SELECT 1 FROM pin_boards pb_coll JOIN boards b_coll ON pb_coll.boardId = b_coll.id WHERE pb_coll.pinId = pins.id AND b_coll.collectionId = ?)";
-          params.push(collectionId);
-      }
-
-      if (tag) {
-          sql += " AND pins.tags LIKE ?";
-          params.push(`%${tag}%`);
-      }
+      if (favorites === 'true') sql += " AND f.userId IS NOT NULL";
+      if (creatorId) { sql += " AND pins.ownerId = ?"; params.push(creatorId); }
+      if (search) { sql += " AND (pins.title LIKE ? OR pins.description LIKE ?)"; params.push(`%${search}%`, `%${search}%`); }
+      if (boardId) { sql += " AND EXISTS (SELECT 1 FROM pin_boards pb_filter WHERE pb_filter.pinId = pins.id AND pb_filter.boardId = ?)"; params.push(boardId); }
+      if (collectionId) { sql += " AND EXISTS (SELECT 1 FROM pin_boards pb_coll JOIN boards b_coll ON pb_coll.boardId = b_coll.id WHERE pb_coll.pinId = pins.id AND b_coll.collectionId = ?)"; params.push(collectionId); }
+      if (tag) { sql += " AND pins.tags LIKE ?"; params.push(`%${tag}%`); }
       
       sql += " GROUP BY pins.id";
 
@@ -344,17 +342,15 @@ app.get('/api/pins', async (req, res) => {
       params.push(limit, offset);
 
       const rows = await all(sql, params);
-      const pins = rows.map(parsePin);
-      
-      res.json(pins);
+      res.json(rows.map(parsePin));
   } catch (e) {
       console.error("Fetch pins error:", e);
       res.status(500).json({ error: "Failed to fetch pins" });
   }
 });
 
-// Toggle Favorite (User Specific)
-app.post('/api/pins/toggle-favorite', async (req, res) => {
+// Protect all write operations on Pins
+app.post('/api/pins/toggle-favorite', requireAuth, async (req, res) => {
     const { pinId, userId } = req.body;
     if (!pinId || !userId) return res.status(400).json({ error: "Missing info" });
     try {
@@ -369,9 +365,12 @@ app.post('/api/pins/toggle-favorite', async (req, res) => {
     } catch (e) { res.status(500).json({ error: "DB Error" }); }
 });
 
-app.post('/api/pins', async (req, res) => {
+// SECURED: Create Pin
+app.post('/api/pins', requireAuth, async (req: any, res: any) => {
     const pin = req.body;
     const id = uuidv4();
+    // Secure ownership: use the authenticated user's ID
+    const ownerId = req.user.id; 
     
     let finalImageUrl = pin.imageUrl;
     let finalThumbnail = pin.thumbnail;
@@ -382,33 +381,26 @@ app.post('/api/pins', async (req, res) => {
         if (processed.thumbnail) finalThumbnail = processed.thumbnail;
     }
 
-    // 1. Create Pin (Legacy 'boardIds' column kept as empty array [], we rely on pin_boards now)
     await run(
       `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), '[]', pin.link, JSON.stringify(pin.location || null), pin.aspectRatio, JSON.stringify(pin.tags || []), pin.ownerId, Date.now(), 0, null]
+      [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), '[]', pin.link, JSON.stringify(pin.location || null), pin.aspectRatio, JSON.stringify(pin.tags || []), 
+      ownerId, // Force ownerId
+      Date.now(), 0, null]
     );
 
-    // 2. Add to Boards (FIXED: Uses the boards sent from frontend)
-    // If frontend sent boards, use them. Otherwise default to NEW_STEMS_ID.
     const boardsToJoin = (pin.boardIds && pin.boardIds.length > 0) ? pin.boardIds : [NEW_STEMS_ID];
-
     for (const boardId of boardsToJoin) {
-         await run(
-             "INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", 
-             [pin.ownerId, id, boardId, Date.now()]
-         );
+         await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [ownerId, id, boardId, Date.now()]);
     }
-
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
 
-app.put('/api/pins/:id', async (req, res) => {
+app.put('/api/pins/:id', requireAuth, async (req, res) => {
     const updates = req.body;
     const id = req.params.id;
     const fields: string[] = [];
     const values: any[] = [];
-    
     Object.keys(updates).forEach(key => {
         if(key === 'id' || key === 'boardIds' || key === 'favorite') return;
         let val = updates[key];
@@ -423,40 +415,46 @@ app.put('/api/pins/:id', async (req, res) => {
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
 
-app.delete('/api/pins/:id', async (req, res) => { await run("UPDATE pins SET deletedAt = ? WHERE id = ?", [Date.now(), req.params.id]); res.json({ success: true }); });
-app.post('/api/pins/restore', async (req, res) => { await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [req.body.id]); res.json({ success: true }); });
-app.post('/api/pins/bulk-delete', async (req, res) => { const ids = req.body.ids; await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${ids.map(()=>'?').join(',')})`, [Date.now(), ...ids]); res.json({ success: true }); });
+app.delete('/api/pins/:id', requireAuth, async (req: any, res: any) => { 
+    // Ownership Check
+    const pin = await get("SELECT ownerId FROM pins WHERE id = ?", [req.params.id]);
+    if (!pin) return res.status(404).json({ error: "Pin not found" });
+    
+    // Allow deletion if: User is Admin OR User owns the pin
+    if (req.user.role !== 'admin' && pin.ownerId !== req.user.id) {
+        return res.status(403).json({ error: "Forbidden: You do not own this pin" });
+    }
 
-// --- BOARD MANAGEMENT (USER SPECIFIC) ---
+    await run("UPDATE pins SET deletedAt = ? WHERE id = ?", [Date.now(), req.params.id]); 
+    res.json({ success: true }); 
+});
 
-app.post('/api/pins/bulk-boards', async (req, res) => {
+app.post('/api/pins/restore', requireAuth, async (req, res) => { await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [req.body.id]); res.json({ success: true }); });
+app.post('/api/pins/bulk-delete', requireAuth, async (req, res) => { const ids = req.body.ids; await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${ids.map(()=>'?').join(',')})`, [Date.now(), ...ids]); res.json({ success: true }); });
+
+// --- BOARD MANAGEMENT ---
+app.post('/api/pins/bulk-boards', requireAuth, async (req, res) => {
     const { ids, boardId, userId } = req.body; 
     if (!userId) return res.status(400).json({ error: "User ID required" });
-
     for (const pinId of ids) {
-        if (boardId !== NEW_STEMS_ID) {
-             await run("DELETE FROM pin_boards WHERE userId = ? AND pinId = ? AND boardId = ?", [userId, pinId, NEW_STEMS_ID]);
-        }
+        if (boardId !== NEW_STEMS_ID) await run("DELETE FROM pin_boards WHERE userId = ? AND pinId = ? AND boardId = ?", [userId, pinId, NEW_STEMS_ID]);
         await run("INSERT OR IGNORE INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [userId, pinId, boardId, Date.now()]);
     }
     res.json({ success: true });
 });
 
-app.post('/api/pins/bulk-boards-remove', async (req, res) => {
+app.post('/api/pins/bulk-boards-remove', requireAuth, async (req, res) => {
     const { ids, boardId, userId } = req.body;
     if (!userId) return res.status(400).json({ error: "User ID required" });
-
     for (const pinId of ids) {
         await run("DELETE FROM pin_boards WHERE userId = ? AND pinId = ? AND boardId = ?", [userId, pinId, boardId]);
         const count = await get("SELECT COUNT(*) as c FROM pin_boards WHERE userId = ? AND pinId = ?", [userId, pinId]);
-        if (count.c === 0) {
-            await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [userId, pinId, NEW_STEMS_ID, Date.now()]);
-        }
+        if (count.c === 0) await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [userId, pinId, NEW_STEMS_ID, Date.now()]);
     }
     res.json({ success: true });
 });
 
-app.post('/api/pins/bulk-update', async (req, res) => {
+app.post('/api/pins/bulk-update', requireAuth, async (req, res) => {
     const { ids, updates } = req.body;
     if (!ids || !ids.length) return res.json({ success: false });
     const fields: string[] = [];
@@ -470,12 +468,11 @@ app.post('/api/pins/bulk-update', async (req, res) => {
     });
     if (fields.length === 0) return res.json({ success: true });
     values.push(...ids);
-    const placeholders = ids.map(() => '?').join(',');
-    await run(`UPDATE pins SET ${fields.join(', ')} WHERE id IN (${placeholders})`, values);
+    await run(`UPDATE pins SET ${fields.join(', ')} WHERE id IN (${ids.map(() => '?').join(',')})`, values);
     res.json({ success: true });
 });
 
-app.post('/api/pins/bulk-tags', async (req, res) => {
+app.post('/api/pins/bulk-tags', requireAuth, async (req, res) => {
     const { ids, tags } = req.body;
     const placeholders = ids.map(() => '?').join(',');
     const rows = await all(`SELECT id, tags FROM pins WHERE id IN (${placeholders})`, ids);
@@ -487,7 +484,7 @@ app.post('/api/pins/bulk-tags', async (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/pins/merge', async (req, res) => {
+app.post('/api/pins/merge', requireAuth, async (req, res) => {
   const { ids } = req.body;
   if (!ids || ids.length < 2) return res.status(400).json({ error: "Need at least 2 pins" });
   const placeholders = ids.map(() => '?').join(',');
@@ -507,12 +504,11 @@ app.post('/api/pins/merge', async (req, res) => {
   const newGallery = Array.from(new Set([...targetGallery, ...sourceImages]));
   await run("UPDATE pins SET gallery = ? WHERE id = ?", [JSON.stringify(newGallery), targetId]);
   const sourceIds = sourcePins.map(p => p.id);
-  const delPlaceholders = sourceIds.map(() => '?').join(',');
-  await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${delPlaceholders})`, [Date.now(), ...sourceIds]);
+  await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${sourceIds.map(() => '?').join(',')})`, [Date.now(), ...sourceIds]);
   res.json({ success: true, mergedPinId: targetId });
 });
 
-app.post('/api/pins/ungroup', async (req, res) => {
+app.post('/api/pins/ungroup', requireAuth, async (req, res) => {
   const { id } = req.body;
   const pin = await get("SELECT * FROM pins WHERE id = ?", [id]);
   if (!pin) return res.status(404).json({ error: "Pin not found" });
@@ -531,16 +527,15 @@ app.post('/api/pins/ungroup', async (req, res) => {
   res.json({ success: true });
 });
 
-// --- ADMIN & SETTINGS ---
-
-app.get('/api/users', async (req, res) => { res.json(await all("SELECT id, username, email, role, usedQuota, maxQuota, avatarSeed, inviteCode FROM users")); });
+// --- ADMIN & USERS ---
+app.get('/api/users', requireAuth, async (req, res) => { res.json(await all("SELECT id, username, email, role, usedQuota, maxQuota, avatarSeed, inviteCode FROM users")); });
 app.get('/api/users/current', async (req, res) => { res.json(await get("SELECT id, username, email, role, avatarSeed FROM users LIMIT 1") || null); });
 app.get('/api/users/:id', async (req, res) => {
     const user = await get("SELECT id, username, email, role, avatarSeed FROM users WHERE id = ?", [req.params.id]);
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json(user);
 });
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id', requireAuth, async (req, res) => {
     const { avatarSeed, email, maxQuota } = req.body;
     const updates: string[] = [];
     const values: any[] = [];
@@ -550,126 +545,100 @@ app.put('/api/users/:id', async (req, res) => {
     if (updates.length > 0) { values.push(req.params.id); await run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values); }
     res.json(await get("SELECT id, username, email, role, avatarSeed, maxQuota FROM users WHERE id = ?", [req.params.id]));
 });
-// --- NEW: PASSWORD CHANGE ROUTE ---
-app.put('/api/users/:id/password', async (req, res) => {
+
+// PASSWORD CHANGE (Logged In)
+app.put('/api/users/:id/password', requireAuth, async (req, res) => {
     const { currentPass, newPass } = req.body;
-    const userId = req.params.id;
-
-    if (!currentPass || !newPass) {
-        return res.status(400).json({ error: "Missing password fields" });
-    }
-
+    if (!currentPass || !newPass) return res.status(400).json({ error: "Missing password fields" });
     try {
-        // 1. Get the user's current password hash
-        const user = await get("SELECT password FROM users WHERE id = ?", [userId]);
-        
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        // 2. Verify current password
-        // Note: If user has no password (legacy account), you might want to allow setting it directly
+        const user = await get("SELECT password FROM users WHERE id = ?", [req.params.id]);
+        if (!user) return res.status(404).json({ error: "User not found" });
         if (user.password) {
             const match = await bcrypt.compare(currentPass, user.password);
-            if (!match) {
-                return res.status(401).json({ error: "Current password is incorrect" });
-            }
+            if (!match) return res.status(401).json({ error: "Current password is incorrect" });
         }
-
-        // 3. Hash new password
         const hashedPassword = await bcrypt.hash(newPass, 10);
-
-        // 4. Update database
-        await run("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, userId]);
-
+        await run("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, req.params.id]);
         res.json({ success: true });
-    } catch (e) {
-        console.error("Password update error:", e);
-        res.status(500).json({ error: "Internal server error" });
-    }
+    } catch (e) { res.status(500).json({ error: "Internal server error" }); }
 });
+
+// GENERATE API TOKEN
+app.post('/api/users/:id/token', requireAuth, async (req, res) => {
+    const userId = req.params.id;
+    // Simple secure token
+    const token = 'sk_' + uuidv4().replace(/-/g, '');
+    await run("UPDATE users SET apiToken = ? WHERE id = ?", [token, userId]);
+    res.json({ token });
+});
+
 // --- PASSWORD RESET FLOW ---
 
-// 1. Admin generates a token
-app.post('/api/admin/generate-reset-token', async (req, res) => {
+// 1. Admin generates a token (Secured)
+app.post('/api/admin/generate-reset-token', requireAuth, async (req, res) => {
     const { userId } = req.body;
     const token = uuidv4() + uuidv4(); 
     
-    // 3 hours in milliseconds (3 * 60 * 60 * 1000 = 10800000)
+    // 3 hours in milliseconds
     const expiresAt = Date.now() + 10800000; 
 
     await run("UPDATE users SET resetToken = ?, resetTokenExpiresAt = ? WHERE id = ?", [token, expiresAt, userId]);
     res.json({ token });
 });
 
-// 2. User consumes the token
+// 2. User consumes the token (Public, uses token)
 app.post('/api/auth/complete-reset', async (req, res) => {
     const { token, newPassword } = req.body;
-    
     if (!token || !newPassword) return res.status(400).json({ error: "Missing fields" });
-    
     const user = await get("SELECT * FROM users WHERE resetToken = ?", [token]);
-    
-    if (!user) {
-        return res.status(403).json({ error: "Invalid link" });
-    }
-
-    // CHECK EXPIRY
-    if (user.resetTokenExpiresAt && Date.now() > user.resetTokenExpiresAt) {
-        return res.status(403).json({ error: "Link expired (links are valid for 3 hours)" });
-    }
+    if (!user) return res.status(403).json({ error: "Invalid link" });
+    if (user.resetTokenExpiresAt && Date.now() > user.resetTokenExpiresAt) return res.status(403).json({ error: "Link expired" });
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    // Clear token and expiry
     await run("UPDATE users SET password = ?, resetToken = NULL, resetTokenExpiresAt = NULL WHERE id = ?", [hashedPassword, user.id]);
-    
     res.json({ success: true, username: user.username });
 });
-app.delete('/api/users/:id', async (req, res) => { if (req.params.id === 'u1') return res.status(403).json({ error: "Root admin" }); await run("DELETE FROM users WHERE id = ?", [req.params.id]); res.json({ success: true }); });
 
-app.get('/api/settings', async (req, res) => { res.json(await get("SELECT * FROM settings WHERE id = 'default'") || { maxUploadSize: '50MB', maxUsers: 10 }); });
-app.post('/api/settings', async (req, res) => { await run("UPDATE settings SET maxUploadSize = ?, maxUsers = ? WHERE id = 'default'", [req.body.maxUploadSize, req.body.maxUsers]); res.json({ success: true }); });
-app.get('/api/admin/invites', async (req, res) => { res.json(await all("SELECT * FROM invites ORDER BY createdAt DESC")); });
-app.post('/api/admin/invites', async (req, res) => { 
+app.delete('/api/users/:id', requireAuth, async (req, res) => { 
+    if (req.params.id === 'u1') return res.status(403).json({ error: "Root admin" }); 
+    await run("DELETE FROM users WHERE id = ?", [req.params.id]); 
+    res.json({ success: true }); 
+});
+
+app.get('/api/settings', requireAuth, async (req, res) => { res.json(await get("SELECT * FROM settings WHERE id = 'default'") || { maxUploadSize: '50MB', maxUsers: 10 }); });
+app.post('/api/settings', requireAuth, async (req, res) => { await run("UPDATE settings SET maxUploadSize = ?, maxUsers = ? WHERE id = 'default'", [req.body.maxUploadSize, req.body.maxUsers]); res.json({ success: true }); });
+app.get('/api/admin/invites', requireAuth, async (req, res) => { res.json(await all("SELECT * FROM invites ORDER BY createdAt DESC")); });
+app.post('/api/admin/invites', requireAuth, async (req, res) => { 
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     await run("INSERT INTO invites (id, code, assignedQuota, isUsed, createdAt) VALUES (?, ?, ?, 0, ?)", [uuidv4(), code, req.body.quota || '20GB', Date.now()]);
     res.json({ code, assignedQuota: req.body.quota });
 });
-app.delete('/api/admin/invites/:id', async (req, res) => { await run("DELETE FROM invites WHERE id = ?", [req.params.id]); res.json({ success: true }); });
+app.delete('/api/admin/invites/:id', requireAuth, async (req, res) => { await run("DELETE FROM invites WHERE id = ?", [req.params.id]); res.json({ success: true }); });
 
 // --- COLLECTIONS & BOARDS ---
 app.get('/api/collections', async (req, res) => { res.json(await all("SELECT * FROM collections WHERE ownerId = ?", [req.query.userId])); });
-app.post('/api/collections', async (req, res) => { const id = uuidv4(); await run("INSERT INTO collections (id, title, ownerId) VALUES (?, ?, ?)", [id, req.body.title, req.body.ownerId]); res.json(await get("SELECT * FROM collections WHERE id = ?", [id])); });
-app.delete('/api/collections/:id', async (req, res) => { await run("DELETE FROM collections WHERE id = ?", [req.params.id]); res.json({ success: true }); });
+app.post('/api/collections', requireAuth, async (req, res) => { const id = uuidv4(); await run("INSERT INTO collections (id, title, ownerId) VALUES (?, ?, ?)", [id, req.body.title, req.body.ownerId]); res.json(await get("SELECT * FROM collections WHERE id = ?", [id])); });
+app.delete('/api/collections/:id', requireAuth, async (req, res) => { await run("DELETE FROM collections WHERE id = ?", [req.params.id]); res.json({ success: true }); });
 
 // --- UPDATED BOARD ROUTES (VISIBILITY) ---
+// UPDATED: Get Boards (Supports App userId param OR Extension x-api-token header)
 app.get('/api/boards', async (req, res) => { 
+    let userId = req.query.userId;
+    
+    // Check for API Token (from Extension)
+    const apiToken = req.headers['x-api-token'];
+    if (apiToken && typeof apiToken === 'string') {
+        const user = await get("SELECT id FROM users WHERE apiToken = ?", [apiToken]);
+        if (user) userId = user.id;
+    }
+
     // Get all boards owned by user OR the system New Stems board
-    res.json(await all("SELECT * FROM boards WHERE ownerId = ? OR id = ?", [req.query.userId, NEW_STEMS_ID])); 
+    res.json(await all("SELECT * FROM boards WHERE ownerId = ? OR id = ?", [userId, NEW_STEMS_ID])); 
 });
-
-// NEW: Get Single Board (for sharing)
-app.get('/api/boards/:id', async (req, res) => {
-    const board = await get("SELECT * FROM boards WHERE id = ?", [req.params.id]);
-    if (!board) return res.status(404).json({ error: "Board not found" });
-    res.json(board);
-});
-
-// CREATE Board with Visibility
-app.post('/api/boards', async (req, res) => { 
-    const id = uuidv4(); 
-    const visibility = req.body.visibility || 'private';
-    await run(
-        "INSERT INTO boards (id, title, collectionId, ownerId, visibility) VALUES (?, ?, ?, ?, ?)", 
-        [id, req.body.title, req.body.collectionId, req.body.ownerId, visibility]
-    ); 
-    res.json(await get("SELECT * FROM boards WHERE id = ?", [id])); 
-});
-
-app.delete('/api/boards/:id', async (req, res) => { await run("DELETE FROM boards WHERE id = ?", [req.params.id]); res.json({ success: true }); });
-
-// UPDATE Board with Visibility
-app.put('/api/boards/:id', async (req, res) => {
+app.get('/api/boards/:id', async (req, res) => { const board = await get("SELECT * FROM boards WHERE id = ?", [req.params.id]); if (!board) return res.status(404).json({ error: "Board not found" }); res.json(board); });
+app.post('/api/boards', requireAuth, async (req, res) => { const id = uuidv4(); await run("INSERT INTO boards (id, title, collectionId, ownerId, visibility) VALUES (?, ?, ?, ?, ?)", [id, req.body.title, req.body.collectionId, req.body.ownerId, req.body.visibility || 'private']); res.json(await get("SELECT * FROM boards WHERE id = ?", [id])); });
+app.delete('/api/boards/:id', requireAuth, async (req, res) => { await run("DELETE FROM boards WHERE id = ?", [req.params.id]); res.json({ success: true }); });
+app.put('/api/boards/:id', requireAuth, async (req, res) => {
     if (req.body.title !== undefined) await run("UPDATE boards SET title = ? WHERE id = ?", [req.body.title, req.params.id]);
     if (req.body.collectionId !== undefined) await run("UPDATE boards SET collectionId = ? WHERE id = ?", [req.body.collectionId, req.params.id]);
     if (req.body.visibility !== undefined) await run("UPDATE boards SET visibility = ? WHERE id = ?", [req.body.visibility, req.params.id]);
@@ -677,8 +646,7 @@ app.put('/api/boards/:id', async (req, res) => {
 });
 
 // --- UPLOAD & SCRAPE ---
-
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).send('No file uploaded.');
   const date = new Date();
   const folder = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -721,7 +689,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-app.post('/api/scrape', async (req, res) => {
+app.post('/api/scrape', requireAuth, async (req, res) => {
     try {
         const { url } = req.body;
         if (!url) return res.status(400).json({ error: 'URL required' });
@@ -730,19 +698,15 @@ app.post('/api/scrape', async (req, res) => {
         const extractedImages = new Set<string>();
         let scrapedTitle = '';
 
-        // 1. Try noembed (YouTube, Vimeo, etc)
         try {
-            const oembedUrl = `https://noembed.com/embed?url=${encodeURIComponent(url)}`;
-            const oembedRes = await fetch(oembedUrl);
+            const oembedRes = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url)}`);
             const oembedData = await oembedRes.json();
-            
             if (oembedData.title) scrapedTitle = oembedData.title;
             if (oembedData.thumbnail_url) extractedImages.add(oembedData.thumbnail_url);
         } catch (e) {
-            console.warn("oEmbed failed, falling back to standard scraper");
+            console.warn("oEmbed failed");
         }
 
-        // 2. Standard Scrape
         const response = await fetch(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -774,8 +738,7 @@ app.post('/api/scrape', async (req, res) => {
                 if (ogTitle) scrapedTitle = ogTitle;
             }
 
-            const metaSelectors = ['meta[property="og:image"]', 'meta[name="twitter:image"]', 'link[rel="image_src"]'];
-            metaSelectors.forEach(selector => {
+            ['meta[property="og:image"]', 'meta[name="twitter:image"]', 'link[rel="image_src"]'].forEach(selector => {
                 doc.querySelectorAll(selector).forEach((el: any) => {
                     const content = el.getAttribute('content') || el.getAttribute('href');
                     if (content) try { extractedImages.add(new URL(content, url).href); } catch(e){}
@@ -808,7 +771,7 @@ app.post('/api/scrape', async (req, res) => {
     }
 });
 
-app.post('/api/admin/regenerate-thumbnails', async (req, res) => {
+app.post('/api/admin/regenerate-thumbnails', requireAuth, async (req, res) => {
     try {
         console.log("Starting thumbnail regeneration...");
         const pins = await all("SELECT * FROM pins WHERE thumbnail IS NULL OR thumbnail = ''");
@@ -869,7 +832,7 @@ const startServer = async () => {
     // 2. Ensure default data
     await ensureDefaultData();
     // 3. Start listening
-    app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+    app.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
 };
 
 startServer();
