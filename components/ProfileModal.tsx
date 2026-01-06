@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
-import { X, User as UserIcon, Lock, Save, LogOut, Check, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { X, User as UserIcon, Lock, Save, LogOut, Check, Loader2, AlertCircle, CheckCircle2, Copy, RefreshCw } from 'lucide-react';
 import { dataService } from '../services/dataService';
 
 interface ProfileModalProps {
@@ -25,10 +25,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passMsg, setPassMsg] = useState<{type: 'error' | 'success', text: string} | null>(null);
 
+  // API Key State
+  const [generatedToken, setGeneratedToken] = useState<string | null>(null);
+  const [showKeyConfirm, setShowKeyConfirm] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingAvatars, setIsLoadingAvatars] = useState(false);
 
-  // Load avatars when modal opens
+  // --- FIX: Split useEffect to prevent state reset on user update ---
+
+  // 1. Run ONLY when modal opens (Reset sensitive state)
   useEffect(() => {
     if (isOpen) {
         setIsLoadingAvatars(true);
@@ -36,15 +43,23 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
             .then(files => setAvailableAvatars(files))
             .catch(err => console.error("Failed to load avatars", err))
             .finally(() => setIsLoadingAvatars(false));
-            
-        setSelectedAvatar(user.avatarSeed || user.username);
-        setEmail(user.email || '');
-        // Reset password fields
+        
+        // Reset security tab states only when opening the modal
         setCurrentPassword('');
         setNewPassword('');
         setConfirmPassword('');
         setPassMsg(null);
+        setGeneratedToken(null);
+        setShowKeyConfirm(false);
     }
+  }, [isOpen]); 
+
+  // 2. Run when user data changes (Sync email/avatar)
+  useEffect(() => {
+      if (isOpen) {
+        setSelectedAvatar(user.avatarSeed || user.username);
+        setEmail(user.email || '');
+      }
   }, [isOpen, user]);
 
   const handleSaveProfile = async () => {
@@ -79,7 +94,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
 
       setIsSaving(true);
       try {
-          // Verify we have the method before calling
           if (typeof dataService.changePassword !== 'function') {
               throw new Error("Service method not implemented");
           }
@@ -91,11 +105,27 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
           setConfirmPassword('');
       } catch (e: any) {
           console.error(e);
-          // Backend should return 401/403 if current password is wrong
           const errorText = e.message || 'Failed to update password. Check your current password.';
           setPassMsg({ type: 'error', text: errorText });
       } finally {
           setIsSaving(false);
+      }
+  };
+
+  const handleGenerateKey = async () => {
+      const token = await dataService.generateApiToken(user.id);
+      // We update the user data in the background, but because we split the useEffect,
+      // this will NO LONGER wipe out the generatedToken state.
+      onUpdate();
+      setGeneratedToken(token);
+      setShowKeyConfirm(false);
+  };
+
+  const handleCopyKey = () => {
+      if (generatedToken) {
+          navigator.clipboard.writeText(generatedToken);
+          setIsCopied(true);
+          setTimeout(() => setIsCopied(false), 2000);
       }
   };
 
@@ -221,7 +251,96 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
               </div>
             ) : (
               <div className="space-y-6 max-w-lg animate-in slide-in-from-right-4 fade-in duration-300">
-                <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700 text-slate-400 text-sm mb-6">
+                
+                {/* API KEY SECTION */}
+                <div className="p-5 bg-slate-950 border border-slate-800 rounded-xl">
+                    <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                        Browser Extension Key
+                        {generatedToken && <span className="text-[10px] bg-teal-500/10 text-teal-400 px-2 py-0.5 rounded-full uppercase tracking-wide">New Key Ready</span>}
+                    </h3>
+                    
+                    {generatedToken ? (
+                        // SUCCESS STATE - SHOW KEY
+                        <div className="animate-in fade-in slide-in-from-top-2">
+                            <p className="text-xs text-slate-400 mb-3">Copy this key now. It will not be shown again.</p>
+                            <div className="flex gap-2">
+                                <div className="flex-1 relative group">
+                                    <input 
+                                        readOnly 
+                                        value={generatedToken} 
+                                        type="text" 
+                                        className="w-full bg-slate-900 border border-teal-500/50 rounded-lg pl-3 pr-10 py-2.5 text-xs text-white font-mono focus:outline-none"
+                                        onClick={(e) => e.currentTarget.select()}
+                                    />
+                                </div>
+                                <button 
+                                    onClick={handleCopyKey} 
+                                    className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 min-w-[80px] justify-center ${isCopied ? 'bg-teal-500 text-white' : 'bg-slate-800 hover:bg-slate-700 text-white'}`}
+                                >
+                                    {isCopied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy</>}
+                                </button>
+                            </div>
+                            <div className="mt-3 flex justify-end">
+                                <button onClick={() => setGeneratedToken(null)} className="text-xs text-slate-500 hover:text-white transition underline">
+                                    I've saved it, hide this
+                                </button>
+                            </div>
+                        </div>
+                    ) : showKeyConfirm ? (
+                        // CONFIRMATION STATE
+                        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 animate-in fade-in">
+                            <div className="flex items-start gap-3">
+                                <AlertCircle className="text-red-400 shrink-0 mt-0.5" size={18} />
+                                <div>
+                                    <p className="text-red-200 text-xs font-bold mb-1">Generate new API key?</p>
+                                    <p className="text-red-200/70 text-[11px] mb-3 leading-relaxed">
+                                        This will immediately invalidate your old key. Any extensions using the old key will stop working until you update them.
+                                    </p>
+                                    <div className="flex gap-2 mt-2">
+                                        <button 
+                                            onClick={handleGenerateKey}
+                                            className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-xs font-bold transition"
+                                        >
+                                            Yes, Revoke & Generate
+                                        </button>
+                                        <button 
+                                            onClick={() => setShowKeyConfirm(false)}
+                                            className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        // DEFAULT STATE
+                        <div>
+                            <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+                                Use this key to connect the Tallo Saver browser extension to your account securely.
+                            </p>
+                            <div className="flex gap-2">
+                                <input 
+                                    readOnly 
+                                    value="••••••••••••••••••••••••" 
+                                    type="password" 
+                                    disabled
+                                    className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-600 font-mono"
+                                />
+                                <button 
+                                    onClick={() => setShowKeyConfirm(true)}
+                                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2"
+                                >
+                                    <RefreshCw size={14} /> Generate Key
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="h-px bg-slate-800 my-2"></div>
+
+                <div className="p-4 bg-slate-800/50 rounded-xl border border-slate-700 text-slate-400 text-sm mb-2">
                     To change your password, you must enter your current password first to verify your identity.
                 </div>
 
