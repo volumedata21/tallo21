@@ -138,19 +138,23 @@ function App() {
     // --- EFFECTS ---
 
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const token = params.get('token') || params.get('resetToken');
-        if (token) {
-            setResetToken(token);
-            window.history.replaceState({}, '', '/');
+        if (currentUser) {
+            // Check if we are loading the root URL without parameters
+            const params = new URLSearchParams(window.location.search);
+            const hasParams = params.toString().length > 0;
+
+            if (!hasParams && currentUser.homePagePreference === 'created') {
+                setActiveFilter({ type: 'created', id: currentUser.id });
+            } else if (!hasParams) {
+                // Default fallback
+                setPage(1);
+                setHasMore(true);
+                setPins([]);
+            }
+            
+            refreshData(true);
         }
-        
-        // FIX: Check for profile ID on load (Refresh Fix)
-        const profileId = params.get('profile');
-        if (profileId) {
-            setViewingProfileId(profileId);
-        }
-    }, []);
+    }, [currentUser]);
 
     // FIX: Handle Browser Back Button
     useEffect(() => {
@@ -367,9 +371,14 @@ function App() {
     };
 
     const resetFilters = () => {
-        setActiveFilter({ type: 'all', id: '' });
+        // Check preference: if 'created', go to user profile; otherwise go to 'all'
+        if (currentUser && currentUser.homePagePreference === 'created') {
+             setActiveFilter({ type: 'created', id: currentUser.id });
+        } else {
+             setActiveFilter({ type: 'all', id: '' });
+        }
+
         setSearchQuery('');
-        // Also clear profile if we click logo
         if (viewingProfileId) handleCloseProfile();
         
         const url = new URL(window.location.href);
@@ -382,6 +391,14 @@ function App() {
             resetFilters();
         } else {
             setActiveFilter({ type: 'tag', id: tag });
+        }
+    };
+
+    const handleSidebarNavigation = (filter: any) => {
+        setActiveFilter(filter);
+        // If the profile modal is open, close it so we can see the new filter
+        if (viewingProfileId) {
+            handleCloseProfile();
         }
     };
 
@@ -452,7 +469,7 @@ function App() {
                     <Sidebar
                         isOpen={isSidebarOpen}
                         activeFilter={activeFilter}
-                        onFilterChange={setActiveFilter}
+                        onFilterChange={handleSidebarNavigation}
                         collections={collections}
                         boards={boards}
                         allTags={allTags}
