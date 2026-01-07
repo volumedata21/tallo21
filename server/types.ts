@@ -9,7 +9,8 @@ export interface User {
   maxQuota: string; // Updated to match Server response
   inviteCode?: string;
   avatarSeed: string;
-  apiToken?: string; // <--- NEW: For Browser Extension Auth
+  apiToken?: string; // For Browser Extension Auth
+  homePagePreference?: 'all' | 'created'; // User home page preference
 }
 
 export interface Collection {
@@ -64,7 +65,7 @@ export interface UserSettings {
 
 export interface SystemSettings {
   maxUploadSize: string;
-  maxUsers: number; // <--- NEW: For limiting signups
+  maxUsers: number; // For limiting signups
   isServerOpen: boolean;
 }
 
