@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
-import { Search, Map, Grid, Plus, Menu, Settings, Shield, ChevronDown, LogOut } from 'lucide-react';
+// FIX 1: Added 'Globe' to imports
+import { Search, Map, Grid, Plus, Menu, Settings, Shield, ChevronDown, LogOut, Globe } from 'lucide-react';
 
 interface HeaderProps {
   user: User;
@@ -14,12 +15,14 @@ interface HeaderProps {
   onOpenProfile: () => void;
   onOpenAdmin: () => void;
   onLogout: () => void;
+  onOpenSettings: () => void; // Correct
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
     user, viewMode, onToggleView, onToggleSidebar, onCreatePin, 
     onLogoClick, searchQuery, onSearchChange, onOpenProfile, 
-    onOpenAdmin, onLogout 
+    onOpenAdmin, onLogout, 
+    onOpenSettings // FIX 2: Added this here so it can be used below
 }) => {
     const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
@@ -112,7 +115,11 @@ export const Header: React.FC<HeaderProps> = ({
                             </div>
                             
                             <button onClick={onOpenProfile} className="w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-3">
-                                <Settings size={16} /> Profile Settings
+                                <Globe size={16} /> My Public Profile
+                            </button>
+
+                            <button onClick={onOpenSettings} className="w-full text-left px-4 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-3">
+                                <Settings size={16} /> Account Settings
                             </button>
                             
                             {user.role === 'admin' && (
