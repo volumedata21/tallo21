@@ -751,6 +751,10 @@ app.delete('/api/admin/invites/:id', requireAuth, async (req, res) => { await ru
 app.get('/api/collections', async (req, res) => { res.json(await all("SELECT * FROM collections WHERE ownerId = ?", [req.query.userId])); });
 app.post('/api/collections', requireAuth, async (req, res) => { const id = uuidv4(); await run("INSERT INTO collections (id, title, ownerId) VALUES (?, ?, ?)", [id, req.body.title, req.body.ownerId]); res.json(await get("SELECT * FROM collections WHERE id = ?", [id])); });
 app.delete('/api/collections/:id', requireAuth, async (req, res) => { await run("DELETE FROM collections WHERE id = ?", [req.params.id]); res.json({ success: true }); });
+app.put('/api/collections/:id', requireAuth, async (req, res) => {
+    if (req.body.title !== undefined) await run("UPDATE collections SET title = ? WHERE id = ?", [req.body.title, req.params.id]);
+    res.json({ success: true });
+});
 
 // Update specific board access (Handle Unlisted Links)
 app.get('/api/boards', gatekeeper, async (req: any, res) => { 
