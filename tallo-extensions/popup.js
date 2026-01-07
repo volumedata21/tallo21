@@ -70,6 +70,64 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 1. Fetch Boards 
         fetchBoards();
 
+        // --- BOARD CREATION ---
+
+    const createContainer = document.getElementById('createBoardContainer');
+    const toggleBtn = document.getElementById('toggleCreateBoard');
+    const createBtn = document.getElementById('createBoardBtn');
+    const newBoardInput = document.getElementById('newBoardName');
+
+    toggleBtn.addEventListener('click', () => {
+        createContainer.classList.toggle('hidden');
+        if(!createContainer.classList.contains('hidden')) {
+            newBoardInput.focus();
+            toggleBtn.innerText = "Cancel";
+        } else {
+            toggleBtn.innerText = "+ New";
+        }
+    });
+
+    createBtn.addEventListener('click', async () => {
+        const title = newBoardInput.value.trim();
+        if(!title) return;
+
+        createBtn.disabled = true;
+        createBtn.innerText = "...";
+
+        try {
+            const res = await fetch(`${config.serverUrl}/api/boards`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'x-api-token': config.apiKey 
+                },
+                // We don't need to send ownerId anymore, server handles it
+                body: JSON.stringify({ title: title })
+            });
+
+            if(res.ok) {
+                const newBoard = await res.json();
+                
+                // Refresh list and select the new one
+                await fetchBoards();
+                document.getElementById('boardSelect').value = newBoard.id;
+                
+                // Reset UI
+                newBoardInput.value = '';
+                createContainer.classList.add('hidden');
+                toggleBtn.innerText = "+ New";
+            } else {
+                alert("Failed to create board");
+            }
+        } catch(e) {
+            console.error(e);
+            alert("Error connecting to server");
+        } finally {
+            createBtn.disabled = false;
+            createBtn.innerText = "Add";
+        }
+    });
+
         // 2. Scrape Page (Via Content Script)
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if(!tab) return;

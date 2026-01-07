@@ -137,11 +137,21 @@
         <label>Description</label>
         <textarea id="pinDescription" placeholder="Optional description..." rows="3"></textarea>
 
-        <label>Save to Board</label>
-        <select id="boardSelect">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; margin-bottom:4px;">
+            <label style="margin:0;">Save to Board</label>
+            <button id="toggleCreateBoard" class="secondary" style="margin:0; width:auto; padding:2px 8px; font-size:10px;">+ New</button>
+        </div>
+        
+        <div id="createBoardContainer" class="hidden" style="margin-bottom:8px;">
+            <div style="display:flex; gap:6px;">
+                <input type="text" id="newBoardName" placeholder="New board name..." style="padding:6px; font-size:12px;"/>
+                <button id="createBoardBtn" class="primary" style="margin:0; width:auto; padding:0 12px; font-size:11px;">Add</button>
+            </div>
+        </div>
+
+        <select id="boardSelect" style="margin-top:0;">
           <option value="">Loading boards...</option>
         </select>
-        
         <label>Tags (comma separated)</label>
         <input type="text" id="pinTags" placeholder="design, inspo, web" />
         
