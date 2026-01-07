@@ -80,7 +80,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Send message to content script
         try {
-            // Note: We use a timeout to handle cases where the content script hasn't loaded yet
             const response = await sendMessageToTab(tab.id, { action: "SCRAPE_IMAGES" });
             
             if (response && response.images) {
@@ -92,11 +91,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (e) {
             console.error(e);
             document.getElementById('loading').innerText = "Refresh the page and try again.";
-            // This usually happens if the extension was just installed and the page hasn't been reloaded
         }
     }
 
-    // Wrapper to handle message passing
     function sendMessageToTab(tabId, message) {
         return new Promise((resolve, reject) => {
             chrome.tabs.sendMessage(tabId, message, (response) => {
@@ -152,13 +149,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         document.getElementById('controls').classList.remove('hidden');
-        grid.innerHTML = ''; // Clear loading placeholder
+        grid.innerHTML = ''; 
 
-        // Wait for images to load so we can filter by size
         images.forEach(imgUrl => {
             const div = document.createElement('div');
             div.className = 'img-card';
-            div.style.display = 'none'; // Hidden until loaded
+            div.style.display = 'none'; 
             
             div.innerHTML = `
                 <div class="check-badge"></div>
@@ -169,7 +165,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             const img = div.querySelector('img');
             
             img.onload = () => {
-                // Size Check
                 const isSmall = img.naturalWidth < minSize || img.naturalHeight < minSize;
                 const filterOn = filterCheckbox.checked;
 
@@ -184,12 +179,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     div.style.display = 'block';
                 }
                 
-                // If it's the only one, maybe auto-select? (Optional)
                 updateCount();
             };
             
             img.onerror = () => {
-                div.remove(); // Remove broken links
+                div.remove(); 
             };
 
             div.addEventListener('click', () => {
@@ -206,13 +200,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             grid.appendChild(div);
         });
 
-        // Toggle Filter Logic
+        // Auto-select logic for single result
+        // Note: With async loading, strict auto-select is tricky, 
+        // but default user behavior handles this naturally.
+
         filterCheckbox.addEventListener('change', () => {
             const cards = document.querySelectorAll('.img-card');
             cards.forEach(card => {
                 if (card.dataset.small === "true") {
                     card.style.display = filterCheckbox.checked ? 'none' : 'block';
-                    // Deselect if hiding
                     if(filterCheckbox.checked && card.classList.contains('selected')) {
                         card.classList.remove('selected');
                         const url = card.querySelector('img').src;
@@ -229,14 +225,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- SELECTION TOOLS ---
 
     document.getElementById('selectAll').addEventListener('click', () => {
-        // Only select VISIBLE cards
         const cards = Array.from(document.querySelectorAll('.img-card')).filter(c => c.style.display !== 'none');
-        
         const total = cards.length;
-        // Count how many visible cards are selected
         const selectedCount = cards.filter(c => c.classList.contains('selected')).length;
-        
-        // If all visible are selected, Deselect All. Otherwise, Select All.
         const shouldSelectAll = selectedCount < total; 
         
         cards.forEach(card => {
@@ -255,8 +246,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function updateCount() {
         const count = selectedImages.size;
-        
-        // Dynamic Button Text
         const selectBtn = document.getElementById('selectAll');
         const visibleCards = Array.from(document.querySelectorAll('.img-card')).filter(c => c.style.display !== 'none');
         const selectedVisible = visibleCards.filter(c => c.classList.contains('selected')).length;
@@ -283,6 +272,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const boardId = document.getElementById('boardSelect').value;
         const tags = document.getElementById('pinTags').value.split(',').map(t => t.trim()).filter(Boolean);
         const title = document.getElementById('pinTitle').value;
+        const description = document.getElementById('pinDescription').value; // Get user input
 
         btn.disabled = true;
         btn.innerText = "Saving...";
@@ -294,9 +284,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             try {
                 const payload = {
                     title: title || "Web Clip",
-                    description: `Saved via extension from ${pageData.url}`,
+                    description: description, // Send input directly (blank if empty)
                     imageUrl: imageUrl,
-                    link: pageData.url,
+                    link: pageData.url, // Source URL is still saved here as metadata
                     boardIds: boardId ? [boardId] : [],
                     ownerId: config.username,
                     tags: tags
