@@ -9,6 +9,8 @@ export interface User {
   usedQuota: string;
   inviteCode?: string;
   avatarSeed: string;
+  homePagePreference?: 'all' | 'created'; // User home page preference
+
 }
 
 export interface Collection {

@@ -113,20 +113,26 @@ const gatekeeper = async (req: any, res: any, next: any) => {
 };
 
 // HELPER: Parse Pin
-const parsePin = (pin: any): Pin => ({
-  ...pin,
-  gallery: JSON.parse(pin.gallery || '[]'),
-  boardIds: typeof pin.boardIds === 'string' && pin.boardIds.startsWith('[') 
-    ? JSON.parse(pin.boardIds) 
-    : (pin.boardIds ? pin.boardIds.split(',') : []),
-  location: pin.location ? JSON.parse(pin.location) : undefined,
-  tags: JSON.parse(pin.tags || '[]'),
-  favorite: !!pin.favorite,
-  deletedAt: pin.deletedAt || undefined,
-  thumbnail: pin.thumbnail || undefined,
-  ownerName: pin.ownerName,     
-  ownerAvatar: pin.ownerAvatar 
-});
+const parsePin = (pin: any): Pin => {
+  // Use the live JOIN data (realBoardIds) if available, otherwise fall back to the static column
+  const activeBoardIds = pin.realBoardIds || pin.boardIds;
+  
+  return {
+    ...pin,
+    gallery: JSON.parse(pin.gallery || '[]'),
+    // Logic updated to use activeBoardIds
+    boardIds: typeof activeBoardIds === 'string' && activeBoardIds.startsWith('[') 
+      ? JSON.parse(activeBoardIds) 
+      : (activeBoardIds ? activeBoardIds.split(',') : []),
+    location: pin.location ? JSON.parse(pin.location) : undefined,
+    tags: JSON.parse(pin.tags || '[]'),
+    favorite: !!pin.favorite,
+    deletedAt: pin.deletedAt || undefined,
+    thumbnail: pin.thumbnail || undefined,
+    ownerName: pin.ownerName,     
+    ownerAvatar: pin.ownerAvatar 
+  };
+};
 
 // --- HELPER: DOWNLOAD EXTERNAL IMAGES ---
 const processExternalImage = async (url: string) => {
@@ -204,7 +210,8 @@ const runMigrations = async () => {
             { id: 11, name: 'add_reset_expiry_to_users', sql: "ALTER TABLE users ADD COLUMN resetTokenExpiresAt INTEGER DEFAULT NULL" },
             { id: 12, name: 'add_api_token_to_users', sql: "ALTER TABLE users ADD COLUMN apiToken TEXT DEFAULT NULL" },
             { id: 13, name: 'add_server_open_setting', sql: "ALTER TABLE settings ADD COLUMN isServerOpen INTEGER DEFAULT 1" }, // 1 = Open, 0 = Closed
-            { id: 14, name: 'add_unlisted_visibility', sql: "UPDATE boards SET visibility = 'private' WHERE visibility IS NULL" } // Ensure generic safety
+            { id: 14, name: 'add_unlisted_visibility', sql: "UPDATE boards SET visibility = 'private' WHERE visibility IS NULL" }, // Ensure generic safety
+            { id: 15, name: 'add_home_page_pref', sql: "ALTER TABLE users ADD COLUMN homePagePreference TEXT DEFAULT 'all'" }
         ];
 
         for (const m of migrations) {
@@ -345,10 +352,12 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
         SELECT pins.*, 
         users.username as ownerName, 
         users.avatarSeed as ownerAvatar,
-        (CASE WHEN f.userId IS NOT NULL THEN 1 ELSE 0 END) as favorite
+        (CASE WHEN f.userId IS NOT NULL THEN 1 ELSE 0 END) as favorite,
+        GROUP_CONCAT(pb_all.boardId) as realBoardIds
         FROM pins 
         LEFT JOIN users ON pins.ownerId = users.id
         LEFT JOIN favorites f ON pins.id = f.pinId AND f.userId = ?
+        LEFT JOIN pin_boards pb_all ON pins.id = pb_all.pinId
       `;
       
       const params: any[] = [currentUserId || '']; 
@@ -635,22 +644,38 @@ app.post('/api/pins/ungroup', requireAuth, async (req, res) => {
 });
 
 // --- ADMIN & USERS ---
-app.get('/api/users', requireAuth, async (req, res) => { res.json(await all("SELECT id, username, email, role, usedQuota, maxQuota, avatarSeed, inviteCode FROM users")); });
-app.get('/api/users/current', async (req, res) => { res.json(await get("SELECT id, username, email, role, avatarSeed FROM users LIMIT 1") || null); });
+app.get('/api/users', requireAuth, async (req, res) => { res.json(await all("SELECT id, username, email, role, usedQuota, maxQuota, avatarSeed, inviteCode, homePagePreference FROM users")); });
+
+app.get('/api/users/current', async (req, res) => { 
+    // Added homePagePreference
+    res.json(await get("SELECT id, username, email, role, avatarSeed, homePagePreference FROM users LIMIT 1") || null); 
+});
+
 app.get('/api/users/:id', async (req, res) => {
-    const user = await get("SELECT id, username, email, role, avatarSeed FROM users WHERE id = ?", [req.params.id]);
+    // Added homePagePreference
+    const user = await get("SELECT id, username, email, role, avatarSeed, homePagePreference FROM users WHERE id = ?", [req.params.id]);
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json(user);
 });
+
 app.put('/api/users/:id', requireAuth, async (req, res) => {
-    const { avatarSeed, email, maxQuota } = req.body;
+    const { avatarSeed, email, maxQuota, homePagePreference } = req.body; // Added homePagePreference
     const updates: string[] = [];
     const values: any[] = [];
+    
     if (avatarSeed !== undefined) { updates.push("avatarSeed = ?"); values.push(avatarSeed); }
     if (email !== undefined) { updates.push("email = ?"); values.push(email); }
     if (maxQuota !== undefined) { updates.push("maxQuota = ?"); values.push(maxQuota); }
-    if (updates.length > 0) { values.push(req.params.id); await run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values); }
-    res.json(await get("SELECT id, username, email, role, avatarSeed, maxQuota FROM users WHERE id = ?", [req.params.id]));
+    // ADD THIS BLOCK:
+    if (homePagePreference !== undefined) { updates.push("homePagePreference = ?"); values.push(homePagePreference); }
+    
+    if (updates.length > 0) { 
+        values.push(req.params.id); 
+        await run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values); 
+    }
+    
+    // Updated SELECT to include the new field
+    res.json(await get("SELECT id, username, email, role, avatarSeed, maxQuota, homePagePreference FROM users WHERE id = ?", [req.params.id]));
 });
 
 // PASSWORD CHANGE (Logged In)

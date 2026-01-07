@@ -18,6 +18,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
   // General Form State
   const [selectedAvatar, setSelectedAvatar] = useState(user.avatarSeed || user.username);
   const [email, setEmail] = useState(user.email || '');
+  // --- CHANGE 1: Add State for Home Page Preference ---
+  const [homePagePreference, setHomePagePreference] = useState(user.homePagePreference || 'all');
   
   // Password Form State
   const [currentPassword, setCurrentPassword] = useState('');
@@ -32,8 +34,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
 
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingAvatars, setIsLoadingAvatars] = useState(false);
-
-  // --- FIX: Split useEffect to prevent state reset on user update ---
 
   // 1. Run ONLY when modal opens (Reset sensitive state)
   useEffect(() => {
@@ -59,15 +59,19 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
       if (isOpen) {
         setSelectedAvatar(user.avatarSeed || user.username);
         setEmail(user.email || '');
+        // --- CHANGE 2: Sync Preference from User Prop ---
+        setHomePagePreference(user.homePagePreference || 'all');
       }
   }, [isOpen, user]);
 
   const handleSaveProfile = async () => {
       setIsSaving(true);
       try {
+          // --- CHANGE 3: Include Preference in Update Call ---
           await dataService.updateProfile(user.id, { 
               email, 
-              avatarSeed: selectedAvatar 
+              avatarSeed: selectedAvatar,
+              homePagePreference // <--- Added here
           });
           onUpdate(); // Refresh app data
           onClose();
@@ -94,6 +98,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
 
       setIsSaving(true);
       try {
+          // @ts-ignore
           if (typeof dataService.changePassword !== 'function') {
               throw new Error("Service method not implemented");
           }
@@ -114,8 +119,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
 
   const handleGenerateKey = async () => {
       const token = await dataService.generateApiToken(user.id);
-      // We update the user data in the background, but because we split the useEffect,
-      // this will NO LONGER wipe out the generatedToken state.
       onUpdate();
       setGeneratedToken(token);
       setShowKeyConfirm(false);
@@ -239,6 +242,26 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
                   />
                 </div>
 
+                {/* --- CHANGE 4: Add Default Page UI --- */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Default Home Page</label>
+                  <div className="flex gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                      <button
+                          onClick={() => setHomePagePreference('all')}
+                          className={`flex-1 py-3 text-sm font-medium rounded-lg transition-all ${homePagePreference === 'all' || !homePagePreference ? 'bg-teal-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                      >
+                          Tallos (Global)
+                      </button>
+                      <button
+                          onClick={() => setHomePagePreference('created')}
+                          className={`flex-1 py-3 text-sm font-medium rounded-lg transition-all ${homePagePreference === 'created' ? 'bg-teal-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                      >
+                          Mis Tallos (My Stems)
+                      </button>
+                  </div>
+                </div>
+                {/* ------------------------------------ */}
+
                 <div className="pt-4 border-t border-slate-800">
                   <button onClick={handleSaveProfile} disabled={isSaving} className="w-full md:w-auto bg-teal-600 hover:bg-teal-500 text-white px-8 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50">
                     {isSaving ? <><Loader2 className="animate-spin" size={18} /> Saving...</> : <><Save size={18} /> Save Changes</>}
@@ -251,8 +274,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
               </div>
             ) : (
               <div className="space-y-6 max-w-lg animate-in slide-in-from-right-4 fade-in duration-300">
+                {/* Security Tab Content (Unchanged) */}
                 
-                {/* API KEY SECTION */}
                 <div className="p-5 bg-slate-950 border border-slate-800 rounded-xl">
                     <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
                         Browser Extension Key
@@ -260,7 +283,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
                     </h3>
                     
                     {generatedToken ? (
-                        // SUCCESS STATE - SHOW KEY
                         <div className="animate-in fade-in slide-in-from-top-2">
                             <p className="text-xs text-slate-400 mb-3">Copy this key now. It will not be shown again.</p>
                             <div className="flex gap-2">
@@ -287,7 +309,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
                             </div>
                         </div>
                     ) : showKeyConfirm ? (
-                        // CONFIRMATION STATE
                         <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 animate-in fade-in">
                             <div className="flex items-start gap-3">
                                 <AlertCircle className="text-red-400 shrink-0 mt-0.5" size={18} />
@@ -314,7 +335,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
                             </div>
                         </div>
                     ) : (
-                        // DEFAULT STATE
                         <div>
                             <p className="text-xs text-slate-500 mb-3 leading-relaxed">
                                 Use this key to connect the Tallo Saver browser extension to your account securely.
