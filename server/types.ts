@@ -24,6 +24,8 @@ export interface Board {
   collectionId?: string;
   ownerId: string;
   visibility?: 'private' | 'public'; // <--- NEW: Board Visibility support
+  coverImage?: string; // <--- NEW
+
 }
 
 export interface LocationData {
@@ -63,6 +65,7 @@ export interface UserSettings {
 export interface SystemSettings {
   maxUploadSize: string;
   maxUsers: number; // <--- NEW: For limiting signups
+  isServerOpen: boolean;
 }
 
 export type SortOption = 'newest' | 'oldest' | 'az' | 'za' | 'random';
