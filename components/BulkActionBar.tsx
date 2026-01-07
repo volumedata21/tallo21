@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Layers2, Tag, MapPin, Check, Trash2, Minus, Search, Folder } from 'lucide-react';
+import { X, Layers2, Tag, MapPin, Check, Trash2, Minus, Search, Folder, Loader2 } from 'lucide-react';
 import { Collection, Board, LocationData, Pin } from '../types';
 import { dataService } from '../services/dataService';
 
@@ -22,14 +22,22 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
   const [locResults, setLocResults] = useState<LocationData[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [boardSearch, setBoardSearch] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false); // <--- ADDED: Loading state
 
   // --- Handlers ---
 
   const handleGroup = async () => {
     if (selectedIds.length < 2) return;
-    await dataService.mergePins(selectedIds);
-    onUpdate();
-    onClear();
+    setIsProcessing(true);
+    try {
+        await dataService.mergePins(selectedIds);
+        onUpdate();
+        onClear();
+    } catch (e) {
+        console.error("Group failed", e);
+    } finally {
+        setIsProcessing(false);
+    }
   };
 
   // --- SMART BOARD LOGIC ---
@@ -43,26 +51,40 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
   };
 
   const toggleBoard = async (boardId: string) => {
+      setIsProcessing(true);
       const state = getBoardState(boardId);
       
-      if (state === 'all') {
-          // If all are in, remove from all
-          await dataService.bulkRemoveBoard(selectedIds, boardId);
-      } else {
-          // If none or some are in, add to all (fill the gaps)
-          await dataService.bulkAddBoard(selectedIds, boardId);
+      try {
+        if (state === 'all') {
+            // If all are in, remove from all
+            await dataService.bulkRemoveBoard(selectedIds, boardId);
+        } else {
+            // If none or some are in, add to all (fill the gaps)
+            await dataService.bulkAddBoard(selectedIds, boardId);
+        }
+        onUpdate();
+      } catch (e) {
+          console.error("Bulk board action failed", e);
+      } finally {
+          setIsProcessing(false);
       }
-      onUpdate();
   };
 
   // --- Other Handlers (Tags, etc) ---
   const handleAddTag = async () => {
     if (!tagInput.trim()) return;
-    const tags = tagInput.split(',').map(t => t.trim()).filter(Boolean);
-    await dataService.bulkAddTags(selectedIds, tags);
-    setTagInput('');
-    onUpdate();
-    setActiveAction(null);
+    setIsProcessing(true);
+    try {
+        const tags = tagInput.split(',').map(t => t.trim()).filter(Boolean);
+        await dataService.bulkAddTags(selectedIds, tags);
+        setTagInput('');
+        onUpdate();
+        setActiveAction(null);
+    } catch (e) {
+        console.error("Add tag failed", e);
+    } finally {
+        setIsProcessing(false);
+    }
   };
 
   const handleLocationSearch = async (e: React.FormEvent) => {
@@ -74,9 +96,16 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
   };
 
   const handleLocationSelect = async (loc: LocationData) => {
-      await dataService.bulkSetLocation(selectedIds, loc);
-      onUpdate();
-      setActiveAction(null);
+      setIsProcessing(true);
+      try {
+          await dataService.bulkSetLocation(selectedIds, loc);
+          onUpdate();
+          setActiveAction(null);
+      } catch (e) {
+          console.error("Set location failed", e);
+      } finally {
+          setIsProcessing(false);
+      }
   };
 
   const handleDelete = () => {
@@ -124,12 +153,17 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
                                                     <button 
                                                         key={board.id} 
                                                         onClick={() => toggleBoard(board.id)} 
-                                                        className="w-full text-left px-3 py-3 sm:py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group transition-colors"
+                                                        disabled={isProcessing}
+                                                        className="w-full text-left px-3 py-3 sm:py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group transition-colors disabled:opacity-50"
                                                     >
                                                         <span className={`text-sm font-medium ${state !== 'none' ? 'text-teal-400' : 'text-slate-300'}`}>{board.title}</span>
                                                         <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${state === 'all' ? 'bg-teal-500 border-teal-500' : state === 'some' ? 'bg-yellow-500/20 border-yellow-500' : 'border-slate-600 group-hover:border-slate-400'}`}>
-                                                            {state === 'all' && <Check size={12} className="text-black" strokeWidth={3} />}
-                                                            {state === 'some' && <Minus size={12} className="text-yellow-500" strokeWidth={3} />}
+                                                            {isProcessing ? <Loader2 size={12} className="animate-spin text-slate-400"/> : (
+                                                                <>
+                                                                    {state === 'all' && <Check size={12} className="text-black" strokeWidth={3} />}
+                                                                    {state === 'some' && <Minus size={12} className="text-yellow-500" strokeWidth={3} />}
+                                                                </>
+                                                            )}
                                                         </div>
                                                     </button>
                                                 );
@@ -149,12 +183,17 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
                                             <button 
                                                 key={board.id} 
                                                 onClick={() => toggleBoard(board.id)} 
-                                                className="w-full text-left px-3 py-3 sm:py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group transition-colors"
+                                                disabled={isProcessing}
+                                                className="w-full text-left px-3 py-3 sm:py-2 rounded-lg hover:bg-slate-800 flex items-center justify-between group transition-colors disabled:opacity-50"
                                             >
                                                 <span className={`text-sm font-medium ${state !== 'none' ? 'text-teal-400' : 'text-slate-300'}`}>{board.title}</span>
                                                 <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${state === 'all' ? 'bg-teal-500 border-teal-500' : state === 'some' ? 'bg-yellow-500/20 border-yellow-500' : 'border-slate-600 group-hover:border-slate-400'}`}>
-                                                    {state === 'all' && <Check size={12} className="text-black" strokeWidth={3} />}
-                                                    {state === 'some' && <Minus size={12} className="text-yellow-500" strokeWidth={3} />}
+                                                    {isProcessing ? <Loader2 size={12} className="animate-spin text-slate-400"/> : (
+                                                        <>
+                                                            {state === 'all' && <Check size={12} className="text-black" strokeWidth={3} />}
+                                                            {state === 'some' && <Minus size={12} className="text-yellow-500" strokeWidth={3} />}
+                                                        </>
+                                                    )}
                                                 </div>
                                             </button>
                                         );
@@ -176,7 +215,9 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
                            autoFocus
                            onKeyDown={e => e.key === 'Enter' && handleAddTag()}
                         />
-                        <button onClick={handleAddTag} className="bg-teal-600 hover:bg-teal-500 text-white p-2 rounded-lg"><Check size={18} /></button>
+                        <button onClick={handleAddTag} disabled={isProcessing} className="bg-teal-600 hover:bg-teal-500 text-white p-2 rounded-lg disabled:opacity-50">
+                            {isProcessing ? <Loader2 size={18} className="animate-spin"/> : <Check size={18} />}
+                        </button>
                     </div>
                 )}
 
@@ -191,11 +232,13 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
                                 className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-base sm:text-sm text-white outline-none focus:border-teal-500"
                                 autoFocus
                              />
-                             <button type="submit" disabled={isSearching} className="bg-teal-600 hover:bg-teal-500 text-white p-2 rounded-lg disabled:opacity-50"><Search size={18} /></button>
+                             <button type="submit" disabled={isSearching} className="bg-teal-600 hover:bg-teal-500 text-white p-2 rounded-lg disabled:opacity-50">
+                                 {isSearching ? <Loader2 size={18} className="animate-spin"/> : <Search size={18} />}
+                             </button>
                         </form>
                         <div className="max-h-40 overflow-y-auto space-y-1">
                             {locResults.map((loc, i) => (
-                                <button key={i} onClick={() => handleLocationSelect(loc)} className="w-full text-left px-3 py-3 sm:py-2 hover:bg-slate-800 rounded-lg text-sm text-slate-300 hover:text-white truncate">
+                                <button key={i} onClick={() => handleLocationSelect(loc)} disabled={isProcessing} className="w-full text-left px-3 py-3 sm:py-2 hover:bg-slate-800 rounded-lg text-sm text-slate-300 hover:text-white truncate disabled:opacity-50">
                                     {loc.name}
                                 </button>
                             ))}
@@ -242,11 +285,11 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({ selectedIds, pins,
 
             <button 
                onClick={handleGroup}
-               disabled={!canGroup}
-               className={`p-3 sm:p-2.5 rounded-xl transition flex items-center gap-2 shrink-0 ${canGroup ? 'text-slate-400 hover:bg-slate-800 hover:text-teal-400' : 'text-slate-700 opacity-50 cursor-not-allowed'}`}
+               disabled={!canGroup || isProcessing}
+               className={`p-3 sm:p-2.5 rounded-xl transition flex items-center gap-2 shrink-0 ${canGroup && !isProcessing ? 'text-slate-400 hover:bg-slate-800 hover:text-teal-400' : 'text-slate-700 opacity-50 cursor-not-allowed'}`}
                title="Group Together (Merge)"
             >
-               <Layers2 size={20} className="sm:w-[18px] sm:h-[18px]" />
+               {isProcessing && activeAction === null ? <Loader2 size={20} className="animate-spin sm:w-[18px] sm:h-[18px]"/> : <Layers2 size={20} className="sm:w-[18px] sm:h-[18px]" />}
             </button>
 
             <button 
