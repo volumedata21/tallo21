@@ -12,7 +12,7 @@ import { JSDOM } from 'jsdom';
 import bcrypt from 'bcryptjs';
 
 const app = express();
-// FIX 1: Use Environment Port if available, default to 3001
+// Use Environment Port if available, default to 3001
 const PORT = parseInt(process.env.PORT || '3001');
 const NEW_STEMS_ID = 'b-new-stems';
 
@@ -26,8 +26,7 @@ if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true });
 if (!fs.existsSync(THUMBNAILS_DIR)) fs.mkdirSync(THUMBNAILS_DIR, { recursive: true });
 if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
 
-// FIX 2: Enhanced CORS Configuration
-// This allows the extension to send the custom 'x-api-token' header
+// Enhanced CORS Configuration
 app.use(cors({
     origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -86,8 +85,7 @@ const requireAuth = async (req: any, res: any, next: any) => {
 
 // --- MIDDLEWARE: GATEKEEPER (The Front Door) ---
 const gatekeeper = async (req: any, res: any, next: any) => {
-    // 1. If user is already authenticated (via requireAuth logic), let them in.
-    // We run a "soft check" here to populate req.user if possible without failing.
+    // 1. If user is already authenticated, let them in.
     const apiToken = req.headers['x-api-token'];
     const userId = req.headers['x-user-id'];
     let user = null;
@@ -102,25 +100,22 @@ const gatekeeper = async (req: any, res: any, next: any) => {
 
     // 2. If no user, check if the server is OPEN.
     const settings = await get("SELECT isServerOpen FROM settings WHERE id = 'default'");
-    const isOpen = settings ? settings.isServerOpen === 1 : true; // Default to open if setting missing
+    const isOpen = settings ? settings.isServerOpen === 1 : true; 
 
     if (!isOpen) {
         return res.status(401).json({ error: "Server is closed to the public. Please log in." });
     }
 
-    // 3. Server is open, proceed as Guest (req.user remains undefined)
+    // 3. Server is open, proceed as Guest
     next();
 };
 
 // HELPER: Parse Pin
 const parsePin = (pin: any): Pin => {
-  // Use the live JOIN data (realBoardIds) if available, otherwise fall back to the static column
   const activeBoardIds = pin.realBoardIds || pin.boardIds;
-  
   return {
     ...pin,
     gallery: JSON.parse(pin.gallery || '[]'),
-    // Logic updated to use activeBoardIds
     boardIds: typeof activeBoardIds === 'string' && activeBoardIds.startsWith('[') 
       ? JSON.parse(activeBoardIds) 
       : (activeBoardIds ? activeBoardIds.split(',') : []),
@@ -209,8 +204,8 @@ const runMigrations = async () => {
             { id: 10, name: 'add_reset_token_to_users', sql: "ALTER TABLE users ADD COLUMN resetToken TEXT DEFAULT NULL" },
             { id: 11, name: 'add_reset_expiry_to_users', sql: "ALTER TABLE users ADD COLUMN resetTokenExpiresAt INTEGER DEFAULT NULL" },
             { id: 12, name: 'add_api_token_to_users', sql: "ALTER TABLE users ADD COLUMN apiToken TEXT DEFAULT NULL" },
-            { id: 13, name: 'add_server_open_setting', sql: "ALTER TABLE settings ADD COLUMN isServerOpen INTEGER DEFAULT 1" }, // 1 = Open, 0 = Closed
-            { id: 14, name: 'add_unlisted_visibility', sql: "UPDATE boards SET visibility = 'private' WHERE visibility IS NULL" }, // Ensure generic safety
+            { id: 13, name: 'add_server_open_setting', sql: "ALTER TABLE settings ADD COLUMN isServerOpen INTEGER DEFAULT 1" }, 
+            { id: 14, name: 'add_unlisted_visibility', sql: "UPDATE boards SET visibility = 'private' WHERE visibility IS NULL" }, 
             { id: 15, name: 'add_home_page_pref', sql: "ALTER TABLE users ADD COLUMN homePagePreference TEXT DEFAULT 'all'" }
         ];
 
@@ -367,32 +362,26 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
 
       if (boardId) {
           // 1. VIEWING A SPECIFIC BOARD
-          // First, check if the board allows access
           const board = await get("SELECT * FROM boards WHERE id = ?", [boardId]);
           
-          if (!board) return res.json([]); // Board doesn't exist
+          if (!board) return res.json([]); 
           
-          // Access Check: Is it Public/Unlisted OR does user own it?
           const canView = (board.visibility !== 'private') || (board.ownerId === currentUserId);
           if (!canView) return res.status(403).json({ error: "Private board" });
 
-          // Join pin_boards to get pins specifically in this board
           sql += ` JOIN pin_boards pb ON pins.id = pb.pinId `;
           conditions.push("pb.boardId = ?");
           params.push(boardId);
 
       } else if (favorites === 'true' && currentUserId) {
-          // 2. VIEWING FAVORITES (Must be logged in)
           conditions.push("f.userId IS NOT NULL");
 
       } else if (creatorId) {
-          // 3. VIEWING A CREATOR'S PROFILE (Only Public/Unlisted pins, unless it's me)
+          // 3. VIEWING A CREATOR'S PROFILE
           conditions.push("pins.ownerId = ?");
           params.push(creatorId);
 
           if (creatorId !== currentUserId) {
-             // If viewing someone else, ensure the pins are in at least one PUBLIC board
-             // This prevents "Private" pins that aren't on any board (or only on private boards) from showing up
              conditions.push(`EXISTS (
                 SELECT 1 FROM pin_boards pb 
                 JOIN boards b ON pb.boardId = b.id 
@@ -401,14 +390,12 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
           }
 
       } else {
-          // 4. MAIN FEED / EXPLORE (No specific filter)
+          // 4. MAIN FEED / EXPLORE
           if (search) {
              conditions.push("(pins.title LIKE ? OR pins.description LIKE ?)");
              params.push(`%${search}%`, `%${search}%`);
           }
 
-          // CRITICAL: Only show pins that are in PUBLIC boards
-          // This hides orphaned private pins from the main feed
           conditions.push(`EXISTS (
             SELECT 1 FROM pin_boards pb 
             JOIN boards b ON pb.boardId = b.id 
@@ -416,7 +403,6 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
           )`);
       }
 
-      // Append conditions
       if (conditions.length > 0) {
           sql += " WHERE " + conditions.join(" AND ");
       }
@@ -461,7 +447,6 @@ app.post('/api/pins/toggle-favorite', requireAuth, async (req, res) => {
 app.post('/api/pins', requireAuth, async (req: any, res: any) => {
     const pin = req.body;
     const id = uuidv4();
-    // Secure ownership: use the authenticated user's ID
     const ownerId = req.user.id; 
     
     let finalImageUrl = pin.imageUrl;
@@ -530,7 +515,6 @@ app.get('/api/users/:id/public', gatekeeper, async (req: any, res) => {
         const user = await get("SELECT id, username, avatarSeed, role, createdAt FROM users WHERE id = ?", [req.params.id]);
         if (!user) return res.status(404).json({ error: "User not found" });
         
-        // Count Public Pins
         const pinCount = await get("SELECT COUNT(*) as c FROM pins WHERE ownerId = ? AND deletedAt IS NULL", [req.params.id]);
         
         res.json({
@@ -647,26 +631,23 @@ app.post('/api/pins/ungroup', requireAuth, async (req, res) => {
 app.get('/api/users', requireAuth, async (req, res) => { res.json(await all("SELECT id, username, email, role, usedQuota, maxQuota, avatarSeed, inviteCode, homePagePreference FROM users")); });
 
 app.get('/api/users/current', async (req, res) => { 
-    // Added homePagePreference
     res.json(await get("SELECT id, username, email, role, avatarSeed, homePagePreference FROM users LIMIT 1") || null); 
 });
 
 app.get('/api/users/:id', async (req, res) => {
-    // Added homePagePreference
     const user = await get("SELECT id, username, email, role, avatarSeed, homePagePreference FROM users WHERE id = ?", [req.params.id]);
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json(user);
 });
 
 app.put('/api/users/:id', requireAuth, async (req, res) => {
-    const { avatarSeed, email, maxQuota, homePagePreference } = req.body; // Added homePagePreference
+    const { avatarSeed, email, maxQuota, homePagePreference } = req.body; 
     const updates: string[] = [];
     const values: any[] = [];
     
     if (avatarSeed !== undefined) { updates.push("avatarSeed = ?"); values.push(avatarSeed); }
     if (email !== undefined) { updates.push("email = ?"); values.push(email); }
     if (maxQuota !== undefined) { updates.push("maxQuota = ?"); values.push(maxQuota); }
-    // ADD THIS BLOCK:
     if (homePagePreference !== undefined) { updates.push("homePagePreference = ?"); values.push(homePagePreference); }
     
     if (updates.length > 0) { 
@@ -674,7 +655,6 @@ app.put('/api/users/:id', requireAuth, async (req, res) => {
         await run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values); 
     }
     
-    // Updated SELECT to include the new field
     res.json(await get("SELECT id, username, email, role, avatarSeed, maxQuota, homePagePreference FROM users WHERE id = ?", [req.params.id]));
 });
 
@@ -698,7 +678,6 @@ app.put('/api/users/:id/password', requireAuth, async (req, res) => {
 // GENERATE API TOKEN
 app.post('/api/users/:id/token', requireAuth, async (req, res) => {
     const userId = req.params.id;
-    // Simple secure token
     const token = 'sk_' + uuidv4().replace(/-/g, '');
     await run("UPDATE users SET apiToken = ? WHERE id = ?", [token, userId]);
     res.json({ token });
@@ -759,7 +738,6 @@ app.put('/api/collections/:id', requireAuth, async (req, res) => {
 // Update specific board access (Handle Unlisted Links)
 app.get('/api/boards', gatekeeper, async (req: any, res) => { 
     const currentUserId = req.user ? req.user.id : null;
-    // FIX: Default to current user if no specific target is requested (Critical for Extension)
     const targetOwnerId = req.query.userId || req.query.ownerId || currentUserId; 
 
     // Subquery to get the latest image for the board cover
@@ -771,25 +749,23 @@ app.get('/api/boards', gatekeeper, async (req: any, res) => {
          ORDER BY p.createdAt DESC LIMIT 1) as coverImage
     `;
 
-    // 1. If looking at MY own boards (Show Private + Public + Unlisted)
+    // 1. If looking at MY own boards
     if (currentUserId && targetOwnerId === currentUserId) {
         const sql = `SELECT b.*, ${coverImageSql} FROM boards b WHERE ownerId = ? OR id = ?`;
         return res.json(await all(sql, [currentUserId, NEW_STEMS_ID]));
     }
 
-    // 2. If looking at someone else's boards (Show PUBLIC ONLY)
+    // 2. If looking at someone else's boards
     if (targetOwnerId) {
         const sql = `SELECT b.*, ${coverImageSql} FROM boards b WHERE ownerId = ? AND visibility = 'public'`;
         return res.json(await all(sql, [targetOwnerId]));
     }
 
-    // 3. Fallback
     res.json([]);
 });
 
 app.post('/api/boards', requireAuth, async (req: any, res) => { 
     const id = uuidv4(); 
-    // FIX: Use authenticated user ID automatically (Critical for Extension)
     const ownerId = req.user.id;
     
     await run("INSERT INTO boards (id, title, collectionId, ownerId, visibility) VALUES (?, ?, ?, ?, ?)", 
@@ -798,23 +774,6 @@ app.post('/api/boards', requireAuth, async (req: any, res) => {
     res.json(await get("SELECT * FROM boards WHERE id = ?", [id])); 
 });
 
-
-    // 1. If looking at MY own boards (Show Private + Public + Unlisted)
-    if (currentUserId && targetOwnerId === currentUserId) {
-        const sql = `SELECT b.*, ${coverImageSql} FROM boards b WHERE ownerId = ? OR id = ?`;
-        return res.json(await all(sql, [currentUserId, NEW_STEMS_ID]));
-    }
-
-    // 2. If looking at someone else's boards (Show PUBLIC ONLY)
-    if (targetOwnerId) {
-        const sql = `SELECT b.*, ${coverImageSql} FROM boards b WHERE ownerId = ? AND visibility = 'public'`;
-        return res.json(await all(sql, [targetOwnerId]));
-    }
-
-    // 3. Fallback
-    res.json([]);
-});
-app.post('/api/boards', requireAuth, async (req, res) => { const id = uuidv4(); await run("INSERT INTO boards (id, title, collectionId, ownerId, visibility) VALUES (?, ?, ?, ?, ?)", [id, req.body.title, req.body.collectionId, req.body.ownerId, req.body.visibility || 'private']); res.json(await get("SELECT * FROM boards WHERE id = ?", [id])); });
 app.delete('/api/boards/:id', requireAuth, async (req, res) => { await run("DELETE FROM boards WHERE id = ?", [req.params.id]); res.json({ success: true }); });
 app.put('/api/boards/:id', requireAuth, async (req, res) => {
     if (req.body.title !== undefined) await run("UPDATE boards SET title = ? WHERE id = ?", [req.body.title, req.params.id]);
