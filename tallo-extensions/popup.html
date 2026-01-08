@@ -1,166 +1,390 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body { width: 350px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 0; background: #0f172a; color: #e2e8f0; margin: 0; }
-      
-      /* Header */
-      .header { padding: 12px 16px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
-      .brand { display: flex; align-items: center; gap: 10px; }
-      .brand img { height: 24px; width: 24px; display: block; }
-      .brand span { color: #2dd4bf; font-weight: 700; font-size: 14px; letter-spacing: 0.5px; }
-      
-      /* Settings Button */
-      #settingsBtn { width: auto; margin: 0; padding: 6px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; background: transparent; border: 1px solid #475569; color: #94a3b8; border-radius: 4px; transition: all 0.2s; cursor: pointer; }
-      #settingsBtn:hover { border-color: #cbd5e1; color: white; }
 
-      /* Content Area */
-      .content { padding: 16px; }
-      
-      /* Form Elements */
-      label { display: block; font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; margin-bottom: 4px; margin-top: 12px; }
-      label:first-child { margin-top: 0; }
-      
-      /* INPUTS & TEXTAREA */
-      input[type="text"], input[type="password"], select, textarea { width: 100%; padding: 10px; background: #020617; border: 1px solid #334155; color: white; border-radius: 6px; box-sizing: border-box; font-size: 13px; outline: none; font-family: inherit; }
-      input:focus, select:focus, textarea:focus { border-color: #2dd4bf; }
-      textarea { resize: vertical; min-height: 60px; }
-      
-      button.primary { width: 100%; padding: 10px; background: #0d9488; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; margin-top: 16px; transition: background 0.2s; }
-      button.primary:hover { background: #14b8a6; }
-      button:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
-      
-      button.secondary { width: 100%; padding: 10px; background: transparent; border: 1px solid #334155; color: #94a3b8; margin-top: 8px; border-radius: 6px; cursor: pointer; }
-      button.secondary:hover { border-color: #64748b; color: white; background: rgba(255,255,255,0.05); }
-      
-      /* Image Grid */
-      .image-grid { 
-        display: grid; 
-        grid-template-columns: 1fr 1fr; 
-        grid-auto-rows: 150px; 
-        gap: 10px; 
-        max-height: 300px; 
-        overflow-y: auto; 
-        margin-bottom: 16px; 
-        padding-right: 4px; 
-      }
-      .image-grid::-webkit-scrollbar { width: 6px; }
-      .image-grid::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-      
-      .img-card { 
-        position: relative;
-        width: 100%;
-        height: 150px;
-        border: 2px solid #334155; 
-        border-radius: 8px; 
-        overflow: hidden; 
-        cursor: pointer; 
-        box-sizing: border-box; 
-        transition: all 0.2s;
-        background: #020617;
-      }
-      .img-card:hover { border-color: #64748b; }
-      .img-card.selected { border-color: #2dd4bf; box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.2); }
-      
-      .img-card img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.3s; position: relative; z-index: 1; }
-      .img-card img.loaded { opacity: 1; }
-      
-      .img-loader {
-        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        width: 20px; height: 20px; border: 2px solid #334155; border-top-color: #2dd4bf; border-radius: 50%;
-        animation: spin 0.6s linear infinite; z-index: 0;
-      }
-      @keyframes spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+<head>
+  <meta charset="UTF-8">
+  <meta name="referrer" content="no-referrer">
+  <style>
+    body {
+      width: 350px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 0;
+      background: #0f172a;
+      color: #e2e8f0;
+      margin: 0;
+    }
 
-      .check-badge {
-        position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; background: #2dd4bf; border-radius: 50%;
-        display: flex; align-items: center; justify-content: center; opacity: 0; transform: scale(0.8); transition: all 0.2s; z-index: 2;
-      }
-      .check-badge::after { content: '✓'; font-size: 12px; color: #0f172a; font-weight: bold; }
-      .img-card.selected .check-badge { opacity: 1; transform: scale(1); }
+    /* Header */
+    .header {
+      padding: 12px 16px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
 
-      .status { font-size: 12px; color: #94a3b8; text-align: center; margin-top: 8px; font-style: italic; }
-      .hidden { display: none; }
-      
-      .selection-count { font-size: 11px; color: #94a3b8; font-weight: normal; }
-      #selectAll { width: auto; margin: 0; padding: 4px 8px; font-size: 10px; background: #334155; border: none; border-radius: 4px; color: #e2e8f0; cursor: pointer; }
-      #selectAll:hover { background: #475569; }
-    </style>
-  </head>
-  <body>
-    
-    <div class="header">
-      <div class="brand">
-        <img src="icon.png" alt="Logo">
-        <span>Tallo Saver</span>
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand img {
+      height: 24px;
+      width: 24px;
+      display: block;
+    }
+
+    .brand span {
+      color: #2dd4bf;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Settings Button */
+    #settingsBtn {
+      width: auto;
+      margin: 0;
+      padding: 6px 12px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      background: transparent;
+      border: 1px solid #475569;
+      color: #94a3b8;
+      border-radius: 4px;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+
+    #settingsBtn:hover {
+      border-color: #cbd5e1;
+      color: white;
+    }
+
+    /* Content Area */
+    .content {
+      padding: 16px;
+    }
+
+    /* Form Elements */
+    label {
+      display: block;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #64748b;
+      font-weight: 700;
+      margin-bottom: 4px;
+      margin-top: 12px;
+    }
+
+    label:first-child {
+      margin-top: 0;
+    }
+
+    /* INPUTS & TEXTAREA */
+    input[type="text"],
+    input[type="password"],
+    select,
+    textarea {
+      width: 100%;
+      padding: 10px;
+      background: #020617;
+      border: 1px solid #334155;
+      color: white;
+      border-radius: 6px;
+      box-sizing: border-box;
+      font-size: 13px;
+      outline: none;
+      font-family: inherit;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: #2dd4bf;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    button.primary {
+      width: 100%;
+      padding: 10px;
+      background: #0d9488;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      margin-top: 16px;
+      transition: background 0.2s;
+    }
+
+    button.primary:hover {
+      background: #14b8a6;
+    }
+
+    button:disabled {
+      background: #334155;
+      color: #64748b;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      width: 100%;
+      padding: 10px;
+      background: transparent;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      margin-top: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    button.secondary:hover {
+      border-color: #64748b;
+      color: white;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .res-badge {
+      position: absolute;
+      bottom: 4px;
+      right: 4px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #cbd5e1;
+      font-size: 9px;
+      padding: 2px 4px;
+      border-radius: 4px;
+      z-index: 2;
+      pointer-events: none;
+      font-family: monospace;
+    }
+
+    /* Image Grid */
+    .image-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-auto-rows: 150px;
+      gap: 10px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+      padding-right: 4px;
+    }
+
+    .image-grid::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .image-grid::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+
+    .img-card {
+      position: relative;
+      width: 100%;
+      height: 150px;
+      border: 2px solid #334155;
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      box-sizing: border-box;
+      transition: all 0.2s;
+      background: #020617;
+    }
+
+    .img-card:hover {
+      border-color: #64748b;
+    }
+
+    .img-card.selected {
+      border-color: #2dd4bf;
+      box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.2);
+    }
+
+    .img-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      opacity: 0;
+      transition: opacity 0.3s;
+      position: relative;
+      z-index: 1;
+    }
+
+    .img-card img.loaded {
+      opacity: 1;
+    }
+
+    .img-loader {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 20px;
+      height: 20px;
+      border: 2px solid #334155;
+      border-top-color: #2dd4bf;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      z-index: 0;
+    }
+
+    @keyframes spin {
+      to {
+        transform: translate(-50%, -50%) rotate(360deg);
+      }
+    }
+
+    .check-badge {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+      background: #2dd4bf;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transform: scale(0.8);
+      transition: all 0.2s;
+      z-index: 2;
+    }
+
+    .check-badge::after {
+      content: '✓';
+      font-size: 12px;
+      color: #0f172a;
+      font-weight: bold;
+    }
+
+    .img-card.selected .check-badge {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    .status {
+      font-size: 12px;
+      color: #94a3b8;
+      text-align: center;
+      margin-top: 8px;
+      font-style: italic;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .selection-count {
+      font-size: 11px;
+      color: #94a3b8;
+      font-weight: normal;
+    }
+
+    #selectAll {
+      width: auto;
+      margin: 0;
+      padding: 4px 8px;
+      font-size: 10px;
+      background: #334155;
+      border: none;
+      border-radius: 4px;
+      color: #e2e8f0;
+      cursor: pointer;
+    }
+
+    #selectAll:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="header">
+    <div class="brand">
+      <img src="icon.png" alt="Logo">
+      <span>Tallo Saver</span>
+    </div>
+    <button id="settingsBtn">Settings</button>
+  </div>
+
+  <div id="settings-view" class="content hidden">
+    <p style="font-size:13px; color:#cbd5e1; margin-top: 0;">Connect to your server.</p>
+
+    <label>Server URL</label>
+    <input type="text" id="serverUrl" placeholder="http://myserver.local:5521" />
+
+    <label>Username</label>
+    <input type="text" id="username" placeholder="Username" />
+
+    <label>API Key (From Profile > Security)</label>
+    <input type="password" id="apiKey" placeholder="sk_..." />
+
+    <button id="saveSettings" class="primary">Save Connection</button>
+    <button id="cancelSettings" class="secondary">Back</button>
+  </div>
+
+  <div id="main-view" class="content hidden">
+    <div id="loading" class="status">Scanning page...</div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+      <div style="display:flex; align-items:center;">
+        <label style="display:inline; margin:0; cursor:pointer;">
+          <input type="checkbox" id="filterSmall" checked style="width:auto; vertical-align:middle; margin-right:4px;">
+          <span style="font-size:11px; color:#94a3b8; font-weight:normal;">Hide small</span>
+        </label>
+        <span id="count" class="selection-count" style="margin-left:8px;">(0)</span>
       </div>
-      <button id="settingsBtn">Settings</button>
+      <button id="selectAll">Select All</button>
     </div>
 
-    <div id="settings-view" class="content hidden">
-      <p style="font-size:13px; color:#cbd5e1; margin-top: 0;">Connect to your server.</p>
-      
-      <label>Server URL</label>
-      <input type="text" id="serverUrl" placeholder="http://myserver.local:5521" />
-      
-      <label>Username</label>
-      <input type="text" id="username" placeholder="Username" />
-      
-      <label>API Key (From Profile > Security)</label>
-      <input type="password" id="apiKey" placeholder="sk_..." />
-      
-      <button id="saveSettings" class="primary">Save Connection</button>
-      <button id="cancelSettings" class="secondary">Back</button>
-    </div>
+    <div id="grid" class="image-grid"></div>
 
-    <div id="main-view" class="content hidden">
-      <div id="loading" class="status">Scanning page...</div>
-      
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <div style="display:flex; align-items:center;">
-          <label style="display:inline; margin:0; cursor:pointer;">
-            <input type="checkbox" id="filterSmall" checked style="width:auto; vertical-align:middle; margin-right:4px;">
-            <span style="font-size:11px; color:#94a3b8; font-weight:normal;">Hide small</span>
-          </label>
-          <span id="count" class="selection-count" style="margin-left:8px;">(0)</span>
-        </div>
-        <button id="selectAll">Select All</button>
+    <div id="controls" class="hidden">
+      <label>Title</label>
+      <input type="text" id="pinTitle" placeholder="Page Title" />
+
+      <label>Description</label>
+      <textarea id="pinDescription" placeholder="Optional description..." rows="3"></textarea>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; margin-bottom:4px;">
+        <label style="margin:0;">Save to Board</label>
+        <button id="toggleCreateBoard" class="secondary"
+          style="margin:0; width:auto; padding:2px 8px; font-size:10px;">+ New</button>
       </div>
 
-      <div id="grid" class="image-grid"></div>
-      
-      <div id="controls" class="hidden">
-        <label>Title</label>
-        <input type="text" id="pinTitle" placeholder="Page Title" />
-        
-        <label>Description</label>
-        <textarea id="pinDescription" placeholder="Optional description..." rows="3"></textarea>
-
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; margin-bottom:4px;">
-            <label style="margin:0;">Save to Board</label>
-            <button id="toggleCreateBoard" class="secondary" style="margin:0; width:auto; padding:2px 8px; font-size:10px;">+ New</button>
+      <div id="createBoardContainer" class="hidden" style="margin-bottom:8px;">
+        <div style="display:flex; gap:6px;">
+          <input type="text" id="newBoardName" placeholder="New board name..." style="padding:6px; font-size:12px;" />
+          <button id="createBoardBtn" class="primary"
+            style="margin:0; width:auto; padding:0 12px; font-size:11px;">Add</button>
         </div>
-        
-        <div id="createBoardContainer" class="hidden" style="margin-bottom:8px;">
-            <div style="display:flex; gap:6px;">
-                <input type="text" id="newBoardName" placeholder="New board name..." style="padding:6px; font-size:12px;"/>
-                <button id="createBoardBtn" class="primary" style="margin:0; width:auto; padding:0 12px; font-size:11px;">Add</button>
-            </div>
-        </div>
-
-        <select id="boardSelect" style="margin-top:0;">
-          <option value="">Loading boards...</option>
-        </select>
-        <label>Tags (comma separated)</label>
-        <input type="text" id="pinTags" placeholder="design, inspo, web" />
-        
-        <button id="savePin" class="primary">Save Stems</button>
       </div>
-      
-      <div id="message" class="status"></div>
+
+      <select id="boardSelect" style="margin-top:0;">
+        <option value="">Loading boards...</option>
+      </select>
+      <label>Tags (comma separated)</label>
+      <input type="text" id="pinTags" placeholder="design, inspo, web" />
+
+      <button id="savePin" class="primary">Save Stems</button>
     </div>
 
-    <script src="popup.js"></script>
-  </body>
+    <div id="message" class="status"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
 </html>
