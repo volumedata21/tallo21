@@ -62,7 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="flex items-center gap-2 sm:gap-4">
                 
                 {/* View Toggle - Hidden on very small screens if needed, or kept compact */}
-                <div className="hidden xs:flex bg-slate-900 rounded-lg p-1 border border-slate-800">
+                <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-800">
                     <button 
                         onClick={() => onToggleView('grid')}
                         className={`p-1.5 md:p-2 rounded-md transition-all ${viewMode === 'grid' ? 'bg-slate-800 text-teal-400 shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
