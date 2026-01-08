@@ -373,15 +373,32 @@ export const dataService = {
 
       return data.features.map((item: any) => {
         const p = item.properties;
+        
+        // FIX: Prioritize House Number + Street construction
+        let displayName = p.name;
+        
+        if (!displayName) {
+            if (p.housenumber && p.street) {
+                // If we have "123" and "Main St", combine them
+                displayName = `${p.housenumber} ${p.street}`;
+            } else {
+                // Fallbacks
+                displayName = p.street || p.city || p.country || 'Unknown Location';
+            }
+        }
+
         const addressParts = [
-          p.street, p.housenumber, p.city || p.town || p.village, p.state, p.country
+          p.street !== displayName ? p.street : null, // Avoid repeating street if it's the main name
+          p.city || p.town || p.village, 
+          p.state, 
+          p.country
         ].filter(Boolean);
 
         return {
           lat: item.geometry.coordinates[1],
           lng: item.geometry.coordinates[0],
-          name: p.name || addressParts[0] || 'Unknown Location',
-          address: addressParts.join(', ') || p.name
+          name: displayName,
+          address: addressParts.join(', ')
         };
       });
     } catch (e) { return []; }
