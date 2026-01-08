@@ -759,7 +759,8 @@ app.put('/api/collections/:id', requireAuth, async (req, res) => {
 // Update specific board access (Handle Unlisted Links)
 app.get('/api/boards', gatekeeper, async (req: any, res) => { 
     const currentUserId = req.user ? req.user.id : null;
-    const targetOwnerId = req.query.userId || req.query.ownerId; // Who are we looking at?
+    // FIX: Default to current user if no specific target is requested (Critical for Extension)
+    const targetOwnerId = req.query.userId || req.query.ownerId || currentUserId; 
 
     // Subquery to get the latest image for the board cover
     const coverImageSql = `
@@ -769,6 +770,34 @@ app.get('/api/boards', gatekeeper, async (req: any, res) => {
          WHERE pb.boardId = b.id AND p.deletedAt IS NULL 
          ORDER BY p.createdAt DESC LIMIT 1) as coverImage
     `;
+
+    // 1. If looking at MY own boards (Show Private + Public + Unlisted)
+    if (currentUserId && targetOwnerId === currentUserId) {
+        const sql = `SELECT b.*, ${coverImageSql} FROM boards b WHERE ownerId = ? OR id = ?`;
+        return res.json(await all(sql, [currentUserId, NEW_STEMS_ID]));
+    }
+
+    // 2. If looking at someone else's boards (Show PUBLIC ONLY)
+    if (targetOwnerId) {
+        const sql = `SELECT b.*, ${coverImageSql} FROM boards b WHERE ownerId = ? AND visibility = 'public'`;
+        return res.json(await all(sql, [targetOwnerId]));
+    }
+
+    // 3. Fallback
+    res.json([]);
+});
+
+app.post('/api/boards', requireAuth, async (req: any, res) => { 
+    const id = uuidv4(); 
+    // FIX: Use authenticated user ID automatically (Critical for Extension)
+    const ownerId = req.user.id;
+    
+    await run("INSERT INTO boards (id, title, collectionId, ownerId, visibility) VALUES (?, ?, ?, ?, ?)", 
+        [id, req.body.title, req.body.collectionId, ownerId, req.body.visibility || 'private']
+    ); 
+    res.json(await get("SELECT * FROM boards WHERE id = ?", [id])); 
+});
+
 
     // 1. If looking at MY own boards (Show Private + Public + Unlisted)
     if (currentUserId && targetOwnerId === currentUserId) {
