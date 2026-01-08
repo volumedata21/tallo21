@@ -15,7 +15,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const stored = await chrome.storage.local.get(['serverUrl', 'username', 'apiKey']);
     if (stored.serverUrl && stored.username && stored.apiKey) {
         config = stored;
-        
         // Check if user navigated since last open
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if(tab && tab.url !== pageData.url) {
@@ -50,28 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // --- MAIN LOGIC ---
-
-    async function showMain() {
-        switchView('main');
-
-        if (isDataLoaded && document.getElementById('grid').hasChildNodes()) {
-            return; 
-        }
-
-        // Reset UI
-        document.getElementById('grid').innerHTML = '';
-        document.getElementById('loading').style.display = 'block';
-        document.getElementById('controls').classList.add('hidden');
-        document.getElementById('message').innerText = '';
-        selectedImages.clear();
-        updateCount();
-
-        // 1. Fetch Boards 
-        fetchBoards();
-
-        // --- BOARD CREATION ---
-
+    // --- BOARD CREATION LISTENERS (Fixed placement) ---
     const createContainer = document.getElementById('createBoardContainer');
     const toggleBtn = document.getElementById('toggleCreateBoard');
     const createBtn = document.getElementById('createBoardBtn');
@@ -101,18 +79,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     'Content-Type': 'application/json',
                     'x-api-token': config.apiKey 
                 },
-                // We don't need to send ownerId anymore, server handles it
                 body: JSON.stringify({ title: title })
             });
 
             if(res.ok) {
                 const newBoard = await res.json();
-                
-                // Refresh list and select the new one
                 await fetchBoards();
                 document.getElementById('boardSelect').value = newBoard.id;
-                
-                // Reset UI
                 newBoardInput.value = '';
                 createContainer.classList.add('hidden');
                 toggleBtn.innerText = "+ New";
@@ -127,6 +100,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             createBtn.innerText = "Add";
         }
     });
+
+    // --- MAIN LOGIC ---
+
+    async function showMain() {
+        switchView('main');
+
+        if (isDataLoaded && document.getElementById('grid').hasChildNodes()) {
+            return; 
+        }
+
+        // Reset UI
+        document.getElementById('grid').innerHTML = '';
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('controls').classList.add('hidden');
+        document.getElementById('message').innerText = '';
+        selectedImages.clear();
+        updateCount();
+
+        // 1. Fetch Boards 
+        fetchBoards();
 
         // 2. Scrape Page (Via Content Script)
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -194,14 +187,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function renderImages(images) {
+    function renderImages(imageDataList) { // Note: variable name change to imply objects
         const grid = document.getElementById('grid');
         const filterCheckbox = document.getElementById('filterSmall');
         const minSize = 150; 
         
         document.getElementById('loading').style.display = 'none';
         
-        if (!images || images.length === 0) {
+        if (!imageDataList || imageDataList.length === 0) {
             grid.innerHTML = '<p class="status">No images found on this page.</p>';
             return;
         }
@@ -209,21 +202,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('controls').classList.remove('hidden');
         grid.innerHTML = ''; 
 
-        images.forEach(imgUrl => {
+        imageDataList.forEach(imgData => {
+            const imgUrl = imgData.url; // Extract URL
+            
             const div = document.createElement('div');
             div.className = 'img-card';
             div.style.display = 'none'; 
             
+            // Added <div class="res-badge">
             div.innerHTML = `
                 <div class="check-badge"></div>
+                <div class="res-badge">${imgData.width > 0 ? `${imgData.width} × ${imgData.height}` : ''}</div>
                 <div class="img-loader"></div>
                 <img src="${imgUrl}" />
             `;
             
             const img = div.querySelector('img');
+            const badge = div.querySelector('.res-badge');
             
             img.onload = () => {
-                const isSmall = img.naturalWidth < minSize || img.naturalHeight < minSize;
+                // If dimensions were 0 (CSS bg), update them now that it's loaded
+                const w = img.naturalWidth;
+                const h = img.naturalHeight;
+                
+                // Update badge if it was empty
+                if (badge.innerText === '') {
+                    badge.innerText = `${w} × ${h}`;
+                }
+
+                const isSmall = w < minSize || h < minSize;
                 const filterOn = filterCheckbox.checked;
 
                 div.querySelector('.img-loader').style.display = 'none';
@@ -240,10 +247,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 updateCount();
             };
             
-            img.onerror = () => {
-                div.remove(); 
-            };
-
+            // ... rest of error handling and click listeners remains the same ...
+            img.onerror = () => { div.remove(); };
+            
             div.addEventListener('click', () => {
                 if(selectedImages.has(imgUrl)) {
                     selectedImages.delete(imgUrl);
@@ -257,10 +263,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             grid.appendChild(div);
         });
-
-        // Auto-select logic for single result
-        // Note: With async loading, strict auto-select is tricky, 
-        // but default user behavior handles this naturally.
 
         filterCheckbox.addEventListener('change', () => {
             const cards = document.querySelectorAll('.img-card');
@@ -330,7 +332,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const boardId = document.getElementById('boardSelect').value;
         const tags = document.getElementById('pinTags').value.split(',').map(t => t.trim()).filter(Boolean);
         const title = document.getElementById('pinTitle').value;
-        const description = document.getElementById('pinDescription').value; // Get user input
+        const description = document.getElementById('pinDescription').value;
 
         btn.disabled = true;
         btn.innerText = "Saving...";
@@ -342,9 +344,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             try {
                 const payload = {
                     title: title || "Web Clip",
-                    description: description, // Send input directly (blank if empty)
+                    description: description,
                     imageUrl: imageUrl,
-                    link: pageData.url, // Source URL is still saved here as metadata
+                    link: pageData.url,
                     boardIds: boardId ? [boardId] : [],
                     ownerId: config.username,
                     tags: tags
