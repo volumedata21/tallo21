@@ -5,9 +5,9 @@ import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import db from './database';
-import { Pin } from './types'; 
-import sharp from 'sharp'; 
-import { JSDOM } from 'jsdom'; 
+import { Pin } from './types';
+import sharp from 'sharp';
+import { JSDOM } from 'jsdom';
 // @ts-ignore
 import bcrypt from 'bcryptjs';
 
@@ -28,7 +28,7 @@ if (!fs.existsSync(AVATARS_DIR)) fs.mkdirSync(AVATARS_DIR, { recursive: true });
 
 // Enhanced CORS Configuration
 app.use(cors({
-    origin: '*', 
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-api-token', 'x-user-id']
 }));
@@ -41,20 +41,20 @@ app.use('/thumbnails', express.static(THUMBNAILS_DIR));
 
 // --- SETUP MULTER ---
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({
     storage,
-    limits: { fileSize: 50 * 1024 * 1024 } 
+    limits: { fileSize: 50 * 1024 * 1024 }
 });
 
 // --- DB Helpers ---
 const run = (sql: string, params: any[] = []) => new Promise((resolve, reject) => {
-  db.run(sql, params, function (err) { if (err) reject(err); else resolve(this); });
+    db.run(sql, params, function (err) { if (err) reject(err); else resolve(this); });
 });
 const get = (sql: string, params: any[] = []) => new Promise<any>((resolve, reject) => {
-  db.get(sql, params, (err, row) => { if (err) reject(err); else resolve(row); });
+    db.get(sql, params, (err, row) => { if (err) reject(err); else resolve(row); });
 });
 const all = (sql: string, params: any[] = []) => new Promise<any[]>((resolve, reject) => {
-  db.all(sql, params, (err, rows) => { if (err) reject(err); else resolve(rows); });
+    db.all(sql, params, (err, rows) => { if (err) reject(err); else resolve(rows); });
 });
 
 // --- AUTH MIDDLEWARE ---
@@ -100,7 +100,7 @@ const gatekeeper = async (req: any, res: any, next: any) => {
 
     // 2. If no user, check if the server is OPEN.
     const settings = await get("SELECT isServerOpen FROM settings WHERE id = 'default'");
-    const isOpen = settings ? settings.isServerOpen === 1 : true; 
+    const isOpen = settings ? settings.isServerOpen === 1 : true;
 
     if (!isOpen) {
         return res.status(401).json({ error: "Server is closed to the public. Please log in." });
@@ -112,21 +112,21 @@ const gatekeeper = async (req: any, res: any, next: any) => {
 
 // HELPER: Parse Pin
 const parsePin = (pin: any): Pin => {
-  const activeBoardIds = pin.realBoardIds || pin.boardIds;
-  return {
-    ...pin,
-    gallery: JSON.parse(pin.gallery || '[]'),
-    boardIds: typeof activeBoardIds === 'string' && activeBoardIds.startsWith('[') 
-      ? JSON.parse(activeBoardIds) 
-      : (activeBoardIds ? activeBoardIds.split(',') : []),
-    location: pin.location ? JSON.parse(pin.location) : undefined,
-    tags: JSON.parse(pin.tags || '[]'),
-    favorite: !!pin.favorite,
-    deletedAt: pin.deletedAt || undefined,
-    thumbnail: pin.thumbnail || undefined,
-    ownerName: pin.ownerName,     
-    ownerAvatar: pin.ownerAvatar 
-  };
+    const activeBoardIds = pin.realBoardIds || pin.boardIds;
+    return {
+        ...pin,
+        gallery: JSON.parse(pin.gallery || '[]'),
+        boardIds: typeof activeBoardIds === 'string' && activeBoardIds.startsWith('[')
+            ? JSON.parse(activeBoardIds)
+            : (activeBoardIds ? activeBoardIds.split(',') : []),
+        location: pin.location ? JSON.parse(pin.location) : undefined,
+        tags: JSON.parse(pin.tags || '[]'),
+        favorite: !!pin.favorite,
+        deletedAt: pin.deletedAt || undefined,
+        thumbnail: pin.thumbnail || undefined,
+        ownerName: pin.ownerName,
+        ownerAvatar: pin.ownerAvatar
+    };
 };
 
 // --- HELPER: DOWNLOAD EXTERNAL IMAGES ---
@@ -137,7 +137,7 @@ const processExternalImage = async (url: string) => {
         console.log(`Downloading external image: ${url}`);
         const response = await fetch(url);
         if (!response.ok) throw new Error(`Failed to fetch ${url}`);
-        
+
         const arrayBuffer = await response.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
 
@@ -152,25 +152,25 @@ const processExternalImage = async (url: string) => {
         const id = Date.now() + '-' + Math.round(Math.random() * 1000);
         const contentType = response.headers.get('content-type');
         const isVideo = contentType?.startsWith('video/');
-        
+
         let ext = '.jpg';
         if (contentType?.includes('png')) ext = '.png';
         if (contentType?.includes('webp')) ext = '.webp';
         if (contentType?.includes('gif')) ext = '.gif';
         if (isVideo) ext = '.mp4';
-        
+
         const filename = `${id}${ext}`;
         const originalPath = path.join(targetDir, filename);
-        
+
         await fs.promises.writeFile(originalPath, buffer);
 
         if (isVideo) {
-             return { url: `/images/${folder}/${filename}`, thumbnail: null };
+            return { url: `/images/${folder}/${filename}`, thumbnail: null };
         }
 
         const thumbFilename = `${id}.webp`;
         const thumbPath = path.join(thumbDir, thumbFilename);
-        
+
         await sharp(buffer)
             .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
             .webp({ quality: 80 })
@@ -182,7 +182,7 @@ const processExternalImage = async (url: string) => {
         };
     } catch (e) {
         console.error("Error processing external image:", e);
-        return { url, thumbnail: null }; 
+        return { url, thumbnail: null };
     }
 };
 
@@ -190,7 +190,7 @@ const processExternalImage = async (url: string) => {
 const runMigrations = async () => {
     try {
         await run(`CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY, name TEXT, appliedAt INTEGER)`);
-        
+
         const migrations = [
             { id: 1, name: 'add_deleted_at_to_pins', sql: "ALTER TABLE pins ADD COLUMN deletedAt INTEGER DEFAULT NULL" },
             { id: 2, name: 'add_thumbnail_to_pins', sql: "ALTER TABLE pins ADD COLUMN thumbnail TEXT DEFAULT NULL" },
@@ -204,8 +204,8 @@ const runMigrations = async () => {
             { id: 10, name: 'add_reset_token_to_users', sql: "ALTER TABLE users ADD COLUMN resetToken TEXT DEFAULT NULL" },
             { id: 11, name: 'add_reset_expiry_to_users', sql: "ALTER TABLE users ADD COLUMN resetTokenExpiresAt INTEGER DEFAULT NULL" },
             { id: 12, name: 'add_api_token_to_users', sql: "ALTER TABLE users ADD COLUMN apiToken TEXT DEFAULT NULL" },
-            { id: 13, name: 'add_server_open_setting', sql: "ALTER TABLE settings ADD COLUMN isServerOpen INTEGER DEFAULT 1" }, 
-            { id: 14, name: 'add_unlisted_visibility', sql: "UPDATE boards SET visibility = 'private' WHERE visibility IS NULL" }, 
+            { id: 13, name: 'add_server_open_setting', sql: "ALTER TABLE settings ADD COLUMN isServerOpen INTEGER DEFAULT 1" },
+            { id: 14, name: 'add_unlisted_visibility', sql: "UPDATE boards SET visibility = 'private' WHERE visibility IS NULL" },
             { id: 15, name: 'add_home_page_pref', sql: "ALTER TABLE users ADD COLUMN homePagePreference TEXT DEFAULT 'all'" }
         ];
 
@@ -216,7 +216,7 @@ const runMigrations = async () => {
                 try {
                     if (m.id === 7) await run(m.sql, [Date.now()]);
                     else await run(m.sql);
-                    
+
                     await run("INSERT INTO migrations (id, name, appliedAt) VALUES (?, ?, ?)", [m.id, m.name, Date.now()]);
                 } catch (e: any) {
                     if (!e.message.includes('duplicate column')) console.error(`Migration ${m.id} failed:`, e);
@@ -269,16 +269,16 @@ app.post('/api/setup', async (req, res) => {
     if (userCount.count > 0) return res.status(403).json({ error: "System already set up." });
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const id = 'u1'; 
-    let randomAvatar = username; 
+    const id = 'u1';
+    let randomAvatar = username;
     try {
         const files = await fs.promises.readdir(AVATARS_DIR);
         const images = files.filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f));
         if (images.length > 0) randomAvatar = images[Math.floor(Math.random() * images.length)];
-    } catch (e) {}
+    } catch (e) { }
 
     await run(
-        `INSERT INTO users (id, username, email, password, role, usedQuota, maxQuota, createdAt, avatarSeed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+        `INSERT INTO users (id, username, email, password, role, usedQuota, maxQuota, createdAt, avatarSeed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, username, email || null, hashedPassword, 'admin', '0GB', 'Unlimited', Date.now(), randomAvatar]
     );
     const user = await get("SELECT * FROM users WHERE id = ?", [id]);
@@ -309,7 +309,7 @@ app.post('/api/register', async (req, res) => {
         }
         const invite = await get("SELECT * FROM invites WHERE code = ? AND isUsed = 0", [inviteCode]);
         if (!invite) return res.status(400).json({ error: "Invalid invite code." });
-        
+
         const existing = await get("SELECT id FROM users WHERE lower(username) = lower(?)", [username]);
         if (existing) return res.status(400).json({ error: "Username taken." });
 
@@ -320,10 +320,10 @@ app.post('/api/register', async (req, res) => {
             const files = await fs.promises.readdir(AVATARS_DIR);
             const images = files.filter(f => /\.(png|jpg|jpeg|webp)$/i.test(f));
             if (images.length > 0) randomAvatar = images[Math.floor(Math.random() * images.length)];
-        } catch (e) {}
+        } catch (e) { }
 
         await run(
-            `INSERT INTO users (id, username, email, password, role, usedQuota, maxQuota, createdAt, avatarSeed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
+            `INSERT INTO users (id, username, email, password, role, usedQuota, maxQuota, createdAt, avatarSeed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [id, username, email || null, hashedPassword, 'user', '0GB', invite.assignedQuota || '20GB', Date.now(), randomAvatar]
         );
         await run("UPDATE invites SET isUsed = 1, usedBy = ? WHERE code = ?", [username, inviteCode]);
@@ -332,18 +332,18 @@ app.post('/api/register', async (req, res) => {
     } catch (e) { res.status(500).json({ error: "Registration failed" }); }
 });
 
-// --- PINS ROUTE ---
+// --- PINS ROUTE (UPDATED) ---
 app.get('/api/pins', gatekeeper, async (req: any, res) => {
-  try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = parseInt(req.query.limit as string) || 20;
-      const offset = (page - 1) * limit;
-      
-      const { sort, search, boardId, favorites, tag, creatorId, collectionId } = req.query;
-      const currentUserId = req.user ? req.user.id : null;
+    try {
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 20;
+        const offset = (page - 1) * limit;
 
-      // Base Query
-      let sql = `
+        const { sort, search, boardId, favorites, tag, creatorId, collectionId } = req.query;
+        const currentUserId = req.user ? req.user.id : null;
+
+        // Base Query
+        let sql = `
         SELECT pins.*, 
         users.username as ownerName, 
         users.avatarSeed as ownerAvatar,
@@ -354,77 +354,96 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
         LEFT JOIN favorites f ON pins.id = f.pinId AND f.userId = ?
         LEFT JOIN pin_boards pb_all ON pins.id = pb_all.pinId
       `;
-      
-      const params: any[] = [currentUserId || '']; 
-      const conditions: string[] = ["pins.deletedAt IS NULL"];
 
-      // --- PRIVACY & FILTER LOGIC ---
+        const params: any[] = [currentUserId || ''];
+        const conditions: string[] = ["pins.deletedAt IS NULL"];
 
-      if (boardId) {
-          // 1. VIEWING A SPECIFIC BOARD
-          const board = await get("SELECT * FROM boards WHERE id = ?", [boardId]);
-          
-          if (!board) return res.json([]); 
-          
-          const canView = (board.visibility !== 'private') || (board.ownerId === currentUserId);
-          if (!canView) return res.status(403).json({ error: "Private board" });
+        // --- 1. SCOPE LOGIC (Determine WHERE we are looking) ---
 
-          sql += ` JOIN pin_boards pb ON pins.id = pb.pinId `;
-          conditions.push("pb.boardId = ?");
-          params.push(boardId);
+        if (boardId) {
+            // VIEWING A BOARD
+            const board = await get("SELECT * FROM boards WHERE id = ?", [boardId]);
+            if (!board) return res.json([]);
 
-      } else if (favorites === 'true' && currentUserId) {
-          conditions.push("f.userId IS NOT NULL");
+            const canView = (board.visibility !== 'private') || (board.ownerId === currentUserId);
+            if (!canView) return res.status(403).json({ error: "Private board" });
 
-      } else if (creatorId) {
-          // 3. VIEWING A CREATOR'S PROFILE
-          conditions.push("pins.ownerId = ?");
-          params.push(creatorId);
+            sql += ` JOIN pin_boards pb ON pins.id = pb.pinId `;
+            conditions.push("pb.boardId = ?");
+            params.push(boardId);
 
-          if (creatorId !== currentUserId) {
-             conditions.push(`EXISTS (
+        } else if (favorites === 'true' && currentUserId) {
+            // VIEWING FAVORITES
+            conditions.push("f.userId IS NOT NULL");
+
+        } else if (creatorId) {
+            // VIEWING A PROFILE
+            conditions.push("pins.ownerId = ?");
+            params.push(creatorId);
+
+            if (creatorId !== currentUserId) {
+                conditions.push(`EXISTS (
                 SELECT 1 FROM pin_boards pb 
                 JOIN boards b ON pb.boardId = b.id 
                 WHERE pb.pinId = pins.id AND b.visibility = 'public'
              )`);
-          }
+            }
 
-      } else {
-          // 4. MAIN FEED / EXPLORE
-          if (search) {
-             conditions.push("(pins.title LIKE ? OR pins.description LIKE ?)");
-             params.push(`%${search}%`, `%${search}%`);
-          }
+        } else {
+            // MAIN FEED (Explore)
+            // Logic: Must belong to at least one PUBLIC board
+            conditions.push(`EXISTS (
+                SELECT 1 FROM pin_boards pb 
+                JOIN boards b ON pb.boardId = b.id 
+                WHERE pb.pinId = pins.id AND b.visibility = 'public'
+            )`);
+        }
 
-          conditions.push(`EXISTS (
-            SELECT 1 FROM pin_boards pb 
-            JOIN boards b ON pb.boardId = b.id 
-            WHERE pb.pinId = pins.id AND b.visibility = 'public'
-          )`);
-      }
+        // --- 2. GLOBAL FILTERS (Apply these to ALL views) ---
 
-      if (conditions.length > 0) {
-          sql += " WHERE " + conditions.join(" AND ");
-      }
+        // A. Search
+        if (search) {
+            const searchTerm = search.toString();
+            if (searchTerm.startsWith('#')) {
+                // EXPLICIT TAG SEARCH
+                const tagOnly = searchTerm.slice(1);
+                conditions.push("pins.tags LIKE ?");
+                params.push(`%${tagOnly}%`);
+            } else {
+                // STANDARD SEARCH
+                conditions.push("(pins.title LIKE ? OR pins.description LIKE ? OR pins.tags LIKE ?)");
+                params.push(`%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`);
+            }
+        }
 
-      sql += " GROUP BY pins.id";
+        // B. Tag Filter
+        if (tag) {
+             conditions.push("pins.tags LIKE ?");
+             params.push(`%${tag}%`);
+        }
 
-      // Sorting
-      let orderBy = 'pins.createdAt DESC'; 
-      if (sort === 'oldest') orderBy = 'pins.createdAt ASC';
-      else if (sort === 'az') orderBy = 'pins.title ASC';
-      else if (sort === 'za') orderBy = 'pins.title DESC';
-      else if (sort === 'random') orderBy = 'RANDOM()'; 
+        if (conditions.length > 0) {
+            sql += " WHERE " + conditions.join(" AND ");
+        }
 
-      sql += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
+        sql += " GROUP BY pins.id";
 
-      const rows = await all(sql, params);
-      res.json(rows.map(parsePin));
-  } catch (e) {
-      console.error("Fetch pins error:", e);
-      res.status(500).json({ error: "Failed to fetch pins" });
-  }
+        // Sorting
+        let orderBy = 'pins.createdAt DESC';
+        if (sort === 'oldest') orderBy = 'pins.createdAt ASC';
+        else if (sort === 'az') orderBy = 'pins.title ASC';
+        else if (sort === 'za') orderBy = 'pins.title DESC';
+        else if (sort === 'random') orderBy = 'RANDOM()';
+
+        sql += ` ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
+        params.push(limit, offset);
+
+        const rows = await all(sql, params);
+        res.json(rows.map(parsePin));
+    } catch (e) {
+        console.error("Fetch pins error:", e);
+        res.status(500).json({ error: "Failed to fetch pins" });
+    }
 });
 
 // Protect all write operations on Pins
@@ -447,8 +466,8 @@ app.post('/api/pins/toggle-favorite', requireAuth, async (req, res) => {
 app.post('/api/pins', requireAuth, async (req: any, res: any) => {
     const pin = req.body;
     const id = uuidv4();
-    const ownerId = req.user.id; 
-    
+    const ownerId = req.user.id;
+
     let finalImageUrl = pin.imageUrl;
     let finalThumbnail = pin.thumbnail;
 
@@ -459,16 +478,16 @@ app.post('/api/pins', requireAuth, async (req: any, res: any) => {
     }
 
     await run(
-      `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
+        `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), '[]', pin.link, JSON.stringify(pin.location || null), pin.aspectRatio, JSON.stringify(pin.tags || []), 
-      ownerId, // Force ownerId
-      Date.now(), 0, null]
+        [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), '[]', pin.link, JSON.stringify(pin.location || null), pin.aspectRatio, JSON.stringify(pin.tags || []),
+            ownerId, // Force ownerId
+            Date.now(), 0, null]
     );
 
     const boardsToJoin = (pin.boardIds && pin.boardIds.length > 0) ? pin.boardIds : [NEW_STEMS_ID];
     for (const boardId of boardsToJoin) {
-         await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [ownerId, id, boardId, Date.now()]);
+        await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [ownerId, id, boardId, Date.now()]);
     }
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
@@ -479,7 +498,7 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
     const fields: string[] = [];
     const values: any[] = [];
     Object.keys(updates).forEach(key => {
-        if(key === 'id' || key === 'boardIds' || key === 'favorite') return;
+        if (key === 'id' || key === 'boardIds' || key === 'favorite') return;
         let val = updates[key];
         if (['gallery', 'tags', 'location'].includes(key)) val = JSON.stringify(val);
         fields.push(`${key} = ?`);
@@ -492,31 +511,31 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
 
-app.delete('/api/pins/:id', requireAuth, async (req: any, res: any) => { 
+app.delete('/api/pins/:id', requireAuth, async (req: any, res: any) => {
     // Ownership Check
     const pin = await get("SELECT ownerId FROM pins WHERE id = ?", [req.params.id]);
     if (!pin) return res.status(404).json({ error: "Pin not found" });
-    
+
     // Allow deletion if: User is Admin OR User owns the pin
     if (req.user.role !== 'admin' && pin.ownerId !== req.user.id) {
         return res.status(403).json({ error: "Forbidden: You do not own this pin" });
     }
 
-    await run("UPDATE pins SET deletedAt = ? WHERE id = ?", [Date.now(), req.params.id]); 
-    res.json({ success: true }); 
+    await run("UPDATE pins SET deletedAt = ? WHERE id = ?", [Date.now(), req.params.id]);
+    res.json({ success: true });
 });
 
 app.post('/api/pins/restore', requireAuth, async (req, res) => { await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [req.body.id]); res.json({ success: true }); });
-app.post('/api/pins/bulk-delete', requireAuth, async (req, res) => { const ids = req.body.ids; await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${ids.map(()=>'?').join(',')})`, [Date.now(), ...ids]); res.json({ success: true }); });
+app.post('/api/pins/bulk-delete', requireAuth, async (req, res) => { const ids = req.body.ids; await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${ids.map(() => '?').join(',')})`, [Date.now(), ...ids]); res.json({ success: true }); });
 
 // --- PUBLIC PROFILE ---
 app.get('/api/users/:id/public', gatekeeper, async (req: any, res) => {
     try {
         const user = await get("SELECT id, username, avatarSeed, role, createdAt FROM users WHERE id = ?", [req.params.id]);
         if (!user) return res.status(404).json({ error: "User not found" });
-        
+
         const pinCount = await get("SELECT COUNT(*) as c FROM pins WHERE ownerId = ? AND deletedAt IS NULL", [req.params.id]);
-        
+
         res.json({
             id: user.id,
             username: user.username,
@@ -534,7 +553,7 @@ app.get('/api/users/:id/public', gatekeeper, async (req: any, res) => {
 
 // --- BOARD MANAGEMENT ---
 app.post('/api/pins/bulk-boards', requireAuth, async (req, res) => {
-    const { ids, boardId, userId } = req.body; 
+    const { ids, boardId, userId } = req.body;
     if (!userId) return res.status(400).json({ error: "User ID required" });
     for (const pinId of ids) {
         if (boardId !== NEW_STEMS_ID) await run("DELETE FROM pin_boards WHERE userId = ? AND pinId = ? AND boardId = ?", [userId, pinId, NEW_STEMS_ID]);
@@ -585,53 +604,53 @@ app.post('/api/pins/bulk-tags', requireAuth, async (req, res) => {
 });
 
 app.post('/api/pins/merge', requireAuth, async (req, res) => {
-  const { ids } = req.body;
-  if (!ids || ids.length < 2) return res.status(400).json({ error: "Need at least 2 pins" });
-  const placeholders = ids.map(() => '?').join(',');
-  const pins = await all(`SELECT * FROM pins WHERE id IN (${placeholders})`, ids);
-  if (pins.length < 2) return res.status(400).json({ error: "Pins not found" });
-  const targetId = ids[0];
-  const targetPin = pins.find(p => p.id === targetId);
-  const sourcePins = pins.filter(p => p.id !== targetId);
-  if (!targetPin) return res.status(404).json({ error: "Target pin not found" });
-  let targetGallery: string[] = [];
-  try { targetGallery = JSON.parse(targetPin.gallery || '[]'); } catch (e) {}
-  const sourceImages: string[] = [];
-  sourcePins.forEach(p => {
-      sourceImages.push(p.imageUrl);
-      try { const g = JSON.parse(p.gallery || '[]'); sourceImages.push(...g); } catch (e) {}
-  });
-  const newGallery = Array.from(new Set([...targetGallery, ...sourceImages]));
-  await run("UPDATE pins SET gallery = ? WHERE id = ?", [JSON.stringify(newGallery), targetId]);
-  const sourceIds = sourcePins.map(p => p.id);
-  await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${sourceIds.map(() => '?').join(',')})`, [Date.now(), ...sourceIds]);
-  res.json({ success: true, mergedPinId: targetId });
+    const { ids } = req.body;
+    if (!ids || ids.length < 2) return res.status(400).json({ error: "Need at least 2 pins" });
+    const placeholders = ids.map(() => '?').join(',');
+    const pins = await all(`SELECT * FROM pins WHERE id IN (${placeholders})`, ids);
+    if (pins.length < 2) return res.status(400).json({ error: "Pins not found" });
+    const targetId = ids[0];
+    const targetPin = pins.find(p => p.id === targetId);
+    const sourcePins = pins.filter(p => p.id !== targetId);
+    if (!targetPin) return res.status(404).json({ error: "Target pin not found" });
+    let targetGallery: string[] = [];
+    try { targetGallery = JSON.parse(targetPin.gallery || '[]'); } catch (e) { }
+    const sourceImages: string[] = [];
+    sourcePins.forEach(p => {
+        sourceImages.push(p.imageUrl);
+        try { const g = JSON.parse(p.gallery || '[]'); sourceImages.push(...g); } catch (e) { }
+    });
+    const newGallery = Array.from(new Set([...targetGallery, ...sourceImages]));
+    await run("UPDATE pins SET gallery = ? WHERE id = ?", [JSON.stringify(newGallery), targetId]);
+    const sourceIds = sourcePins.map(p => p.id);
+    await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${sourceIds.map(() => '?').join(',')})`, [Date.now(), ...sourceIds]);
+    res.json({ success: true, mergedPinId: targetId });
 });
 
 app.post('/api/pins/ungroup', requireAuth, async (req, res) => {
-  const { id } = req.body;
-  const pin = await get("SELECT * FROM pins WHERE id = ?", [id]);
-  if (!pin) return res.status(404).json({ error: "Pin not found" });
-  const gallery: string[] = JSON.parse(pin.gallery || '[]');
-  if (gallery.length === 0) return res.json({ success: true });
-  for (const imgUrl of gallery) {
-      const newId = uuidv4();
-      await run(
-        `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
+    const { id } = req.body;
+    const pin = await get("SELECT * FROM pins WHERE id = ?", [id]);
+    if (!pin) return res.status(404).json({ error: "Pin not found" });
+    const gallery: string[] = JSON.parse(pin.gallery || '[]');
+    if (gallery.length === 0) return res.json({ success: true });
+    for (const imgUrl of gallery) {
+        const newId = uuidv4();
+        await run(
+            `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [newId, pin.title, pin.description, imgUrl, null, '[]', '[]', pin.link, pin.location, 1, pin.tags, pin.ownerId, Date.now(), 0, null]
-      );
-      await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [pin.ownerId, newId, NEW_STEMS_ID, Date.now()]);
-  }
-  await run("UPDATE pins SET gallery = ? WHERE id = ?", ['[]', id]);
-  res.json({ success: true });
+            [newId, pin.title, pin.description, imgUrl, null, '[]', '[]', pin.link, pin.location, 1, pin.tags, pin.ownerId, Date.now(), 0, null]
+        );
+        await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [pin.ownerId, newId, NEW_STEMS_ID, Date.now()]);
+    }
+    await run("UPDATE pins SET gallery = ? WHERE id = ?", ['[]', id]);
+    res.json({ success: true });
 });
 
 // --- ADMIN & USERS ---
 app.get('/api/users', requireAuth, async (req, res) => { res.json(await all("SELECT id, username, email, role, usedQuota, maxQuota, avatarSeed, inviteCode, homePagePreference FROM users")); });
 
-app.get('/api/users/current', async (req, res) => { 
-    res.json(await get("SELECT id, username, email, role, avatarSeed, homePagePreference FROM users LIMIT 1") || null); 
+app.get('/api/users/current', async (req, res) => {
+    res.json(await get("SELECT id, username, email, role, avatarSeed, homePagePreference FROM users LIMIT 1") || null);
 });
 
 app.get('/api/users/:id', async (req, res) => {
@@ -641,20 +660,20 @@ app.get('/api/users/:id', async (req, res) => {
 });
 
 app.put('/api/users/:id', requireAuth, async (req, res) => {
-    const { avatarSeed, email, maxQuota, homePagePreference } = req.body; 
+    const { avatarSeed, email, maxQuota, homePagePreference } = req.body;
     const updates: string[] = [];
     const values: any[] = [];
-    
+
     if (avatarSeed !== undefined) { updates.push("avatarSeed = ?"); values.push(avatarSeed); }
     if (email !== undefined) { updates.push("email = ?"); values.push(email); }
     if (maxQuota !== undefined) { updates.push("maxQuota = ?"); values.push(maxQuota); }
     if (homePagePreference !== undefined) { updates.push("homePagePreference = ?"); values.push(homePagePreference); }
-    
-    if (updates.length > 0) { 
-        values.push(req.params.id); 
-        await run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values); 
+
+    if (updates.length > 0) {
+        values.push(req.params.id);
+        await run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
     }
-    
+
     res.json(await get("SELECT id, username, email, role, avatarSeed, maxQuota, homePagePreference FROM users WHERE id = ?", [req.params.id]));
 });
 
@@ -688,10 +707,10 @@ app.post('/api/users/:id/token', requireAuth, async (req, res) => {
 // 1. Admin generates a token (Secured)
 app.post('/api/admin/generate-reset-token', requireAuth, async (req, res) => {
     const { userId } = req.body;
-    const token = uuidv4() + uuidv4(); 
-    
+    const token = uuidv4() + uuidv4();
+
     // 3 hours in milliseconds
-    const expiresAt = Date.now() + 10800000; 
+    const expiresAt = Date.now() + 10800000;
 
     await run("UPDATE users SET resetToken = ?, resetTokenExpiresAt = ? WHERE id = ?", [token, expiresAt, userId]);
     res.json({ token });
@@ -710,16 +729,16 @@ app.post('/api/auth/complete-reset', async (req, res) => {
     res.json({ success: true, username: user.username });
 });
 
-app.delete('/api/users/:id', requireAuth, async (req, res) => { 
-    if (req.params.id === 'u1') return res.status(403).json({ error: "Root admin" }); 
-    await run("DELETE FROM users WHERE id = ?", [req.params.id]); 
-    res.json({ success: true }); 
+app.delete('/api/users/:id', requireAuth, async (req, res) => {
+    if (req.params.id === 'u1') return res.status(403).json({ error: "Root admin" });
+    await run("DELETE FROM users WHERE id = ?", [req.params.id]);
+    res.json({ success: true });
 });
 
 app.get('/api/settings', requireAuth, async (req, res) => { res.json(await get("SELECT * FROM settings WHERE id = 'default'") || { maxUploadSize: '50MB', maxUsers: 10 }); });
 app.post('/api/settings', requireAuth, async (req, res) => { await run("UPDATE settings SET maxUploadSize = ?, maxUsers = ? WHERE id = 'default'", [req.body.maxUploadSize, req.body.maxUsers]); res.json({ success: true }); });
 app.get('/api/admin/invites', requireAuth, async (req, res) => { res.json(await all("SELECT * FROM invites ORDER BY createdAt DESC")); });
-app.post('/api/admin/invites', requireAuth, async (req, res) => { 
+app.post('/api/admin/invites', requireAuth, async (req, res) => {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     await run("INSERT INTO invites (id, code, assignedQuota, isUsed, createdAt) VALUES (?, ?, ?, 0, ?)", [uuidv4(), code, req.body.quota || '20GB', Date.now()]);
     res.json({ code, assignedQuota: req.body.quota });
@@ -736,9 +755,9 @@ app.put('/api/collections/:id', requireAuth, async (req, res) => {
 });
 
 // Update specific board access (Handle Unlisted Links)
-app.get('/api/boards', gatekeeper, async (req: any, res) => { 
+app.get('/api/boards', gatekeeper, async (req: any, res) => {
     const currentUserId = req.user ? req.user.id : null;
-    const targetOwnerId = req.query.userId || req.query.ownerId || currentUserId; 
+    const targetOwnerId = req.query.userId || req.query.ownerId || currentUserId;
 
     // Subquery to get the latest image for the board cover
     const coverImageSql = `
@@ -764,14 +783,14 @@ app.get('/api/boards', gatekeeper, async (req: any, res) => {
     res.json([]);
 });
 
-app.post('/api/boards', requireAuth, async (req: any, res) => { 
-    const id = uuidv4(); 
+app.post('/api/boards', requireAuth, async (req: any, res) => {
+    const id = uuidv4();
     const ownerId = req.user.id;
-    
-    await run("INSERT INTO boards (id, title, collectionId, ownerId, visibility) VALUES (?, ?, ?, ?, ?)", 
+
+    await run("INSERT INTO boards (id, title, collectionId, ownerId, visibility) VALUES (?, ?, ?, ?, ?)",
         [id, req.body.title, req.body.collectionId, ownerId, req.body.visibility || 'private']
-    ); 
-    res.json(await get("SELECT * FROM boards WHERE id = ?", [id])); 
+    );
+    res.json(await get("SELECT * FROM boards WHERE id = ?", [id]));
 });
 
 app.delete('/api/boards/:id', requireAuth, async (req, res) => { await run("DELETE FROM boards WHERE id = ?", [req.params.id]); res.json({ success: true }); });
@@ -779,51 +798,51 @@ app.put('/api/boards/:id', requireAuth, async (req, res) => {
     if (req.body.title !== undefined) await run("UPDATE boards SET title = ? WHERE id = ?", [req.body.title, req.params.id]);
     if (req.body.collectionId !== undefined) await run("UPDATE boards SET collectionId = ? WHERE id = ?", [req.body.collectionId, req.params.id]);
     if (req.body.visibility !== undefined) await run("UPDATE boards SET visibility = ? WHERE id = ?", [req.body.visibility, req.params.id]);
-    res.json({success: true});
+    res.json({ success: true });
 });
 
 // --- UPLOAD & SCRAPE ---
 app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).send('No file uploaded.');
-  const date = new Date();
-  const folder = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-  
-  const targetDir = path.join(IMAGES_DIR, folder);
-  const thumbTargetDir = path.join(THUMBNAILS_DIR, folder);
-  
-  if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
-  if (!fs.existsSync(thumbTargetDir)) fs.mkdirSync(thumbTargetDir, { recursive: true });
+    if (!req.file) return res.status(400).send('No file uploaded.');
+    const date = new Date();
+    const folder = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
-  const filename = `${Date.now()}-${req.file.originalname}`;
-  const originalPath = path.join(targetDir, filename);
+    const targetDir = path.join(IMAGES_DIR, folder);
+    const thumbTargetDir = path.join(THUMBNAILS_DIR, folder);
 
-  const isVideo = req.file.mimetype.startsWith('video/');
-  let thumbFilename = filename.replace(/\.[^/.]+$/, "") + ".webp"; 
-  if(isVideo) thumbFilename = filename; 
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+    if (!fs.existsSync(thumbTargetDir)) fs.mkdirSync(thumbTargetDir, { recursive: true });
 
-  const thumbnailPath = path.join(thumbTargetDir, thumbFilename);
+    const filename = `${Date.now()}-${req.file.originalname}`;
+    const originalPath = path.join(targetDir, filename);
 
-  try {
-      await fs.promises.writeFile(originalPath, req.file.buffer);
-      let thumbUrl = null;
+    const isVideo = req.file.mimetype.startsWith('video/');
+    let thumbFilename = filename.replace(/\.[^/.]+$/, "") + ".webp";
+    if (isVideo) thumbFilename = filename;
 
-      if (!isVideo) {
-          await sharp(req.file.buffer)
-            .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
-            .webp({ quality: 80 })
-            .toFile(thumbnailPath);
-          thumbUrl = `/thumbnails/${folder}/${thumbFilename}`;
-      }
+    const thumbnailPath = path.join(thumbTargetDir, thumbFilename);
 
-      res.json({ 
-          url: `/images/${folder}/${filename}`,
-          thumbnail: thumbUrl
-      });
-  } catch (err) {
-      console.error("Upload failed", err);
-      if (!fs.existsSync(originalPath)) await fs.promises.writeFile(originalPath, req.file.buffer);
-      res.json({ url: `/images/${folder}/${filename}` });
-  }
+    try {
+        await fs.promises.writeFile(originalPath, req.file.buffer);
+        let thumbUrl = null;
+
+        if (!isVideo) {
+            await sharp(req.file.buffer)
+                .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
+                .webp({ quality: 80 })
+                .toFile(thumbnailPath);
+            thumbUrl = `/thumbnails/${folder}/${thumbFilename}`;
+        }
+
+        res.json({
+            url: `/images/${folder}/${filename}`,
+            thumbnail: thumbUrl
+        });
+    } catch (err) {
+        console.error("Upload failed", err);
+        if (!fs.existsSync(originalPath)) await fs.promises.writeFile(originalPath, req.file.buffer);
+        res.json({ url: `/images/${folder}/${filename}` });
+    }
 });
 
 app.post('/api/scrape', requireAuth, async (req, res) => {
@@ -854,11 +873,11 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
         if (response.ok) {
             const contentType = response.headers.get('content-type') || '';
             if (contentType.startsWith('image/')) {
-                 return res.json({ images: [url], title: '' });
+                return res.json({ images: [url], title: '' });
             }
-            
+
             const html = await response.text();
-            
+
             if (url.includes('behance.net')) {
                 const cleanHtml = html.replace(/\\\//g, '/');
                 const behanceRegex = /https?:\/\/(?:mir-s3-cdn-cf|m)\.behance\.net\/project_modules\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+\.(?:jpg|jpeg|png|webp|gif|avif)/gi;
@@ -878,7 +897,7 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
             ['meta[property="og:image"]', 'meta[name="twitter:image"]', 'link[rel="image_src"]'].forEach(selector => {
                 doc.querySelectorAll(selector).forEach((el: any) => {
                     const content = el.getAttribute('content') || el.getAttribute('href');
-                    if (content) try { extractedImages.add(new URL(content, url).href); } catch(e){}
+                    if (content) try { extractedImages.add(new URL(content, url).href); } catch (e) { }
                 });
             });
 
@@ -889,7 +908,7 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
                         const width = img.getAttribute('width');
                         if (width && parseInt(width) < 50) return;
                         extractedImages.add(new URL(candidateSrc, url).href);
-                    } catch (e) {}
+                    } catch (e) { }
                 }
             });
         }
@@ -897,7 +916,7 @@ app.post('/api/scrape', requireAuth, async (req, res) => {
         const imageList = Array.from(extractedImages)
             .filter(img => !img.endsWith('.svg') && !img.includes('favicon'));
 
-        res.json({ 
+        res.json({
             images: imageList.slice(0, 50),
             title: scrapedTitle.trim()
         });
@@ -918,7 +937,7 @@ app.post('/api/admin/regenerate-thumbnails', requireAuth, async (req, res) => {
         for (const pin of pins) {
             if (pin.imageUrl && pin.imageUrl.startsWith('http')) {
                 const processed = await processExternalImage(pin.imageUrl);
-                if (processed.url !== pin.imageUrl) { 
+                if (processed.url !== pin.imageUrl) {
                     await run("UPDATE pins SET imageUrl = ?, thumbnail = ? WHERE id = ?", [processed.url, processed.thumbnail, pin.id]);
                     count++;
                 }

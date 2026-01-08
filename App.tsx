@@ -112,6 +112,8 @@ function App() {
     const [isSortOpen, setIsSortOpen] = useState(false);
     const [isShuffle, setIsShuffle] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const debouncedSearch = useDebounce(searchQuery, 300); // Wait 300ms
+
 
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [selectedPinIds, setSelectedPinIds] = useState<string[]>([]);
@@ -151,7 +153,7 @@ function App() {
                 setHasMore(true);
                 setPins([]);
             }
-            
+
             refreshData(true);
         }
     }, [currentUser]);
@@ -221,9 +223,12 @@ function App() {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    const refreshData = async (reset = false) => {
+    const refreshData = async (reset = false, searchOverride?: string) => {
         if (!currentUser) return;
         const targetPage = reset ? 1 : page;
+
+        // Use override if provided, otherwise fall back to state
+        const termToSearch = searchOverride !== undefined ? searchOverride : searchQuery;
 
         try {
             if (reset) setIsLoading(true);
@@ -251,8 +256,7 @@ function App() {
             if (activeFilter.type === 'created') filterConfig.creatorId = activeFilter.id;
 
             const effectiveSort = isShuffle ? 'random' : sortBy;
-            const newPins = await dataService.getPins(filterConfig, effectiveSort, searchQuery, currentUser.id, targetPage);
-
+            const newPins = await dataService.getPins(filterConfig, effectiveSort, termToSearch, currentUser.id, targetPage);
             if (reset) {
                 setPins(newPins);
                 setHasMore(newPins.length >= 50);
@@ -279,13 +283,13 @@ function App() {
     }, [currentUser]);
 
     useEffect(() => {
-        if (currentUser) {
-            setPage(1);
-            setHasMore(true);
-            setPins([]);
-            refreshData(true);
-        }
-    }, [activeFilter, sortBy, isShuffle, searchQuery]);
+    if (currentUser) {
+        setPage(1);
+        setHasMore(true);
+        setPins([]);
+        refreshData(true, debouncedSearch);
+    }
+}, [activeFilter, sortBy, isShuffle, debouncedSearch]);
 
     useEffect(() => {
         if (page > 1 && currentUser) refreshData(false);
@@ -373,14 +377,14 @@ function App() {
     const resetFilters = () => {
         // Check preference: if 'created', go to user profile; otherwise go to 'all'
         if (currentUser && currentUser.homePagePreference === 'created') {
-             setActiveFilter({ type: 'created', id: currentUser.id });
+            setActiveFilter({ type: 'created', id: currentUser.id });
         } else {
-             setActiveFilter({ type: 'all', id: '' });
+            setActiveFilter({ type: 'all', id: '' });
         }
 
         setSearchQuery('');
         if (viewingProfileId) handleCloseProfile();
-        
+
         const url = new URL(window.location.href);
         url.search = "";
         window.history.pushState({}, '', url.toString());
@@ -579,7 +583,7 @@ function App() {
                                                 {activeFilter.type === 'board' && boards.find(b => b.id === activeFilter.id)?.title}
                                                 {activeFilter.type === 'tag' && `#${activeFilter.id}`}
                                             </h2>
-                                            
+
                                             <div className="flex items-center bg-slate-900 rounded-full border border-slate-800 p-1 gap-1">
                                                 <button onClick={handleSelectionModeToggle} className={`p-2 rounded-full transition-all ${isSelectionMode ? 'bg-teal-500 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Select Multiple">
                                                     <MousePointer2 size={16} />
@@ -727,6 +731,19 @@ function App() {
             </div>
         </ErrorBoundary>
     );
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState(value);
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [value, delay]);
+    return debouncedValue;
 }
 
 export default App;
