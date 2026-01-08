@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 // FIX 1: Added 'Globe' to imports
-import { Search, Map, Grid, Plus, Menu, Settings, Shield, ChevronDown, LogOut, Globe } from 'lucide-react';
+import { Search, Hash, Map, Grid, Plus, Menu, Settings, Shield, ChevronDown, LogOut, Globe } from 'lucide-react';
 
 interface HeaderProps {
   user: User;
@@ -47,8 +47,13 @@ export const Header: React.FC<HeaderProps> = ({
 
                 {/* Mobile Search Icon (Expandable logic could go here, for now keeping simple) */}
                 <div className="relative w-full max-w-md hidden sm:block">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                    <input 
+                  
+{/* Conditionally render Icon */}
+    {searchQuery.startsWith('#') ? (
+        <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-teal-500" size={18} />
+    ) : (
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+    )}                    <input 
                         type="text" 
                         placeholder="Search stems..." 
                         value={searchQuery}
