@@ -66,6 +66,7 @@ const getInitialFilter = () => {
 
 function App() {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [isServerOpen, setIsServerOpen] = useState(false); // Default to locked
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [resetToken, setResetToken] = useState<string | null>(null);
@@ -140,12 +141,13 @@ function App() {
     // --- EFFECTS ---
 
     useEffect(() => {
-        if (currentUser) {
+        // Only run effects if user is logged in OR server is open
+        if (currentUser || isServerOpen) {
             // Check if we are loading the root URL without parameters
             const params = new URLSearchParams(window.location.search);
             const hasParams = params.toString().length > 0;
 
-            if (!hasParams && currentUser.homePagePreference === 'created') {
+            if (!hasParams && currentUser && currentUser.homePagePreference === 'created') {
                 setActiveFilter({ type: 'created', id: currentUser.id });
             } else if (!hasParams) {
                 // Default fallback
@@ -156,7 +158,7 @@ function App() {
 
             refreshData(true);
         }
-    }, [currentUser]);
+    }, [currentUser, isServerOpen]);
 
     // FIX: Handle Browser Back Button
     useEffect(() => {
@@ -177,6 +179,16 @@ function App() {
     useEffect(() => {
         const checkAuth = async () => {
             setIsLoading(true);
+            
+            // 1. Check Server Status
+            try {
+                const status = await dataService.getServerStatus();
+                setIsServerOpen(status.isServerOpen);
+            } catch(e) {
+                console.error("Failed to check server status", e);
+            }
+
+            // 2. Check User Session
             const stored = localStorage.getItem('tallo_user');
             if (stored) {
                 try {
@@ -194,7 +206,9 @@ function App() {
     }, []);
 
     useEffect(() => {
-        if (!currentUser) return;
+        // Allow deep linking if user is logged in OR server is open
+        if (!currentUser && !isServerOpen) return;
+        
         const params = new URLSearchParams(window.location.search);
         const pinId = params.get('pinId');
         if (pinId) {
@@ -202,7 +216,7 @@ function App() {
                 .then(pin => setSelectedPin(pin))
                 .catch(err => console.error("Deep link pin not found", err));
         }
-    }, [currentUser]);
+    }, [currentUser, isServerOpen]);
 
     const closeModal = () => {
         setSelectedPin(null);
@@ -224,8 +238,11 @@ function App() {
     }, []);
 
     const refreshData = async (reset = false, searchOverride?: string) => {
-        if (!currentUser) return;
+        // Allow if guest AND server open
+        if (!currentUser && !isServerOpen) return;
+        
         const targetPage = reset ? 1 : page;
+        const currentUserId = currentUser ? currentUser.id : '';
 
         // Use override if provided, otherwise fall back to state
         const termToSearch = searchOverride !== undefined ? searchOverride : searchQuery;
@@ -234,10 +251,11 @@ function App() {
             if (reset) setIsLoading(true);
             else setIsFetchingMore(true);
 
+            // Fetch data. Note: getUsers, Collections, Boards might return empty for guests depending on backend logic
             const [usersData, collectionsData, boardsData, tagsData, allTagsData] = await Promise.all([
-                dataService.getUsers(),
-                dataService.getCollections(currentUser.id),
-                dataService.getBoards(currentUser.id),
+                dataService.getUsers().catch(() => []),
+                dataService.getCollections(currentUserId).catch(() => []),
+                dataService.getBoards(currentUserId).catch(() => []),
                 dataService.getTrendingTags(),
                 dataService.getAllTags()
             ]);
@@ -256,7 +274,8 @@ function App() {
             if (activeFilter.type === 'created') filterConfig.creatorId = activeFilter.id;
 
             const effectiveSort = isShuffle ? 'random' : sortBy;
-            const newPins = await dataService.getPins(filterConfig, effectiveSort, termToSearch, currentUser.id, targetPage);
+            const newPins = await dataService.getPins(filterConfig, effectiveSort, termToSearch, currentUserId, targetPage);
+            
             if (reset) {
                 setPins(newPins);
                 setHasMore(newPins.length >= 50);
@@ -279,11 +298,7 @@ function App() {
     };
 
     useEffect(() => {
-        if (currentUser) refreshData(true);
-    }, [currentUser]);
-
-    useEffect(() => {
-        if (currentUser) {
+        if (currentUser || isServerOpen) {
             setPage(1);
             setHasMore(true);
             setPins([]);
@@ -292,13 +307,15 @@ function App() {
     }, [activeFilter, sortBy, isShuffle, debouncedSearch]);
 
     useEffect(() => {
-        if (page > 1 && currentUser) refreshData(false);
+        if (page > 1 && (currentUser || isServerOpen)) refreshData(false);
     }, [page]);
 
     const handleLogout = () => {
         dataService.logout();
         setCurrentUser(null);
         setPins([]);
+        // Force reload to reset state cleanly
+        window.location.reload();
     };
 
     const handleScroll = useCallback((e: React.UIEvent<HTMLElement>) => {
@@ -452,7 +469,7 @@ function App() {
 
     const masonryColumns = getMasonryColumns();
 
-    if (!currentUser) {
+    if (!currentUser && !isServerOpen) {
         if (isLoading) {
             return (
                 <div className="h-screen w-screen bg-[#000208] flex items-center justify-center text-teal-500">
@@ -491,27 +508,26 @@ function App() {
 
                 <div className={`flex flex-col h-full flex-1 transition-all duration-300 ease-in-out ${currentUser && isSidebarOpen ? 'md:ml-64' : (currentUser ? 'md:ml-20' : '')}`}>
 
-                    {currentUser && (
-                        <Header
-                            user={currentUser}
-                            viewMode={viewMode}
-                            onToggleView={setViewMode}
-                            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-                            onCreatePin={() => {
-                                window.history.pushState({ modal: 'create' }, '');
-                                setIsCreateOpen(true);
-                            }}
-                            onLogoClick={resetFilters}
-                            searchQuery={searchQuery}
-                            onSearchChange={setSearchQuery}
-                            onOpenAdmin={() => setIsAdminOpen(true)}
-                            onLogout={handleLogout}
-                            onOpenProfile={() => {
-                                if (currentUser) handleOpenProfile(currentUser.id);
-                            }}
-                            onOpenSettings={() => setIsProfileOpen(true)}
-                        />
-                    )}
+                    {/* FIX: Render Header even for guests (pass null user) */}
+                    <Header
+                        user={currentUser as User} 
+                        viewMode={viewMode}
+                        onToggleView={setViewMode}
+                        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+                        onCreatePin={() => {
+                            window.history.pushState({ modal: 'create' }, '');
+                            setIsCreateOpen(true);
+                        }}
+                        onLogoClick={resetFilters}
+                        searchQuery={searchQuery}
+                        onSearchChange={setSearchQuery}
+                        onOpenAdmin={() => setIsAdminOpen(true)}
+                        onLogout={handleLogout}
+                        onOpenProfile={() => {
+                            if (currentUser) handleOpenProfile(currentUser.id);
+                        }}
+                        onOpenSettings={() => setIsProfileOpen(true)}
+                    />
 
                     <main
                         className="flex-1 relative overflow-y-auto no-scrollbar"
@@ -584,6 +600,7 @@ function App() {
                                                 {activeFilter.type === 'tag' && `#${activeFilter.id}`}
                                             </h2>
 
+                                            {currentUser && (
                                             <div className="flex items-center bg-slate-900 rounded-full border border-slate-800 p-1 gap-1">
                                                 <button onClick={handleSelectionModeToggle} className={`p-2 rounded-full transition-all ${isSelectionMode ? 'bg-teal-500 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Select Multiple">
                                                     <MousePointer2 size={16} />
@@ -594,6 +611,7 @@ function App() {
                                                     </button>
                                                 )}
                                             </div>
+                                            )}
                                         </div>
 
                                         <div className="flex items-center gap-2">
@@ -631,7 +649,7 @@ function App() {
                                             </div>
                                             <h3 className="text-xl font-bold text-slate-300 mb-2">No Stems Found</h3>
                                             <p className="mb-6">{searchQuery ? `No results for "${searchQuery}"` : 'Upload an image to get started.'}</p>
-                                            <button onClick={() => { window.history.pushState({ modal: 'create' }, ''); setIsCreateOpen(true); }} className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full font-medium transition">Add Stem</button>
+                                            {currentUser && <button onClick={() => { window.history.pushState({ modal: 'create' }, ''); setIsCreateOpen(true); }} className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full font-medium transition">Add Stem</button>}
                                         </div>
                                     ) : (
                                         <>
@@ -718,6 +736,16 @@ function App() {
                             }}
                         />
                     </>
+                )}
+
+                {/* GUEST PIN MODAL (Read Only) */}
+                {!currentUser && (
+                    <PinModal
+                        pin={selectedPin} onClose={closeModal}
+                        collections={[]} boards={[]}
+                        onUpdate={() => {}} onDelete={() => {}}
+                        pinList={pins} onNavigate={setSelectedPin}
+                    />
                 )}
 
                 {toast && (

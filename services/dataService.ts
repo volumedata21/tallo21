@@ -21,6 +21,12 @@ export const dataService = {
     return data.isSetup;
   },
 
+  // FIX: Added this method so App.tsx can check if login is required
+  getServerStatus: async (): Promise<{ isSetup: boolean, isServerOpen: boolean }> => {
+    const res = await fetch(`${API_URL}/system/status`);
+    return res.json();
+  },
+
   setupAdmin: async (data: any): Promise<User> => {
     const res = await fetch(`${API_URL}/setup`, {
       method: 'POST',
