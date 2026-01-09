@@ -57,6 +57,67 @@ const all = (sql: string, params: any[] = []) => new Promise<any[]>((resolve, re
     db.all(sql, params, (err, rows) => { if (err) reject(err); else resolve(rows); });
 });
 
+const parseBytes = (sizeStr: string): number => {
+    if (!sizeStr || sizeStr === 'Unlimited') return Infinity;
+    const units: { [key: string]: number } = { 'B': 1, 'KB': 1024, 'MB': 1024 ** 2, 'GB': 1024 ** 3, 'TB': 1024 ** 4 };
+    const match = sizeStr.match(/^(\d+(\.\d+)?)\s*([a-zA-Z]+)$/);
+    if (!match) return 0;
+    const val = parseFloat(match[1]);
+    const unit = match[3].toUpperCase().replace(/S$/, '');
+    const multiplier = units[unit] || units[unit[0]] || 1;
+    return val * multiplier;
+};
+
+const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+const updateUserQuota = async (userId: string) => {
+    try {
+        // Calculate usage based on ACTIVE pins (not deleted)
+        const pins = await all("SELECT imageUrl, thumbnail, gallery FROM pins WHERE ownerId = ? AND deletedAt IS NULL", [userId]);
+        let totalBytes = 0;
+        const processedFiles = new Set<string>();
+
+        const addFile = (url: string) => {
+            if (!url || processedFiles.has(url)) return;
+            processedFiles.add(url);
+
+            let filePath = '';
+            if (url.startsWith('/images/')) {
+                filePath = path.join(IMAGES_DIR, url.replace('/images/', ''));
+            } else if (url.startsWith('/thumbnails/')) {
+                filePath = path.join(THUMBNAILS_DIR, url.replace('/thumbnails/', ''));
+            }
+
+            if (filePath && fs.existsSync(filePath)) {
+                totalBytes += fs.statSync(filePath).size;
+            }
+        };
+
+        for (const pin of pins) {
+            addFile(pin.imageUrl);
+            addFile(pin.thumbnail);
+            if (pin.gallery) {
+                try {
+                    const g = JSON.parse(pin.gallery);
+                    if (Array.isArray(g)) g.forEach(addFile);
+                } catch {}
+            }
+        }
+
+        const quotaStr = formatBytes(totalBytes);
+        await run("UPDATE users SET usedQuota = ? WHERE id = ?", [quotaStr, userId]);
+        return quotaStr;
+    } catch (e) {
+        console.error("Quota update failed:", e);
+    }
+};
+
 // --- AUTH MIDDLEWARE ---
 const requireAuth = async (req: any, res: any, next: any) => {
     // 1. Check for Extension API Key
@@ -489,6 +550,9 @@ app.post('/api/pins', requireAuth, async (req: any, res: any) => {
     for (const boardId of boardsToJoin) {
         await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [ownerId, id, boardId, Date.now()]);
     }
+    // Update quota and finish
+    await updateUserQuota(ownerId);
+    
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
 
@@ -508,6 +572,11 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
         values.push(id);
         await run(`UPDATE pins SET ${fields.join(', ')} WHERE id = ?`, values);
     }
+    
+    // Check pin owner and update their quota (renamed to pinCheck to avoid conflicts)
+    const pinCheck = await get("SELECT ownerId FROM pins WHERE id = ?", [id]);
+    if(pinCheck) await updateUserQuota(pinCheck.ownerId);
+
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
 
@@ -522,11 +591,24 @@ app.delete('/api/pins/:id', requireAuth, async (req: any, res: any) => {
     }
 
     await run("UPDATE pins SET deletedAt = ? WHERE id = ?", [Date.now(), req.params.id]);
+    await updateUserQuota(pin.ownerId);
     res.json({ success: true });
 });
 
-app.post('/api/pins/restore', requireAuth, async (req, res) => { await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [req.body.id]); res.json({ success: true }); });
-app.post('/api/pins/bulk-delete', requireAuth, async (req, res) => { const ids = req.body.ids; await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${ids.map(() => '?').join(',')})`, [Date.now(), ...ids]); res.json({ success: true }); });
+app.post('/api/pins/restore', requireAuth, async (req: any, res) => { 
+    await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [req.body.id]); 
+    // Update quota on restore
+    await updateUserQuota(req.user.id);
+    res.json({ success: true }); 
+});
+
+app.post('/api/pins/bulk-delete', requireAuth, async (req: any, res) => { 
+    const ids = req.body.ids; 
+    await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${ids.map(() => '?').join(',')})`, [Date.now(), ...ids]); 
+    // Update quota on bulk delete
+    await updateUserQuota(req.user.id);
+    res.json({ success: true }); 
+});
 
 // --- PUBLIC PROFILE ---
 app.get('/api/users/:id/public', gatekeeper, async (req: any, res) => {
@@ -603,7 +685,7 @@ app.post('/api/pins/bulk-tags', requireAuth, async (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/pins/merge', requireAuth, async (req, res) => {
+app.post('/api/pins/merge', requireAuth, async (req: any, res) => {
     const { ids } = req.body;
     if (!ids || ids.length < 2) return res.status(400).json({ error: "Need at least 2 pins" });
     const placeholders = ids.map(() => '?').join(',');
@@ -624,15 +706,22 @@ app.post('/api/pins/merge', requireAuth, async (req, res) => {
     await run("UPDATE pins SET gallery = ? WHERE id = ?", [JSON.stringify(newGallery), targetId]);
     const sourceIds = sourcePins.map(p => p.id);
     await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${sourceIds.map(() => '?').join(',')})`, [Date.now(), ...sourceIds]);
+    
+    // UPDATE QUOTA
+    await updateUserQuota(req.user.id);
+
     res.json({ success: true, mergedPinId: targetId });
 });
 
-app.post('/api/pins/ungroup', requireAuth, async (req, res) => {
+app.post('/api/pins/ungroup', requireAuth, async (req: any, res) => {
     const { id } = req.body;
     const pin = await get("SELECT * FROM pins WHERE id = ?", [id]);
     if (!pin) return res.status(404).json({ error: "Pin not found" });
+    
+    // Calculate new items from gallery
     const gallery: string[] = JSON.parse(pin.gallery || '[]');
     if (gallery.length === 0) return res.json({ success: true });
+    
     for (const imgUrl of gallery) {
         const newId = uuidv4();
         await run(
@@ -643,6 +732,10 @@ app.post('/api/pins/ungroup', requireAuth, async (req, res) => {
         await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [pin.ownerId, newId, NEW_STEMS_ID, Date.now()]);
     }
     await run("UPDATE pins SET gallery = ? WHERE id = ?", ['[]', id]);
+    
+    // UPDATE QUOTA
+    await updateUserQuota(req.user.id);
+
     res.json({ success: true });
 });
 
@@ -802,8 +895,15 @@ app.put('/api/boards/:id', requireAuth, async (req, res) => {
 });
 
 // --- UPLOAD & SCRAPE ---
-app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
+app.post('/api/upload', requireAuth, upload.single('file'), async (req: any, res) => {
     if (!req.file) return res.status(400).send('No file uploaded.');
+    const used = parseBytes(req.user.usedQuota);
+    const max = parseBytes(req.user.maxQuota);
+    const incoming = req.file.size;
+
+    if (used + incoming > max) {
+        return res.status(403).json({ error: "Storage quota exceeded." });
+    }
     const date = new Date();
     const folder = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
