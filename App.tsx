@@ -283,13 +283,13 @@ function App() {
     }, [currentUser]);
 
     useEffect(() => {
-    if (currentUser) {
-        setPage(1);
-        setHasMore(true);
-        setPins([]);
-        refreshData(true, debouncedSearch);
-    }
-}, [activeFilter, sortBy, isShuffle, debouncedSearch]);
+        if (currentUser) {
+            setPage(1);
+            setHasMore(true);
+            setPins([]);
+            refreshData(true, debouncedSearch);
+        }
+    }, [activeFilter, sortBy, isShuffle, debouncedSearch]);
 
     useEffect(() => {
         if (page > 1 && currentUser) refreshData(false);
@@ -684,8 +684,13 @@ function App() {
 
                 {currentUser && (
                     <>
-                        <AdminPanel isOpen={isAdminOpen} onClose={closeModal} users={users} onUpdate={() => refreshData(true)} />
-
+                        <AdminPanel
+                            isOpen={isAdminOpen}
+                            onClose={closeModal}
+                            users={users}
+                            currentUser={currentUser} // <--- ADD THIS LINE
+                            onUpdate={() => refreshData(true)}
+                        />
                         <PinModal
                             pin={selectedPin} onClose={closeModal}
                             collections={collections} boards={boards}
