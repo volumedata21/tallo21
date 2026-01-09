@@ -66,6 +66,7 @@ const getInitialFilter = () => {
 
 function App() {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [showLogin, setShowLogin] = useState(false);
     const [isServerOpen, setIsServerOpen] = useState(false); // Default to locked
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -260,7 +261,7 @@ function App() {
                 dataService.getAllTags()
             ]);
 
-            setUsers(usersData);
+            setUsers(Array.isArray(usersData) ? usersData : []);
             setCollections(collectionsData);
             setBoards(boardsData);
             setTrendingTags(tagsData);
@@ -444,7 +445,8 @@ function App() {
         if (availableWidth >= 1600) colCount = 5;
         else if (availableWidth >= 1100) colCount = 4;
         else if (availableWidth >= 800) colCount = 3;
-        else if (availableWidth < 500) colCount = 1;
+        else if (availableWidth < 320) colCount = 1; 
+        else if (availableWidth < 800) colCount = 2; // Forces 2 columns on most phones
 
         const columns: Pin[][] = Array.from({ length: colCount }, () => []);
         const colHeights = new Array(colCount).fill(0);
@@ -472,7 +474,7 @@ function App() {
     if (!currentUser && !isServerOpen) {
         if (isLoading) {
             return (
-                <div className="h-screen w-screen bg-[#000208] flex items-center justify-center text-teal-500">
+                <div className="h-[100dvh] bg-[#000208] flex items-center justify-center text-teal-500">
                     <Loader2 className="animate-spin w-10 h-10" />
                 </div>
             );
@@ -480,6 +482,15 @@ function App() {
         if (!resetToken) {
             return <LoginScreen onLogin={setCurrentUser} />;
         }
+    }
+
+    if (showLogin) {
+        return (
+            <LoginScreen onLogin={(user) => {
+                setCurrentUser(user);
+                setShowLogin(false);
+            }} />
+        );
     }
 
     return (
@@ -506,8 +517,7 @@ function App() {
                     />
                 )}
 
-                <div className={`flex flex-col h-full flex-1 transition-all duration-300 ease-in-out ${currentUser && isSidebarOpen ? 'md:ml-64' : (currentUser ? 'md:ml-20' : '')}`}>
-
+<div className={`flex flex-col h-full flex-1 min-w-0 transition-all duration-300 ease-in-out ${currentUser && isSidebarOpen ? 'md:ml-64' : (currentUser ? 'md:ml-20' : '')}`}>
                     {/* FIX: Render Header even for guests (pass null user) */}
                     <Header
                         user={currentUser as User} 
@@ -526,6 +536,7 @@ function App() {
                         onOpenProfile={() => {
                             if (currentUser) handleOpenProfile(currentUser.id);
                         }}
+                        onLoginClick={() => setShowLogin(true)}
                         onOpenSettings={() => setIsProfileOpen(true)}
                     />
 
@@ -589,7 +600,7 @@ function App() {
                                     </div>
                                 )}
 
-                                <div className="px-4 py-6 sm:px-6 lg:px-8">
+                                <div className="px-2 py-4 sm:px-6 lg:px-8">
                                     <div className="flex justify-between items-center mb-6">
                                         <div className="flex items-center gap-4 truncate max-w-md">
                                             <h2 className="text-xl font-bold text-white">
@@ -653,7 +664,7 @@ function App() {
                                         </div>
                                     ) : (
                                         <>
-                                            <div className="flex gap-4 justify-center mx-auto max-w-[2400px]">
+                                            <div className="flex gap-2 sm:gap-4 justify-center mx-auto max-w-[2400px]">
                                                 {masonryColumns.map((colPins, colIndex) => (
                                                     <div key={colIndex} className="flex-1 flex flex-col gap-4 min-w-0">
                                                         {colPins.map(pin => (
