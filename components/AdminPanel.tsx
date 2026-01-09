@@ -95,6 +95,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
   };
 
   const filteredUsers = useMemo(() => {
+    if (!users || !Array.isArray(users)) return [];
     let result = users.filter(u =>
       u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (u.email && u.email.toLowerCase().includes(searchTerm.toLowerCase()))
