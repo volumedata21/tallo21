@@ -78,7 +78,6 @@ const formatBytes = (bytes: number) => {
 
 const updateUserQuota = async (userId: string) => {
     try {
-        // Calculate usage based on ACTIVE pins (not deleted)
         const pins = await all("SELECT imageUrl, thumbnail, gallery FROM pins WHERE ownerId = ? AND deletedAt IS NULL", [userId]);
         let totalBytes = 0;
         const processedFiles = new Set<string>();
@@ -120,7 +119,6 @@ const updateUserQuota = async (userId: string) => {
 
 // --- AUTH MIDDLEWARE ---
 const requireAuth = async (req: any, res: any, next: any) => {
-    // 1. Check for Extension API Key
     const apiToken = req.headers['x-api-token'];
     if (apiToken) {
         const user = await get("SELECT * FROM users WHERE apiToken = ?", [apiToken]);
@@ -130,7 +128,6 @@ const requireAuth = async (req: any, res: any, next: any) => {
         }
     }
 
-    // 2. Check for Frontend Session (User ID)
     const userId = req.headers['x-user-id'];
     if (userId) {
         const user = await get("SELECT * FROM users WHERE id = ?", [userId]);
@@ -144,9 +141,8 @@ const requireAuth = async (req: any, res: any, next: any) => {
     res.status(401).json({ error: "Unauthorized" });
 };
 
-// --- MIDDLEWARE: GATEKEEPER (The Front Door) ---
+// --- MIDDLEWARE: GATEKEEPER ---
 const gatekeeper = async (req: any, res: any, next: any) => {
-    // 1. If user is already authenticated, let them in.
     const apiToken = req.headers['x-api-token'];
     const userId = req.headers['x-user-id'];
     let user = null;
@@ -159,7 +155,6 @@ const gatekeeper = async (req: any, res: any, next: any) => {
         return next();
     }
 
-    // 2. If no user, check if the server is OPEN.
     const settings = await get("SELECT isServerOpen FROM settings WHERE id = 'default'");
     const isOpen = settings ? settings.isServerOpen === 1 : true;
 
@@ -167,11 +162,9 @@ const gatekeeper = async (req: any, res: any, next: any) => {
         return res.status(401).json({ error: "Server is closed to the public. Please log in." });
     }
 
-    // 3. Server is open, proceed as Guest
     next();
 };
 
-// HELPER: Parse Pin
 const parsePin = (pin: any): Pin => {
     const activeBoardIds = pin.realBoardIds || pin.boardIds;
     return {
@@ -190,7 +183,6 @@ const parsePin = (pin: any): Pin => {
     };
 };
 
-// --- HELPER: DOWNLOAD EXTERNAL IMAGES ---
 const processExternalImage = async (url: string) => {
     if (!url || !url.startsWith('http')) return { url, thumbnail: null };
 
@@ -247,7 +239,7 @@ const processExternalImage = async (url: string) => {
     }
 };
 
-// --- MIGRATION SYSTEM ---
+// --- MIGRATION SYSTEM (UPDATED) ---
 const runMigrations = async () => {
     try {
         await run(`CREATE TABLE IF NOT EXISTS migrations (id INTEGER PRIMARY KEY, name TEXT, appliedAt INTEGER)`);
@@ -284,6 +276,16 @@ const runMigrations = async () => {
                 }
             }
         }
+
+        // FORCE CHECK: Ensure 'isServerOpen' column actually exists in settings table
+        // This fixes the issue where the migration might be skipped but column is missing
+        const columns = await all("PRAGMA table_info(settings)");
+        const hasColumn = columns.some(c => c.name === 'isServerOpen');
+        if (!hasColumn) {
+            console.log("Forcing creation of missing column: isServerOpen");
+            await run("ALTER TABLE settings ADD COLUMN isServerOpen INTEGER DEFAULT 1");
+        }
+
     } catch (e) { console.error("Migration check failed", e); }
 };
 
@@ -300,7 +302,6 @@ const ensureDefaultData = async () => {
 
 app.get('/', (req, res) => res.send('Tallo API Running'));
 
-// --- AVATAR ROUTES ---
 app.get('/api/avatars', async (req, res) => {
     try {
         const files = await fs.promises.readdir(AVATARS_DIR);
@@ -321,7 +322,13 @@ app.get('/api/avatars/image/:filename', (req, res) => {
 
 app.get('/api/system/status', async (req, res) => {
     const userCount = await get("SELECT COUNT(*) as count FROM users");
-    res.json({ isSetup: userCount.count > 0 });
+    const settings = await get("SELECT isServerOpen FROM settings WHERE id = 'default'");
+    const isServerOpen = settings ? settings.isServerOpen === 1 : true;
+
+    res.json({ 
+        isSetup: userCount.count > 0,
+        isServerOpen: isServerOpen 
+    });
 });
 
 app.post('/api/setup', async (req, res) => {
@@ -356,10 +363,10 @@ app.post('/api/login', async (req, res) => {
     if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
     const { password: _, ...userInfo } = user;
+    await updateUserQuota(user.id);
     res.json(userInfo);
 });
 
-// Register (Invite Code)
 app.post('/api/register', async (req, res) => {
     const { username, password, email, inviteCode } = req.body;
     try {
@@ -393,7 +400,6 @@ app.post('/api/register', async (req, res) => {
     } catch (e) { res.status(500).json({ error: "Registration failed" }); }
 });
 
-// --- PINS ROUTE (UPDATED) ---
 app.get('/api/pins', gatekeeper, async (req: any, res) => {
     try {
         const page = parseInt(req.query.page as string) || 1;
@@ -403,7 +409,6 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
         const { sort, search, boardId, favorites, tag, creatorId, collectionId } = req.query;
         const currentUserId = req.user ? req.user.id : null;
 
-        // Base Query
         let sql = `
         SELECT pins.*, 
         users.username as ownerName, 
@@ -419,10 +424,7 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
         const params: any[] = [currentUserId || ''];
         const conditions: string[] = ["pins.deletedAt IS NULL"];
 
-        // --- 1. SCOPE LOGIC (Determine WHERE we are looking) ---
-
         if (boardId) {
-            // VIEWING A BOARD
             const board = await get("SELECT * FROM boards WHERE id = ?", [boardId]);
             if (!board) return res.json([]);
 
@@ -434,11 +436,9 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
             params.push(boardId);
 
         } else if (favorites === 'true' && currentUserId) {
-            // VIEWING FAVORITES
             conditions.push("f.userId IS NOT NULL");
 
         } else if (creatorId) {
-            // VIEWING A PROFILE
             conditions.push("pins.ownerId = ?");
             params.push(creatorId);
 
@@ -451,8 +451,6 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
             }
 
         } else {
-            // MAIN FEED (Explore)
-            // Logic: Must belong to at least one PUBLIC board
             conditions.push(`EXISTS (
                 SELECT 1 FROM pin_boards pb 
                 JOIN boards b ON pb.boardId = b.id 
@@ -460,24 +458,18 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
             )`);
         }
 
-        // --- 2. GLOBAL FILTERS (Apply these to ALL views) ---
-
-        // A. Search
         if (search) {
             const searchTerm = search.toString();
             if (searchTerm.startsWith('#')) {
-                // EXPLICIT TAG SEARCH
                 const tagOnly = searchTerm.slice(1);
                 conditions.push("pins.tags LIKE ?");
                 params.push(`%${tagOnly}%`);
             } else {
-                // STANDARD SEARCH
                 conditions.push("(pins.title LIKE ? OR pins.description LIKE ? OR pins.tags LIKE ?)");
                 params.push(`%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`);
             }
         }
 
-        // B. Tag Filter
         if (tag) {
              conditions.push("pins.tags LIKE ?");
              params.push(`%${tag}%`);
@@ -489,7 +481,6 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
 
         sql += " GROUP BY pins.id";
 
-        // Sorting
         let orderBy = 'pins.createdAt DESC';
         if (sort === 'oldest') orderBy = 'pins.createdAt ASC';
         else if (sort === 'az') orderBy = 'pins.title ASC';
@@ -507,7 +498,6 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
     }
 });
 
-// Protect all write operations on Pins
 app.post('/api/pins/toggle-favorite', requireAuth, async (req, res) => {
     const { pinId, userId } = req.body;
     if (!pinId || !userId) return res.status(400).json({ error: "Missing info" });
@@ -523,7 +513,6 @@ app.post('/api/pins/toggle-favorite', requireAuth, async (req, res) => {
     } catch (e) { res.status(500).json({ error: "DB Error" }); }
 });
 
-// SECURED: Create Pin
 app.post('/api/pins', requireAuth, async (req: any, res: any) => {
     const pin = req.body;
     const id = uuidv4();
@@ -550,7 +539,6 @@ app.post('/api/pins', requireAuth, async (req: any, res: any) => {
     for (const boardId of boardsToJoin) {
         await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [ownerId, id, boardId, Date.now()]);
     }
-    // Update quota and finish
     await updateUserQuota(ownerId);
     
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
@@ -573,7 +561,6 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
         await run(`UPDATE pins SET ${fields.join(', ')} WHERE id = ?`, values);
     }
     
-    // Check pin owner and update their quota (renamed to pinCheck to avoid conflicts)
     const pinCheck = await get("SELECT ownerId FROM pins WHERE id = ?", [id]);
     if(pinCheck) await updateUserQuota(pinCheck.ownerId);
 
@@ -581,11 +568,9 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
 });
 
 app.delete('/api/pins/:id', requireAuth, async (req: any, res: any) => {
-    // Ownership Check
     const pin = await get("SELECT ownerId FROM pins WHERE id = ?", [req.params.id]);
     if (!pin) return res.status(404).json({ error: "Pin not found" });
 
-    // Allow deletion if: User is Admin OR User owns the pin
     if (req.user.role !== 'admin' && pin.ownerId !== req.user.id) {
         return res.status(403).json({ error: "Forbidden: You do not own this pin" });
     }
@@ -597,7 +582,6 @@ app.delete('/api/pins/:id', requireAuth, async (req: any, res: any) => {
 
 app.post('/api/pins/restore', requireAuth, async (req: any, res) => { 
     await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [req.body.id]); 
-    // Update quota on restore
     await updateUserQuota(req.user.id);
     res.json({ success: true }); 
 });
@@ -605,12 +589,10 @@ app.post('/api/pins/restore', requireAuth, async (req: any, res) => {
 app.post('/api/pins/bulk-delete', requireAuth, async (req: any, res) => { 
     const ids = req.body.ids; 
     await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${ids.map(() => '?').join(',')})`, [Date.now(), ...ids]); 
-    // Update quota on bulk delete
     await updateUserQuota(req.user.id);
     res.json({ success: true }); 
 });
 
-// --- PUBLIC PROFILE ---
 app.get('/api/users/:id/public', gatekeeper, async (req: any, res) => {
     try {
         const user = await get("SELECT id, username, avatarSeed, role, createdAt FROM users WHERE id = ?", [req.params.id]);
@@ -633,7 +615,6 @@ app.get('/api/users/:id/public', gatekeeper, async (req: any, res) => {
     }
 });
 
-// --- BOARD MANAGEMENT ---
 app.post('/api/pins/bulk-boards', requireAuth, async (req, res) => {
     const { ids, boardId, userId } = req.body;
     if (!userId) return res.status(400).json({ error: "User ID required" });
@@ -707,7 +688,6 @@ app.post('/api/pins/merge', requireAuth, async (req: any, res) => {
     const sourceIds = sourcePins.map(p => p.id);
     await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${sourceIds.map(() => '?').join(',')})`, [Date.now(), ...sourceIds]);
     
-    // UPDATE QUOTA
     await updateUserQuota(req.user.id);
 
     res.json({ success: true, mergedPinId: targetId });
@@ -718,7 +698,6 @@ app.post('/api/pins/ungroup', requireAuth, async (req: any, res) => {
     const pin = await get("SELECT * FROM pins WHERE id = ?", [id]);
     if (!pin) return res.status(404).json({ error: "Pin not found" });
     
-    // Calculate new items from gallery
     const gallery: string[] = JSON.parse(pin.gallery || '[]');
     if (gallery.length === 0) return res.json({ success: true });
     
@@ -733,13 +712,11 @@ app.post('/api/pins/ungroup', requireAuth, async (req: any, res) => {
     }
     await run("UPDATE pins SET gallery = ? WHERE id = ?", ['[]', id]);
     
-    // UPDATE QUOTA
     await updateUserQuota(req.user.id);
 
     res.json({ success: true });
 });
 
-// --- ADMIN & USERS ---
 app.get('/api/users', requireAuth, async (req, res) => { res.json(await all("SELECT id, username, email, role, usedQuota, maxQuota, avatarSeed, inviteCode, homePagePreference FROM users")); });
 
 app.get('/api/users/current', async (req, res) => {
@@ -770,7 +747,6 @@ app.put('/api/users/:id', requireAuth, async (req, res) => {
     res.json(await get("SELECT id, username, email, role, avatarSeed, maxQuota, homePagePreference FROM users WHERE id = ?", [req.params.id]));
 });
 
-// PASSWORD CHANGE (Logged In)
 app.put('/api/users/:id/password', requireAuth, async (req, res) => {
     const { currentPass, newPass } = req.body;
     if (!currentPass || !newPass) return res.status(400).json({ error: "Missing password fields" });
@@ -787,7 +763,6 @@ app.put('/api/users/:id/password', requireAuth, async (req, res) => {
     } catch (e) { res.status(500).json({ error: "Internal server error" }); }
 });
 
-// GENERATE API TOKEN
 app.post('/api/users/:id/token', requireAuth, async (req, res) => {
     const userId = req.params.id;
     const token = 'sk_' + uuidv4().replace(/-/g, '');
@@ -795,21 +770,14 @@ app.post('/api/users/:id/token', requireAuth, async (req, res) => {
     res.json({ token });
 });
 
-// --- PASSWORD RESET FLOW ---
-
-// 1. Admin generates a token (Secured)
 app.post('/api/admin/generate-reset-token', requireAuth, async (req, res) => {
     const { userId } = req.body;
     const token = uuidv4() + uuidv4();
-
-    // 3 hours in milliseconds
     const expiresAt = Date.now() + 10800000;
-
     await run("UPDATE users SET resetToken = ?, resetTokenExpiresAt = ? WHERE id = ?", [token, expiresAt, userId]);
     res.json({ token });
 });
 
-// 2. User consumes the token (Public, uses token)
 app.post('/api/auth/complete-reset', async (req, res) => {
     const { token, newPassword } = req.body;
     if (!token || !newPassword) return res.status(400).json({ error: "Missing fields" });
@@ -829,7 +797,21 @@ app.delete('/api/users/:id', requireAuth, async (req, res) => {
 });
 
 app.get('/api/settings', requireAuth, async (req, res) => { res.json(await get("SELECT * FROM settings WHERE id = 'default'") || { maxUploadSize: '50MB', maxUsers: 10 }); });
-app.post('/api/settings', requireAuth, async (req, res) => { await run("UPDATE settings SET maxUploadSize = ?, maxUsers = ? WHERE id = 'default'", [req.body.maxUploadSize, req.body.maxUsers]); res.json({ success: true }); });
+
+// FIX: Added try/catch to debug errors
+app.post('/api/settings', requireAuth, async (req, res) => { 
+    try {
+        const isOpen = req.body.isServerOpen ? 1 : 0;
+        await run("UPDATE settings SET maxUploadSize = ?, maxUsers = ?, isServerOpen = ? WHERE id = 'default'", 
+            [req.body.maxUploadSize, req.body.maxUsers, isOpen]
+        ); 
+        res.json({ success: true }); 
+    } catch (e: any) {
+        console.error("Settings Update Failed:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/admin/invites', requireAuth, async (req, res) => { res.json(await all("SELECT * FROM invites ORDER BY createdAt DESC")); });
 app.post('/api/admin/invites', requireAuth, async (req, res) => {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -838,7 +820,6 @@ app.post('/api/admin/invites', requireAuth, async (req, res) => {
 });
 app.delete('/api/admin/invites/:id', requireAuth, async (req, res) => { await run("DELETE FROM invites WHERE id = ?", [req.params.id]); res.json({ success: true }); });
 
-// --- COLLECTIONS & BOARDS ---
 app.get('/api/collections', async (req, res) => { res.json(await all("SELECT * FROM collections WHERE ownerId = ?", [req.query.userId])); });
 app.post('/api/collections', requireAuth, async (req, res) => { const id = uuidv4(); await run("INSERT INTO collections (id, title, ownerId) VALUES (?, ?, ?)", [id, req.body.title, req.body.ownerId]); res.json(await get("SELECT * FROM collections WHERE id = ?", [id])); });
 app.delete('/api/collections/:id', requireAuth, async (req, res) => { await run("DELETE FROM collections WHERE id = ?", [req.params.id]); res.json({ success: true }); });
@@ -847,12 +828,10 @@ app.put('/api/collections/:id', requireAuth, async (req, res) => {
     res.json({ success: true });
 });
 
-// Update specific board access (Handle Unlisted Links)
 app.get('/api/boards', gatekeeper, async (req: any, res) => {
     const currentUserId = req.user ? req.user.id : null;
     const targetOwnerId = req.query.userId || req.query.ownerId || currentUserId;
 
-    // Subquery to get the latest image for the board cover
     const coverImageSql = `
         (SELECT p.imageUrl 
          FROM pins p 
@@ -861,13 +840,11 @@ app.get('/api/boards', gatekeeper, async (req: any, res) => {
          ORDER BY p.createdAt DESC LIMIT 1) as coverImage
     `;
 
-    // 1. If looking at MY own boards
     if (currentUserId && targetOwnerId === currentUserId) {
         const sql = `SELECT b.*, ${coverImageSql} FROM boards b WHERE ownerId = ? OR id = ?`;
         return res.json(await all(sql, [currentUserId, NEW_STEMS_ID]));
     }
 
-    // 2. If looking at someone else's boards
     if (targetOwnerId) {
         const sql = `SELECT b.*, ${coverImageSql} FROM boards b WHERE ownerId = ? AND visibility = 'public'`;
         return res.json(await all(sql, [targetOwnerId]));
@@ -894,7 +871,6 @@ app.put('/api/boards/:id', requireAuth, async (req, res) => {
     res.json({ success: true });
 });
 
-// --- UPLOAD & SCRAPE ---
 app.post('/api/upload', requireAuth, upload.single('file'), async (req: any, res) => {
     if (!req.file) return res.status(400).send('No file uploaded.');
     const used = parseBytes(req.user.usedQuota);
