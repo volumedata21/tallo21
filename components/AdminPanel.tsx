@@ -7,12 +7,13 @@ interface AdminPanelProps {
   isOpen: boolean;
   onClose: () => void;
   users: User[];
+  currentUser: User | null; // <--- NEW: Added to prevent self-deletion
   onUpdate: () => void;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, onUpdate }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, currentUser, onUpdate }) => {
   const [activeTab, setActiveTab] = useState<'users' | 'invites'>('users');
-  const [settings, setSettings] = useState<SystemSettings>({ maxUploadSize: 'Loading...', maxUsers: 10 });
+  const [settings, setSettings] = useState<SystemSettings>({ maxUploadSize: 'Loading...', maxUsers: 10, isServerOpen: true });
   const [invites, setInvites] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -59,16 +60,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
     loadData();
   };
 
-  // --- NEW: Generate Magic Link ---
   const handleGenerateResetLink = async (userId: string, username: string) => {
     try {
-      // This calls the backend, which generates the token AND sets the 3-hour expiry
       const token = await dataService.generateResetToken(userId);
-
-      // Construct the link using the token from the database
-      // Note: We use ?token= to match standard email link formats
       const link = `${window.location.origin}/?token=${token}`;
-
       setResetLink(link);
     } catch (e) {
       alert("Failed to generate link");
@@ -111,6 +106,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
   }, [users, searchTerm, sortByUsage]);
 
   if (!isOpen) return null;
+
+  // Logic: "Require Login" is the opposite of "isServerOpen"
+  const requireLogin = !settings.isServerOpen;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-4 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300">
@@ -157,7 +155,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                 </div>
 
                 <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    
+                    {/* Max Upload Size */}
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-slate-400">Max Upload Size</label>
                       <div className="relative">
@@ -172,6 +172,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                         </div>
                       </div>
                     </div>
+
+                    {/* Max User Limit */}
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-slate-400">Max User Limit</label>
                       <input
@@ -181,17 +183,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:border-teal-500 outline-none transition-all"
                       />
                     </div>
+
+                    {/* Public Access / Require Login - UPDATED UI */}
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-slate-400">Public Access</label>
+                      <div className="flex items-center justify-between bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 h-[42px]">
+                        <span className="text-sm text-slate-300">Require Login</span>
+                        <button
+                          onClick={() => setSettings({ ...settings, isServerOpen: !settings.isServerOpen })}
+                          className={`w-10 h-5 rounded-full transition-colors relative ${requireLogin ? 'bg-teal-600' : 'bg-slate-700'}`}
+                        >
+                          <div className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${requireLogin ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
+                    </div>
+
                   </div>
-                  <div className="flex items-center justify-between p-3 bg-slate-900 rounded-lg border border-slate-700">
-                    <span className="text-sm font-medium text-slate-300">Public Access (Guest View)</span>
-                    <button
-                      onClick={() => setSettings({ ...settings, isServerOpen: !settings.isServerOpen })}
-                      className={`w-12 h-6 rounded-full transition-colors relative ${settings.isServerOpen ? 'bg-teal-600' : 'bg-slate-700'}`}
-                    >
-                      <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${settings.isServerOpen ? 'translate-x-6' : 'translate-x-0'}`} />
-                    </button>
-                  </div>
-                  <button onClick={handleSettingsSave} disabled={isSaving} className="bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white px-5 py-2 rounded-lg font-medium transition flex items-center justify-center gap-2 min-w-[120px]">
+                  <button onClick={handleSettingsSave} disabled={isSaving} className="bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white px-5 py-2 rounded-lg font-medium transition flex items-center justify-center gap-2 min-w-[120px] h-[42px]">
                     {isSaving ? <Loader2 size={18} className="animate-spin" /> : <><Save size={18} /> Save</>}
                   </button>
                 </div>
@@ -232,7 +240,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
-                      {filteredUsers.length > 0 ? filteredUsers.map(user => (
+                      {filteredUsers.length > 0 ? filteredUsers.map(user => {
+                        // PREVENT SELF DELETION
+                        const isSelf = currentUser && user.id === currentUser.id;
+                        const isRoot = user.id === 'u1';
+                        const canDelete = !isSelf && !isRoot;
+
+                        return (
                         <tr key={user.id} className="hover:bg-slate-800/30 transition-colors group">
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
@@ -242,7 +256,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                                 </div>
                               </div>
                               <div>
-                                <div className="font-medium text-white text-sm">{user.username}</div>
+                                <div className="font-medium text-white text-sm">
+                                    {user.username} 
+                                    {isSelf && <span className="ml-2 text-[10px] bg-teal-500/20 text-teal-400 px-1.5 py-0.5 rounded">YOU</span>}
+                                </div>
                                 <div className="text-xs text-slate-500">{user.email || 'No email'}</div>
                               </div>
                             </div>
@@ -283,17 +300,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                               >
                                 <Key size={16} />
                               </button>
-                              <button
-                                onClick={() => handleDeleteUser(user.id)}
-                                className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
-                                title="Delete User"
-                              >
-                                <Trash2 size={16} />
-                              </button>
+                              
+                              {canDelete ? (
+                                <button
+                                    onClick={() => handleDeleteUser(user.id)}
+                                    className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                    title="Delete User"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                              ) : (
+                                <div className="w-8 h-8"></div> // Empty spacer
+                              )}
                             </div>
                           </td>
                         </tr>
-                      )) : (
+                      )}) : (
                         <tr>
                           <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
                             <div className="flex flex-col items-center gap-2">
@@ -310,7 +332,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
             </>
           ) : (
             <div className="space-y-6">
-
+              {/* ... (INVITES TAB REMAINS UNCHANGED) ... */}
               {/* Generate Invite */}
               <div className="bg-gradient-to-br from-teal-900/20 to-slate-900 border border-teal-900/50 p-6 rounded-xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 p-32 bg-teal-500/5 blur-[100px] rounded-full pointer-events-none"></div>
