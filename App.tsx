@@ -604,7 +604,7 @@ function App() {
                                     <div className="flex justify-between items-center mb-6">
                                         <div className="flex items-center gap-4 truncate max-w-md">
                                             <h2 className="text-xl font-bold text-white">
-                                                {activeFilter.type === 'all' && 'Tallos'}
+                                                {activeFilter.type === 'all' && 'Community'}
                                                 {activeFilter.type === 'favorites' && 'Favorites'}
                                                 {activeFilter.type === 'collection' && collections.find(c => c.id === activeFilter.id)?.title}
                                                 {activeFilter.type === 'board' && boards.find(b => b.id === activeFilter.id)?.title}
