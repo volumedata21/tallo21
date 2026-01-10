@@ -271,9 +271,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div className={`pt-4 flex items-center gap-4 text-xs text-slate-600 px-3 ${!isOpen ? 'justify-center' : ''}`}>
                         <a href="https://github.com/volumedata21/tallo21/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-slate-400 transition-colors">
                             <Github size={14} />
-                            <span className={`${!isOpen ? 'hidden' : 'block'}`}>GitHub</span>
+                            <span className={`${!isOpen ? 'hidden' : 'block'}`}>Git/VolumeData21</span>
                         </a>
-                        <span className={`${!isOpen ? 'hidden' : 'block'}`}>v0.3.3</span>
+                        <span className={`${!isOpen ? 'hidden' : 'block'}`}>v0.3.4</span>
                     </div>
                 </div>
             </aside>

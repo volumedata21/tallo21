@@ -438,19 +438,23 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
             conditions.push("pb.boardId = ?");
             params.push(boardId);
 
-        } else if (favorites === 'true' && currentUserId) {
-            conditions.push("f.userId IS NOT NULL");
+        // --- FIX START: Add Collection Filtering ---
+        } else if (collectionId) {
+            // Join pins -> pin_boards -> boards to check the collectionId
+            sql += ` JOIN pin_boards pb ON pins.id = pb.pinId 
+                     JOIN boards b ON pb.boardId = b.id `;
+            
+            conditions.push("b.collectionId = ?");
+            params.push(collectionId);
 
-        } else if (creatorId) {
-            conditions.push("pins.ownerId = ?");
-            params.push(creatorId);
-
-            if (creatorId !== currentUserId) {
-                conditions.push(`EXISTS (
-                SELECT 1 FROM pin_boards pb 
-                JOIN boards b ON pb.boardId = b.id 
-                WHERE pb.pinId = pins.id AND b.visibility = 'public'
-             )`);
+            // Visibility Check:
+            // If you own the board, you see everything. 
+            // If not, you only see pins from boards marked 'public'.
+            if (currentUserId) {
+                conditions.push("(b.visibility = 'public' OR b.ownerId = ?)");
+                params.push(currentUserId);
+            } else {
+                conditions.push("b.visibility = 'public'");
             }
 
         } else {
