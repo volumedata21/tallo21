@@ -1,5 +1,4 @@
 # --- Stage 1: Build the React Frontend ---
-# We use 'slim' here too for consistency, though alpine would probably work for this stage.
 FROM node:20-slim AS frontend-builder
 WORKDIR /app-frontend
 
@@ -16,8 +15,6 @@ FROM node:20-slim AS backend
 WORKDIR /app
 
 # 1. Install System Dependencies
-# We install these just in case a native module still needs to build from source
-# 'openssl' is often needed by Prisma or other DB tools, 'python3/make/g++' for node-gyp
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
@@ -25,7 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Setup Backend Dependencies
-# Copy ONLY package.json to ensure we get fresh, Linux-compatible dependencies
 COPY server/package.json ./server/
 WORKDIR /app/server
 RUN npm install
@@ -40,11 +36,13 @@ COPY --from=frontend-builder /app-frontend/dist ./server/public_html
 
 # 5. Environment & Permissions
 ENV NODE_ENV=production
-ENV DATA_DIR=/app/data
 ENV PORT=3000
+# This matches the clean "Docker way" we discussed
+ENV DATA_DIR=/data
 
-# Create data directories
-RUN mkdir -p /app/data/images /app/data/thumbnails /app/data/avatars
+# FIX: Create directories at /data (matching the ENV variable above)
+# We also create /data/avatars so it exists even if empty
+RUN mkdir -p /data/images /data/thumbnails /data/avatars
 
 # Expose port
 EXPOSE 3000
