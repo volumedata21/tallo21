@@ -8,7 +8,7 @@ const getHeaders = () => {
   const user = stored ? JSON.parse(stored) : null;
   return {
     'Content-Type': 'application/json',
-    'x-user-id': user ? user.id : ''
+    'x-api-token': user ? user.token : '' // Send the token!
   };
 };
 
