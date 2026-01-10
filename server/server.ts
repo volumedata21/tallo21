@@ -229,6 +229,11 @@ const processExternalImage = async (url: string) => {
             .webp({ quality: 80 })
             .toFile(thumbPath);
 
+        await sharp(buffer, { animated: true })
+            .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
+            .webp({ quality: 80 })
+            .toFile(thumbPath);
+
         return {
             url: `/images/${folder}/${filename}`,
             thumbnail: `/thumbnails/${folder}/${thumbFilename}`
@@ -547,13 +552,25 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
     const id = req.params.id;
     const fields: string[] = [];
     const values: any[] = [];
+
+    // FIX: Added closing brace below
+    if (updates.imageUrl) {
+        fields.push("thumbnail = ?");
+        values.push(null);
+    } 
+
     Object.keys(updates).forEach(key => {
         if (key === 'id' || key === 'boardIds' || key === 'favorite') return;
+        
+        // FIX: Skip thumbnail here so we don't overwrite the null we set above
+        if (key === 'thumbnail') return; 
+
         let val = updates[key];
         if (['gallery', 'tags', 'location'].includes(key)) val = JSON.stringify(val);
         fields.push(`${key} = ?`);
         values.push(val);
     });
+
     if (fields.length > 0) {
         values.push(id);
         await run(`UPDATE pins SET ${fields.join(', ')} WHERE id = ?`, values);
