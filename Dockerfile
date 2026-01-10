@@ -1,41 +1,44 @@
 # --- Stage 1: Build the React Frontend ---
-FROM node:20-alpine AS frontend-builder
+# We use 'slim' here too for consistency, though alpine would probably work for this stage.
+FROM node:20-slim AS frontend-builder
 WORKDIR /app-frontend
 
-# Copy frontend config
+# Copy package.json and lockfile
 COPY package.json package-lock.json ./
-# Use 'npm install' here too, just to be safe
 RUN npm install
 
-# Copy frontend source
+# Copy source and build
 COPY . .
-# Build (creates /app-frontend/dist)
 RUN npm run build
 
-
 # --- Stage 2: Setup the Backend ---
-FROM node:20-alpine AS backend
+FROM node:20-slim AS backend
 WORKDIR /app
 
-# Install system dependencies (needed for 'sharp' image processing)
-RUN apk add --no-cache vips-dev python3 make g++
+# 1. Install System Dependencies
+# We install these just in case a native module still needs to build from source
+# 'openssl' is often needed by Prisma or other DB tools, 'python3/make/g++' for node-gyp
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 
-# 1. Setup Backend Dependencies
+# 2. Setup Backend Dependencies
+# Copy ONLY package.json to ensure we get fresh, Linux-compatible dependencies
 COPY server/package.json ./server/
 WORKDIR /app/server
-
-# --- FIX IS HERE: Changed 'npm ci' to 'npm install' ---
 RUN npm install
 
-# 2. Copy Source Files
+# 3. Copy Source Files
 WORKDIR /app
 COPY types.ts ./types.ts
 COPY server ./server
 
-# 3. Copy Built Frontend from Stage 1
+# 4. Copy Built Frontend from Stage 1
 COPY --from=frontend-builder /app-frontend/dist ./server/public_html
 
-# 4. Environment & Permissions
+# 5. Environment & Permissions
 ENV NODE_ENV=production
 ENV DATA_DIR=/app/data
 ENV PORT=3000
@@ -43,7 +46,7 @@ ENV PORT=3000
 # Create data directories
 RUN mkdir -p /app/data/images /app/data/thumbnails /app/data/avatars
 
-# Expose the port
+# Expose port
 EXPOSE 3000
 
 # Start command
