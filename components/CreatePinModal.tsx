@@ -3,6 +3,56 @@ import { X, Layers, MapPin, Loader, Search, Check, Link as LinkIcon, ArrowRight,
 import { Collection, Board, LocationData } from '../types';
 import { dataService } from '../services/dataService';
 
+const ImageWithResolution: React.FC<{ 
+  src: string; 
+  isSelected: boolean; 
+  onToggle: () => void; 
+}> = ({ src, isSelected, onToggle }) => {
+  const [resolution, setResolution] = useState<{ w: number, h: number } | null>(null);
+
+  // Helper to determine border color class
+  const getQualityColor = (w: number, h: number) => {
+    // Both dimensions must be small to trigger the warning
+    if (w < 250 && h < 250) return 'border-red-500 text-red-100 bg-red-900/80'; // Low Quality
+    if (w < 600 && h < 600) return 'border-yellow-500 text-yellow-100 bg-yellow-900/80'; // Medium Quality
+    
+    // Default for good quality (or if only one dimension is small)
+    return 'border-transparent text-white bg-black/60'; 
+  };
+
+  return (
+    <div 
+      onClick={onToggle}
+      className={`aspect-square rounded-lg overflow-hidden cursor-pointer border-2 relative group transition-all ${
+        isSelected ? 'border-emerald-500' : 'border-transparent hover:border-gray-700'
+      }`}
+    >
+      <img 
+        src={src} 
+        className="w-full h-full object-cover"
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          setResolution({ w: img.naturalWidth, h: img.naturalHeight });
+        }}
+      />
+      
+      {/* Resolution Tag */}
+      {resolution && (
+        <div className={`absolute bottom-1 right-1 text-[9px] px-1.5 py-0.5 rounded font-mono backdrop-blur-sm border ${getQualityColor(resolution.w, resolution.h)}`}>
+          {resolution.w}x{resolution.h}
+        </div>
+      )}
+
+      {/* Checkmark Overlay */}
+      {isSelected && (
+        <div className="absolute top-1 right-1 bg-emerald-500 text-white p-0.5 rounded-full shadow-lg">
+          <Check size={10} />
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface CreatePinModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -337,13 +387,13 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
     );
 
     return (
-        // FIX: Removed fixed height, added h-full w-full for mobile, rounded corners only on desktop
+        // FIX 1: Use h-[100dvh] for mobile to account for browser address bars, but standard height for desktop
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 sm:bg-black/80 backdrop-blur-sm sm:p-6" onClick={onClose}>
             <div
-                className="bg-[#0B1120] w-full h-full sm:h-[85vh] md:h-[700px] max-w-5xl md:rounded-2xl border-0 sm:border border-gray-800 shadow-2xl flex flex-col overflow-hidden transition-all"
+                className="bg-[#0B1120] w-full h-[100dvh] sm:h-[85vh] md:h-[700px] max-w-5xl md:rounded-2xl border-0 sm:border border-gray-800 shadow-2xl flex flex-col overflow-hidden transition-all"
                 onClick={e => e.stopPropagation()}
             >
-                {/* HEADER */}
+                {/* HEADER - Rigid height */}
                 <div className="flex justify-between items-center px-4 md:px-6 py-4 border-b border-gray-800 bg-[#0B1120] shrink-0">
                     <div className="flex items-center gap-3">
                         <h2 className="font-bold text-white text-lg">Create</h2>
@@ -359,26 +409,30 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                     </button>
                 </div>
 
-                <div className="flex flex-1 overflow-hidden">
-
+                {/* MAIN CONTENT AREA - Flex-1 to take available space between header and footer */}
+                <div className="flex flex-col flex-1 min-h-0 overflow-hidden relative">
+                    
                     <input type="file" multiple accept="image/*,video/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
 
-                    <div className="flex-1 bg-[#0B1120] overflow-hidden flex flex-col w-full h-full">
+                    {/* Inner content wrapper */}
+                    <div className="flex-1 flex flex-col min-h-0 w-full">
 
                         {drafts.length === 0 ? (
                             // EMPTY STATE
-                            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#0B1120]">
-                                <div className="max-w-md w-full">
-                                    <ToggleSwitch />
+                            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#0B1120] overflow-y-auto">
+                                <div className={`w-full transition-all duration-500 ease-in-out ${scrapedImages.length > 0 ? 'max-w-4xl' : 'max-w-md'}`}>
+                                    {scrapedImages.length === 0 && <ToggleSwitch />}
 
                                     {activeTab === 'url' ? (
                                         <>
-                                            <div className="text-center mb-6">
-                                                <div className="w-12 h-12 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3 border border-emerald-500/20">
-                                                    <LinkIcon size={24} />
+                                            {scrapedImages.length === 0 && (
+                                                <div className="text-center mb-6">
+                                                    <div className="w-12 h-12 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3 border border-emerald-500/20">
+                                                        <LinkIcon size={24} />
+                                                    </div>
+                                                    <h3 className="text-lg font-bold text-white">Import from URL</h3>
                                                 </div>
-                                                <h3 className="text-lg font-bold text-white">Import from URL</h3>
-                                            </div>
+                                            )}
 
                                             <form onSubmit={handleUrlScrape} className="relative mb-6">
                                                 <input
@@ -386,7 +440,6 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                                     value={urlInput}
                                                     onChange={e => setUrlInput(e.target.value)}
                                                     placeholder="Paste link here..."
-                                                    // FIX: text-base prevents auto-zoom on mobile
                                                     className="w-full bg-[#131B2C] border border-gray-700 rounded-xl pl-4 pr-12 py-3 text-base md:text-sm text-white focus:border-emerald-500 outline-none placeholder-gray-600 transition-all"
                                                 />
                                                 <button type="submit" disabled={isScraping || !urlInput.trim()} className="absolute right-2 top-2 bottom-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition flex items-center justify-center">
@@ -398,30 +451,28 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
                                             {scrapedImages.length > 0 && (
                                                 <div className="space-y-4">
-
-                                                    {/* --- NEW SECTION START --- */}
                                                     <div className="flex justify-between items-center px-1">
                                                         <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
                                                             {scrapedImages.length} Images Found
                                                         </span>
                                                         <button
                                                             onClick={() => setSelectedScrapedImages(
-                                                                // Logic: If all are selected, clear list ([]). 
-                                                                // Otherwise, copy all images into the list ([...scrapedImages]).
                                                                 selectedScrapedImages.length === scrapedImages.length ? [] : [...scrapedImages]
                                                             )}
                                                             className="text-xs font-bold text-emerald-500 hover:text-emerald-400 transition-colors"
                                                         >
-                                                            {/* Text Toggle */}
                                                             {selectedScrapedImages.length === scrapedImages.length ? 'Deselect All' : 'Select All'}
                                                         </button>
                                                     </div>
-                                                    <div className="grid grid-cols-4 gap-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                                                    {/* Scraped Images Grid - Ensure it has max height */}
+                                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
                                                         {scrapedImages.map((img, i) => (
-                                                            <div key={i} onClick={() => toggleScrapedImage(img)} className={`aspect-square rounded-lg overflow-hidden cursor-pointer border-2 relative group transition-all ${selectedScrapedImages.includes(img) ? 'border-emerald-500' : 'border-transparent hover:border-gray-700'}`}>
-                                                                <img src={img} className="w-full h-full object-cover" />
-                                                                {selectedScrapedImages.includes(img) && <div className="absolute inset-0 bg-emerald-500/20 flex items-center justify-center"><div className="bg-emerald-500 text-white rounded-full p-0.5"><Check size={12} /></div></div>}
-                                                            </div>
+                                                            <ImageWithResolution
+                                                                key={i}
+                                                                src={img}
+                                                                isSelected={selectedScrapedImages.includes(img)}
+                                                                onToggle={() => toggleScrapedImage(img)}
+                                                            />
                                                         ))}
                                                     </div>
                                                     <button onClick={addScrapedImagesToDrafts} disabled={selectedScrapedImages.length === 0} className="w-full py-3 md:py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-sm transition-all disabled:opacity-50">
@@ -453,11 +504,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
 
                         ) : currentDraft ? (
                             // SPLIT VIEW (Preview Left/Top, Form Right/Bottom)
-                            // FIX: Switched 'h-full' to 'flex-1 min-h-0' to respect parent max-height on desktop
+                            // FIX 2: Ensure flex-1 and min-h-0 allows this container to fit exactly in remaining space
                             <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden">
 
                                 {/* IMAGE PREVIEW COLUMN */}
-                                <div className="w-full h-auto max-h-[40vh] md:max-h-full md:w-[45%] bg-[#05080F] flex flex-col border-b md:border-b-0 md:border-r border-gray-800 shrink-0">
+                                <div className="w-full h-auto max-h-[35vh] md:max-h-full md:w-[45%] bg-[#05080F] flex flex-col border-b md:border-b-0 md:border-r border-gray-800 shrink-0">
 
                                     {/* Main Image */}
                                     <div className="flex-1 flex items-center justify-center p-4 md:p-8 relative overflow-hidden bg-black/50">
@@ -509,12 +560,11 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                                 </div>
 
                                 {/* FORM COLUMN */}
-                                {/* FIX: Ensure flex-1 min-h-0 allows this column to shrink and scroll */}
+                                {/* FIX 3: flex-1 ensures it fills space, overflow-y-auto handles scrolling inside this specific div */}
                                 <div className="flex-1 bg-[#0B1120] overflow-y-auto custom-scrollbar flex flex-col min-h-0">
-                                    <div className="p-4 md:p-8 pb-24 space-y-6">
+                                    <div className="p-4 md:p-8 pb-32 space-y-6">
 
                                         {/* Board Selector */}
-                                        {/* ... (Rest of your form inputs remain exactly the same) ... */}
                                         <div>
                                             <label className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">
                                                 <Layers size={12} /> Board
@@ -638,9 +688,8 @@ export const CreatePinModal: React.FC<CreatePinModalProps> = ({
                     </div>
                 </div>
 
-                {/* FOOTER */}
-                {/* FIX: Extra padding for mobile safe area */}
-                <div className="p-4 md:p-4 pb-8 md:pb-4 bg-[#0B1120] border-t border-gray-800 flex justify-end gap-3 shrink-0">
+                {/* FOOTER - Rigid height */}
+                <div className="p-4 md:p-4 pb-8 md:pb-4 bg-[#0B1120] border-t border-gray-800 flex justify-end gap-3 shrink-0 z-10">
                     {drafts.length > 0 && (
                         <>
                             <button onClick={() => setDrafts([])} className="px-5 py-2 text-gray-500 text-xs font-bold hover:text-white transition-colors uppercase tracking-widest">Discard</button>
