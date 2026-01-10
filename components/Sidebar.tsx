@@ -320,7 +320,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <li>
                                 <button onClick={() => handleFilterClick('all', '')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group ${activeFilter.type === 'all' ? 'bg-teal-500/10 text-teal-500' : 'text-slate-400 hover:text-white hover:bg-slate-900'} ${!isOpen ? 'justify-center' : ''}`} title="Tallos">
                                     <Layout size={20} strokeWidth={1.5} />
-                                    <span className={`font-medium text-sm transition-all duration-200 ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>Tallos</span>
+                                    <span className={`font-medium text-sm transition-all duration-200 ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>Community</span>
                                 </button>
                             </li>
                             <li>
