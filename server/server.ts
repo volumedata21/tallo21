@@ -19,7 +19,7 @@ const NEW_STEMS_ID = 'b-new-stems';
 const DATA_DIR = process.env.DATA_DIR || './data';
 const IMAGES_DIR = path.join(DATA_DIR, 'images');
 const THUMBNAILS_DIR = path.join(DATA_DIR, 'thumbnails');
-const AVATARS_DIR = path.join(DATA_DIR, 'avatars');
+const AVATARS_DIR = path.join(__dirname, 'avatars');
 
 // Ensure directories exist
 if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true });
