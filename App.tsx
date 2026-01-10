@@ -11,6 +11,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { ProfileModal } from './components/ProfileModal';
 import { CreatorProfile } from './components/CreatorProfile';
 import { BoardHeader } from './components/BoardHeader';
+import { CollectionHeader } from './components/CollectionHeader';
 import { dataService } from './services/dataService';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { Pin, UserSettings, Collection, Board, SortOption, User } from './types';
@@ -88,11 +89,16 @@ function App() {
     const [boards, setBoards] = useState<Board[]>([]);
     const [trendingTags, setTrendingTags] = useState<string[]>([]);
     const [allTags, setAllTags] = useState<string[]>([]);
-    
+
+    // --- Collection Edit State ---
+    const [collectionToEdit, setCollectionToEdit] = useState<Collection | null>(null);
+    const [editCollectionTitle, setEditCollectionTitle] = useState('');
+
     // --- NEW: Board Edit State ---
     const [boardToEdit, setBoardToEdit] = useState<Board | null>(null);
     const [editTitle, setEditTitle] = useState('');
     const [editVisibility, setEditVisibility] = useState<'private' | 'public' | 'unlisted'>('private');
+    const [editCollectionId, setEditCollectionId] = useState<string>('');
 
     // Navigation: Update URL and State
     const handleOpenProfile = (userId: string) => {
@@ -186,12 +192,12 @@ function App() {
     useEffect(() => {
         const checkAuth = async () => {
             setIsLoading(true);
-            
+
             // 1. Check Server Status
             try {
                 const status = await dataService.getServerStatus();
                 setIsServerOpen(status.isServerOpen);
-            } catch(e) {
+            } catch (e) {
                 console.error("Failed to check server status", e);
             }
 
@@ -215,7 +221,7 @@ function App() {
     useEffect(() => {
         // Allow deep linking if user is logged in OR server is open
         if (!currentUser && !isServerOpen) return;
-        
+
         const params = new URLSearchParams(window.location.search);
         const pinId = params.get('pinId');
         if (pinId) {
@@ -247,7 +253,7 @@ function App() {
     const refreshData = async (reset = false, searchOverride?: string) => {
         // Allow if guest AND server open
         if (!currentUser && !isServerOpen) return;
-        
+
         const targetPage = reset ? 1 : page;
         const currentUserId = currentUser ? currentUser.id : '';
 
@@ -282,7 +288,7 @@ function App() {
 
             const effectiveSort = isShuffle ? 'random' : sortBy;
             const newPins = await dataService.getPins(filterConfig, effectiveSort, termToSearch, currentUserId, targetPage);
-            
+
             if (reset) {
                 setPins(newPins);
                 setHasMore(newPins.length >= 50);
@@ -430,19 +436,56 @@ function App() {
         }
     };
 
+    // --- Collection Actions ---
+    const handleOpenEditCollection = (col: Collection) => {
+        setCollectionToEdit(col);
+        setEditCollectionTitle(col.title);
+    };
+
+    const handleUpdateCollection = async () => {
+        if (!collectionToEdit || !editCollectionTitle.trim()) return;
+        try {
+            await dataService.updateCollection(collectionToEdit.id, {
+                title: editCollectionTitle
+            });
+            refreshData(true);
+            setCollectionToEdit(null);
+        } catch (e: any) {
+            alert(e.message || "Update failed");
+        }
+    };
+
+    const handleDeleteCollection = async () => {
+        if (!collectionToEdit) return;
+        if (confirm('Delete this collection? Boards inside it will be moved to "Unorganized".')) {
+            await dataService.deleteCollection(collectionToEdit.id);
+            setActiveFilter({ type: 'all', id: '' });
+            refreshData(true);
+            setCollectionToEdit(null);
+        }
+    };
+
+    const handleShareCollection = (id: string) => {
+        const url = `${window.location.origin}?collection=${id}`;
+        navigator.clipboard.writeText(url);
+        alert('Collection link copied to clipboard');
+    };
+
     // --- NEW: Board Actions ---
     const handleOpenEditBoard = (board: Board) => {
         setBoardToEdit(board);
         setEditTitle(board.title);
         setEditVisibility(board.visibility || 'private');
+        setEditCollectionId(board.collectionId || '');
     };
 
     const handleUpdateBoard = async () => {
         if (!boardToEdit || !editTitle.trim()) return;
         try {
-            await dataService.updateBoard(boardToEdit.id, { 
+            await dataService.updateBoard(boardToEdit.id, {
                 title: editTitle,
-                visibility: editVisibility 
+                visibility: editVisibility,
+                collectionId: editCollectionId || null
             });
             refreshData(true);
             setBoardToEdit(null);
@@ -488,7 +531,7 @@ function App() {
         if (availableWidth >= 1600) colCount = 5;
         else if (availableWidth >= 1100) colCount = 4;
         else if (availableWidth >= 800) colCount = 3;
-        else if (availableWidth < 320) colCount = 1; 
+        else if (availableWidth < 320) colCount = 1;
         else if (availableWidth < 800) colCount = 2; // Forces 2 columns on most phones
 
         const columns: Pin[][] = Array.from({ length: colCount }, () => []);
@@ -560,10 +603,10 @@ function App() {
                     />
                 )}
 
-<div className={`flex flex-col h-full flex-1 min-w-0 transition-all duration-300 ease-in-out ${currentUser && isSidebarOpen ? 'md:ml-64' : (currentUser ? 'md:ml-20' : '')}`}>
+                <div className={`flex flex-col h-full flex-1 min-w-0 transition-all duration-300 ease-in-out ${currentUser && isSidebarOpen ? 'md:ml-64' : (currentUser ? 'md:ml-20' : '')}`}>
                     {/* FIX: Render Header even for guests (pass null user) */}
                     <Header
-                        user={currentUser as User} 
+                        user={currentUser as User}
                         viewMode={viewMode}
                         onToggleView={setViewMode}
                         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -644,14 +687,33 @@ function App() {
                                 )}
 
                                 <div className="px-2 py-4 sm:px-6 lg:px-8" >
+
+                                    {/* --- NEW: COLLECTION HEADER --- */}
+                                    {activeFilter.type === 'collection' && (() => {
+                                        const col = collections.find(c => c.id === activeFilter.id);
+                                        if (col) {
+                                            return (
+                                                <CollectionHeader
+                                                    collection={col}
+                                                    pinCount={pins.length}
+                                                    isOwner={currentUser?.id === col.ownerId || currentUser?.role === 'admin'}
+                                                    onEdit={() => handleOpenEditCollection(col)}
+                                                    onDelete={() => { setCollectionToEdit(col); handleDeleteCollection(); }}
+                                                    onShare={() => handleShareCollection(col.id)}
+                                                />
+                                            );
+                                        }
+                                        return null;
+                                    })()}
+
                                     {/* --- NEW: BOARD HEADER --- */}
                                     {activeFilter.type === 'board' && (() => {
                                         const board = boards.find(b => b.id === activeFilter.id);
                                         if (board) {
                                             return (
-                                                <BoardHeader 
-                                                    board={board} 
-                                                    pinCount={pins.length} 
+                                                <BoardHeader
+                                                    board={board}
+                                                    pinCount={pins.length}
                                                     isOwner={currentUser?.id === board.ownerId || currentUser?.role === 'admin'}
                                                     onEdit={() => handleOpenEditBoard(board)}
                                                     onDelete={() => { setBoardToEdit(board); handleDeleteBoard(); }}
@@ -674,16 +736,16 @@ function App() {
                                             )}
 
                                             {currentUser && (
-                                            <div className="flex items-center bg-slate-900 rounded-full border border-slate-800 p-1 gap-1">
-                                                <button onClick={handleSelectionModeToggle} className={`p-2 rounded-full transition-all ${isSelectionMode ? 'bg-teal-500 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Select Multiple">
-                                                    <MousePointer2 size={16} />
-                                                </button>
-                                                {isSelectionMode && (
-                                                    <button onClick={handleSelectAll} className={`p-2 rounded-full transition-all ${selectedPinIds.length === pins.length ? 'text-teal-400 bg-teal-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Select All">
-                                                        <CheckSquare size={16} />
+                                                <div className="flex items-center bg-slate-900 rounded-full border border-slate-800 p-1 gap-1">
+                                                    <button onClick={handleSelectionModeToggle} className={`p-2 rounded-full transition-all ${isSelectionMode ? 'bg-teal-500 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Select Multiple">
+                                                        <MousePointer2 size={16} />
                                                     </button>
-                                                )}
-                                            </div>
+                                                    {isSelectionMode && (
+                                                        <button onClick={handleSelectAll} className={`p-2 rounded-full transition-all ${selectedPinIds.length === pins.length ? 'text-teal-400 bg-teal-500/10' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Select All">
+                                                            <CheckSquare size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
 
@@ -809,6 +871,28 @@ function App() {
                             }}
                         />
 
+                        {/* --- EDIT COLLECTION MODAL --- */}
+                        {collectionToEdit && (
+                            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setCollectionToEdit(null)}>
+                                <div className="bg-[#0B1120] border border-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                                    <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-[#020617]">
+                                        <h3 className="font-bold text-white text-sm">Edit Collection</h3>
+                                        <button onClick={() => setCollectionToEdit(null)}><X size={18} className="text-slate-400 hover:text-white" /></button>
+                                    </div>
+                                    <div className="p-6 space-y-4">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Collection Title</label>
+                                            <input autoFocus value={editCollectionTitle} onChange={e => setEditCollectionTitle(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 outline-none" />
+                                        </div>
+                                    </div>
+                                    <div className="p-4 bg-[#020617] border-t border-slate-800 flex justify-end gap-2">
+                                        <button onClick={() => setCollectionToEdit(null)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-white">Cancel</button>
+                                        <button onClick={handleUpdateCollection} className="px-6 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold">Save Changes</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* --- NEW: EDIT BOARD MODAL --- */}
                         {boardToEdit && (
                             <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setBoardToEdit(null)}>
@@ -821,6 +905,22 @@ function App() {
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Board Title</label>
                                             <input autoFocus value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-500 outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Collection</label>
+                                            <div className="relative">
+                                                <select
+                                                    value={editCollectionId}
+                                                    onChange={e => setEditCollectionId(e.target.value)}
+                                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-500 outline-none appearance-none cursor-pointer"
+                                                >
+                                                    <option value="">No Collection (Unorganized)</option>
+                                                    {collections.map(col => (
+                                                        <option key={col.id} value={col.id}>{col.title}</option>
+                                                    ))}
+                                                </select>
+                                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={14} />
+                                            </div>
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Visibility</label>
@@ -854,7 +954,7 @@ function App() {
                     <PinModal
                         pin={selectedPin} onClose={closeModal}
                         collections={[]} boards={[]}
-                        onUpdate={() => {}} onDelete={() => {}}
+                        onUpdate={() => { }} onDelete={() => { }}
                         pinList={pins} onNavigate={setSelectedPin}
                     />
                 )}
