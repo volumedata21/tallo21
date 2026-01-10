@@ -11,6 +11,7 @@ Tallo is a self hosted image and media board.<br><br>
 6. Then run `docker compose up -d`
 7. Profit
 8. Oh this is Linux CLI instructions I probably should have said that first.
+9. Project runs best when paired with SSL (having a secure domain name via a reverse proxy like Nginx Proxy Manager).
 <br><br>
 ### Docker Compose
 ```
@@ -24,3 +25,20 @@ services:
       - 5521:3000
     restart: unless-stopped
 ```
+## About Tallo
+Tallo is Spanish for stem. Think of this as an app for growing your ideas. The idea is to be able to visually organize your thoughts and even map them out. It is completely self hosted and open source. This project is inspired by another open source project known as Pinry.
+
+### Features
+- Organize images and videos into boards.
+- Organize boards into collections.
+- Tag images with keywords
+- Tag images with source URLs
+- Tag images with geolocation
+- See a map of your boards based on image geolocations
+- Share boards
+- Make your instance public or private
+- Make boards public or private
+- Add users to your instance
+
+### AI Coding
+Tallo is mostly done in AI with my very basic knowledge of Docker, HTML, CSS, and Javascript/Typescript. I can typically make smaller updates but the project does rely on AI for most bigger updates. The entire project is open source and I'm hopeful actual developers will review this project. This is very much a learning project for me to be able to code my own apps.
