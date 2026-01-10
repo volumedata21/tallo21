@@ -1070,12 +1070,12 @@ const startServer = async () => {
 const FRONTEND_PATH = path.join(__dirname, 'public_html');
 
 if (fs.existsSync(FRONTEND_PATH)) {
-    // Serve static assets (JS, CSS)
+    // Serve static assets (JS, CSS) from the React build
     app.use(express.static(FRONTEND_PATH));
 
     // Handle React Routing (SPA Fallback)
+    // If a request comes in that isn't an API call or an image, send the React index.html
     app.get('*', (req: any, res: any) => {
-        // Don't serve HTML for API/Image requests that 404'd
         if (req.path.startsWith('/api') || req.path.startsWith('/images') || req.path.startsWith('/thumbnails')) {
             return res.status(404).json({ error: "Not found" });
         }
@@ -1087,5 +1087,12 @@ if (fs.existsSync(FRONTEND_PATH)) {
 
 // --- SERVER STARTUP ---
 const startServer = async () => {
+    // 1. Run migrations first
+    await runMigrations();
+    // 2. Ensure default data
+    await ensureDefaultData();
+    // 3. Start listening
+    app.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
+};
 
 startServer();
