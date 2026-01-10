@@ -21,7 +21,7 @@ WORKDIR /app
 RUN apk add --no-cache vips-dev python3 make g++
 
 # 1. Setup Backend Dependencies
-COPY server/package.json server/package-lock.json ./server/
+COPY server/package.json ./server/
 WORKDIR /app/server
 
 # --- FIX IS HERE: Changed 'npm ci' to 'npm install' ---
