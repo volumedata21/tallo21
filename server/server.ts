@@ -117,33 +117,34 @@ const updateUserQuota = async (userId: string) => {
     }
 };
 
-// --- AUTH MIDDLEWARE ---
+// --- AUTH MIDDLEWARE (FIXED) ---
 const requireAuth = async (req: any, res: any, next: any) => {
-    const apiToken = req.headers['x-api-token'];
-    if (apiToken) {
-        const user = await get("SELECT * FROM users WHERE apiToken = ?", [apiToken]);
-        if (user) {
-            req.user = user;
-            return next();
+    // ONLY check the token
+    const token = req.headers['x-api-token']; 
+    
+    if (!token) {
+        // Fallback: If no token, check if they are trying to access via old method and warn
+        if (req.headers['x-user-id']) {
+            console.log("Blocked attempt to use deprecated x-user-id auth");
         }
+        return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const userId = req.headers['x-user-id'];
-    if (userId) {
-        const user = await get("SELECT * FROM users WHERE id = ?", [userId]);
-        if (user) {
-            req.user = user;
-            return next();
-        }
+    const user = await get("SELECT * FROM users WHERE apiToken = ?", [token]);
+    
+    if (user) {
+        req.user = user;
+        return next();
     }
 
-    console.log(`Blocked unauthorized request to ${req.path}`);
-    res.status(401).json({ error: "Unauthorized" });
+    res.status(401).json({ error: "Invalid Token" });
 };
 
 // --- MIDDLEWARE: GATEKEEPER ---
 const gatekeeper = async (req: any, res: any, next: any) => {
     const apiToken = req.headers['x-api-token'];
+    // NOTE: We still allow x-user-id here for public viewing logic if needed, 
+    // but ideally this should also move to token-only in the future.
     const userId = req.headers['x-user-id'];
     let user = null;
 
@@ -224,11 +225,8 @@ const processExternalImage = async (url: string) => {
         const thumbFilename = `${id}.webp`;
         const thumbPath = path.join(thumbDir, thumbFilename);
 
-        await sharp(buffer)
-            .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
-            .webp({ quality: 80 })
-            .toFile(thumbPath);
-
+        // FIX: Removed duplicate sharp call. 
+        // passing { animated: true } handles both static and animated images correctly.
         await sharp(buffer, { animated: true })
             .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
             .webp({ quality: 80 })
@@ -365,9 +363,13 @@ app.post('/api/login', async (req, res) => {
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
+    const sessionToken = uuidv4(); 
+    // Save it to the user's apiToken column (or a new session column)
+    await run("UPDATE users SET apiToken = ? WHERE id = ?", [sessionToken, user.id]);
+
     const { password: _, ...userInfo } = user;
-    await updateUserQuota(user.id);
-    res.json(userInfo);
+    // Send the token to the client
+    res.json({ ...userInfo, token: sessionToken }); 
 });
 
 app.post('/api/register', async (req, res) => {
@@ -455,6 +457,21 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
                 params.push(currentUserId);
             } else {
                 conditions.push("b.visibility = 'public'");
+            }
+
+        } else if (favorites === 'true' && currentUserId) {
+            conditions.push("f.userId IS NOT NULL");
+
+        } else if (creatorId) {
+            conditions.push("pins.ownerId = ?");
+            params.push(creatorId);
+
+            if (creatorId !== currentUserId) {
+                conditions.push(`EXISTS (
+                SELECT 1 FROM pin_boards pb 
+                JOIN boards b ON pb.boardId = b.id 
+                WHERE pb.pinId = pins.id AND b.visibility = 'public'
+             )`);
             }
 
         } else {
