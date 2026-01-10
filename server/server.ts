@@ -1067,4 +1067,25 @@ const startServer = async () => {
     app.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
 };
 
+const FRONTEND_PATH = path.join(__dirname, 'public_html');
+
+if (fs.existsSync(FRONTEND_PATH)) {
+    // Serve static assets (JS, CSS)
+    app.use(express.static(FRONTEND_PATH));
+
+    // Handle React Routing (SPA Fallback)
+    app.get('*', (req: any, res: any) => {
+        // Don't serve HTML for API/Image requests that 404'd
+        if (req.path.startsWith('/api') || req.path.startsWith('/images') || req.path.startsWith('/thumbnails')) {
+            return res.status(404).json({ error: "Not found" });
+        }
+        res.sendFile(path.join(FRONTEND_PATH, 'index.html'));
+    });
+} else {
+    console.log("Running in API-only mode (No frontend found at " + FRONTEND_PATH + ")");
+}
+
+// --- SERVER STARTUP ---
+const startServer = async () => {
+
 startServer();
