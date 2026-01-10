@@ -1,30 +1,9 @@
 services:
-  backend:
-    image: node:20-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm start"
+  tallo:
+    image: volumedata21/tallo21:latest
+    container_name: tallo
     volumes:
-      - ./server:/app
-      - ./data:/app/data
-      # Mount the shared types file from frontend to backend
-      - ./types.ts:/app/types.ts
+      - ./data:/data
     ports:
-      - "5522:3001"
-    environment:
-      - DATA_DIR=/app/data
-
-  frontend:
-    image: node:20-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host" 
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/server
-      - /app/data
-    ports:
-      - "5521:3000"
-    depends_on:
-      - backend
-    environment:
-      - VITE_API_URL=http://backend:5522
+      - 5521:3000
+    restart: unless-stopped
