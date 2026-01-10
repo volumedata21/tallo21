@@ -10,10 +10,11 @@ import { BulkActionBar } from './components/BulkActionBar';
 import { LoginScreen } from './components/LoginScreen';
 import { ProfileModal } from './components/ProfileModal';
 import { CreatorProfile } from './components/CreatorProfile';
+import { BoardHeader } from './components/BoardHeader';
 import { dataService } from './services/dataService';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { Pin, UserSettings, Collection, Board, SortOption, User } from './types';
-import { Sliders, Check, MousePointer2, Shuffle, CheckSquare, Tag as TagIcon, Undo, Loader2, AlertTriangle, ArrowUpDown, ChevronDown, Plus } from 'lucide-react';
+import { Sliders, Check, MousePointer2, Shuffle, CheckSquare, Tag as TagIcon, Undo, Loader2, AlertTriangle, ArrowUpDown, ChevronDown, Globe, Lock, EyeOff, X, Plus } from 'lucide-react';
 
 if (!(dataService as any).completePasswordReset) {
     (dataService as any).completePasswordReset = async (token: string, newPass: string) => {
@@ -87,6 +88,11 @@ function App() {
     const [boards, setBoards] = useState<Board[]>([]);
     const [trendingTags, setTrendingTags] = useState<string[]>([]);
     const [allTags, setAllTags] = useState<string[]>([]);
+    
+    // --- NEW: Board Edit State ---
+    const [boardToEdit, setBoardToEdit] = useState<Board | null>(null);
+    const [editTitle, setEditTitle] = useState('');
+    const [editVisibility, setEditVisibility] = useState<'private' | 'public' | 'unlisted'>('private');
 
     // Navigation: Update URL and State
     const handleOpenProfile = (userId: string) => {
@@ -424,6 +430,43 @@ function App() {
         }
     };
 
+    // --- NEW: Board Actions ---
+    const handleOpenEditBoard = (board: Board) => {
+        setBoardToEdit(board);
+        setEditTitle(board.title);
+        setEditVisibility(board.visibility || 'private');
+    };
+
+    const handleUpdateBoard = async () => {
+        if (!boardToEdit || !editTitle.trim()) return;
+        try {
+            await dataService.updateBoard(boardToEdit.id, { 
+                title: editTitle,
+                visibility: editVisibility 
+            });
+            refreshData(true);
+            setBoardToEdit(null);
+        } catch (e: any) {
+            alert(e.message || "Update failed");
+        }
+    };
+
+    const handleDeleteBoard = async () => {
+        if (!boardToEdit) return;
+        if (confirm('Delete this board? Pins will remain but will be uncategorized.')) {
+            await dataService.deleteBoard(boardToEdit.id);
+            setActiveFilter({ type: 'all', id: '' });
+            refreshData(true);
+            setBoardToEdit(null);
+        }
+    };
+
+    const handleShareBoard = (id: string) => {
+        const url = `${window.location.origin}?board=${id}`;
+        navigator.clipboard.writeText(url);
+        alert('Board link copied to clipboard');
+    };
+
     const SortButton = ({ value, label, current }: { value: SortOption, label: string, current: SortOption }) => (
         <button
             onClick={() => { setSortBy(value); setIsSortOpen(false); }}
@@ -600,16 +643,35 @@ function App() {
                                     </div>
                                 )}
 
-                                <div className="px-2 py-4 sm:px-6 lg:px-8">
+                                <div className="px-2 py-4 sm:px-6 lg:px-8" >
+                                    {/* --- NEW: BOARD HEADER --- */}
+                                    {activeFilter.type === 'board' && (() => {
+                                        const board = boards.find(b => b.id === activeFilter.id);
+                                        if (board) {
+                                            return (
+                                                <BoardHeader 
+                                                    board={board} 
+                                                    pinCount={pins.length} 
+                                                    isOwner={currentUser?.id === board.ownerId || currentUser?.role === 'admin'}
+                                                    onEdit={() => handleOpenEditBoard(board)}
+                                                    onDelete={() => { setBoardToEdit(board); handleDeleteBoard(); }}
+                                                    onShare={() => handleShareBoard(board.id)}
+                                                />
+                                            );
+                                        }
+                                        return null;
+                                    })()}
                                     <div className="flex justify-between items-center mb-6">
                                         <div className="flex items-center gap-4 truncate max-w-md">
-                                            <h2 className="text-xl font-bold text-white">
-                                                {activeFilter.type === 'all' && 'Community'}
-                                                {activeFilter.type === 'favorites' && 'Favorites'}
-                                                {activeFilter.type === 'collection' && collections.find(c => c.id === activeFilter.id)?.title}
-                                                {activeFilter.type === 'board' && boards.find(b => b.id === activeFilter.id)?.title}
-                                                {activeFilter.type === 'tag' && `#${activeFilter.id}`}
-                                            </h2>
+                                            {activeFilter.type !== 'board' && (
+                                                <h2 className="text-xl font-bold text-white">
+                                                    {activeFilter.type === 'all' && 'Community'}
+                                                    {activeFilter.type === 'favorites' && 'Favorites'}
+                                                    {activeFilter.type === 'collection' && collections.find(c => c.id === activeFilter.id)?.title}
+                                                    {activeFilter.type === 'tag' && `#${activeFilter.id}`}
+                                                    {activeFilter.type === 'created' && 'Mis Tallos'}
+                                                </h2>
+                                            )}
 
                                             {currentUser && (
                                             <div className="flex items-center bg-slate-900 rounded-full border border-slate-800 p-1 gap-1">
@@ -746,6 +808,44 @@ function App() {
                                 }
                             }}
                         />
+
+                        {/* --- NEW: EDIT BOARD MODAL --- */}
+                        {boardToEdit && (
+                            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={() => setBoardToEdit(null)}>
+                                <div className="bg-[#0B1120] border border-slate-800 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                                    <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-[#020617]">
+                                        <h3 className="font-bold text-white text-sm">Edit Board</h3>
+                                        <button onClick={() => setBoardToEdit(null)}><X size={18} className="text-slate-400 hover:text-white" /></button>
+                                    </div>
+                                    <div className="p-6 space-y-4">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Board Title</label>
+                                            <input autoFocus value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-500 outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">Visibility</label>
+                                            <div className="grid grid-cols-1 gap-2">
+                                                {[
+                                                    { id: 'private', label: 'Private', icon: Lock, desc: 'Only you can see this board' },
+                                                    { id: 'unlisted', label: 'Unlisted', icon: EyeOff, desc: 'Anyone with the link can view' },
+                                                    { id: 'public', label: 'Public', icon: Globe, desc: 'Visible on your profile' }
+                                                ].map((opt) => (
+                                                    <button key={opt.id} onClick={() => setEditVisibility(opt.id as any)} className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${editVisibility === opt.id ? 'bg-teal-500/10 border-teal-500/50' : 'bg-slate-900 border-slate-800 hover:border-slate-700'}`}>
+                                                        <div className={`p-2 rounded-full ${editVisibility === opt.id ? 'bg-teal-500 text-white' : 'bg-slate-800 text-slate-400'}`}><opt.icon size={16} /></div>
+                                                        <div><div className={`text-sm font-medium ${editVisibility === opt.id ? 'text-white' : 'text-slate-300'}`}>{opt.label}</div><div className="text-[10px] text-slate-500">{opt.desc}</div></div>
+                                                        {editVisibility === opt.id && <Check size={16} className="ml-auto text-teal-500" />}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="p-4 bg-[#020617] border-t border-slate-800 flex justify-end gap-2">
+                                        <button onClick={() => setBoardToEdit(null)} className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-white">Cancel</button>
+                                        <button onClick={handleUpdateBoard} className="px-6 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-xs font-bold">Save Changes</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </>
                 )}
 
