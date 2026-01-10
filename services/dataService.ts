@@ -566,7 +566,24 @@ export const dataService = {
     } catch (e) { return { images: [], title: '' }; }
   },
 
-  swapHeroImage: async (id: string, url: string) => {
-    await dataService.updatePin(id, { imageUrl: url });
+  swapHeroImage: async (id: string, newUrl: string) => {
+    // 1. Fetch current state to get the old URL and Gallery
+    const pin = await dataService.getPin(id);
+    const oldUrl = pin.imageUrl;
+    let gallery = pin.gallery || [];
+
+    // 2. Remove the NEW hero image from the gallery (avoid duplication)
+    gallery = gallery.filter(img => img !== newUrl);
+
+    // 3. Add the OLD hero image to the gallery (preserve it)
+    if (oldUrl && oldUrl !== newUrl) {
+        gallery.push(oldUrl);
+    }
+
+    // 4. Send the update
+    await dataService.updatePin(id, { 
+        imageUrl: newUrl, 
+        gallery: gallery 
+    });
   }
 };
