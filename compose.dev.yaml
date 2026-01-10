@@ -4,14 +4,13 @@ services:
     build: .
     container_name: tallo-local-test
     
-    # Map port 3000 (container) to 8080 (host) to avoid conflict with any running dev servers
+    # Map port 3000 (container) to 5521 (host)
     ports:
       - "5521:3000"
       
-    # Map a LOCAL test folder to the container's data directory
-    # We use './test-data' so we don't mess up your actual './data' folder during testing
+    # FIX: Mount to /data because that is where the App is configured to write
     volumes:
-      - ./data:/app/data
+      - ./test-data:/data
       
     environment:
       - NODE_ENV=production
