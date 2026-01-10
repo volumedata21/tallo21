@@ -300,8 +300,6 @@ const ensureDefaultData = async () => {
 
 // --- ROUTES ---
 
-app.get('/', (req, res) => res.send('Tallo API Running'));
-
 app.get('/api/avatars', async (req, res) => {
     try {
         const files = await fs.promises.readdir(AVATARS_DIR);
@@ -1057,16 +1055,7 @@ app.post('/api/admin/regenerate-thumbnails', requireAuth, async (req, res) => {
     }
 });
 
-// --- SERVER STARTUP ---
-const startServer = async () => {
-    // 1. Run migrations first
-    await runMigrations();
-    // 2. Ensure default data
-    await ensureDefaultData();
-    // 3. Start listening
-    app.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
-};
-
+// --- SERVE FRONTEND (Added for Docker) ---
 const FRONTEND_PATH = path.join(__dirname, 'public_html');
 
 if (fs.existsSync(FRONTEND_PATH)) {

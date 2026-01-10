@@ -1,0 +1,20 @@
+services:
+  tallo-test:
+    # Build from the local Dockerfile in the current directory
+    build: .
+    container_name: tallo-local-test
+    
+    # Map port 3000 (container) to 8080 (host) to avoid conflict with any running dev servers
+    ports:
+      - "5521:3000"
+      
+    # Map a LOCAL test folder to the container's data directory
+    # We use './test-data' so we don't mess up your actual './data' folder during testing
+    volumes:
+      - ./data:/app/data
+      
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      
+    restart: no
