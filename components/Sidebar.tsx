@@ -273,7 +273,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <Github size={14} />
                             <span className={`${!isOpen ? 'hidden' : 'block'}`}>GitHub</span>
                         </a>
-                        <span className={`${!isOpen ? 'hidden' : 'block'}`}>v0.3.0</span>
+                        <span className={`${!isOpen ? 'hidden' : 'block'}`}>v0.3.2</span>
                     </div>
                 </div>
             </aside>
