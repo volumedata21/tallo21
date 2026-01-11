@@ -27,6 +27,7 @@ data/images
 data/tallo.db
 server/data
 test-data/
+tallo-extensions/Archivo.zip
 
 # =====================
 # Environment & secrets
