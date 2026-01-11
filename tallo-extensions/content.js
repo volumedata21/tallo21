@@ -13,15 +13,23 @@ function scrapeImages() {
     // 1. Get standard <img> tags
     const imgTags = document.querySelectorAll('img');
     imgTags.forEach(img => {
-        const src = img.currentSrc || img.src;
-        if (src && src.startsWith('http')) {
-            // Only store if not already present or if this one is larger
-            if (!uniqueImages.has(src)) {
-                uniqueImages.set(src, { 
-                    width: img.naturalWidth, 
-                    height: img.naturalHeight 
-                });
+        // FIX: Ensure absolute URL
+        const rawSrc = img.currentSrc || img.src;
+        if (!rawSrc) return;
+
+        try {
+            const src = new URL(rawSrc, document.baseURI).href;
+            if (src.startsWith('http')) {
+                // Only store if not already present or if this one is larger
+                if (!uniqueImages.has(src)) {
+                    uniqueImages.set(src, { 
+                        width: img.naturalWidth, 
+                        height: img.naturalHeight 
+                    });
+                }
             }
+        } catch (e) {
+            // Ignore invalid URLs
         }
     });
 
@@ -32,13 +40,22 @@ function scrapeImages() {
         const bg = style.backgroundImage;
         
         if (bg && bg !== 'none' && bg.startsWith('url(')) {
-            const url = bg.slice(4, -1).replace(/["']/g, ""); 
-            if (url.startsWith('http')) {
-                // Background images don't have naturalWidth/Height readily available
-                // without loading them, so we set them to 0 or null for now.
-                if (!uniqueImages.has(url)) {
-                    uniqueImages.set(url, { width: 0, height: 0 });
+            // Remove 'url("' and '")'
+            const rawUrl = bg.slice(4, -1).replace(/["']/g, ""); 
+            
+            try {
+                // FIX: Convert to absolute URL
+                const url = new URL(rawUrl, document.baseURI).href;
+                
+                if (url.startsWith('http')) {
+                    // Background images don't have naturalWidth/Height readily available
+                    // without loading them, so we set them to 0 or null for now.
+                    if (!uniqueImages.has(url)) {
+                        uniqueImages.set(url, { width: 0, height: 0 });
+                    }
                 }
+            } catch (e) {
+                // Ignore invalid URLs
             }
         }
     });

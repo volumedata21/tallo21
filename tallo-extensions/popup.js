@@ -34,11 +34,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     document.getElementById('saveSettings').addEventListener('click', () => {
-        const url = document.getElementById('serverUrl').value.replace(/\/$/, "");
+        let url = document.getElementById('serverUrl').value.trim();
         const user = document.getElementById('username').value.trim();
         const key = document.getElementById('apiKey').value.trim();
 
         if(url && user && key) {
+            // FIX: Protocol Enforcer
+            if (!/^https?:\/\//i.test(url)) {
+                // Default to http if localhost or IP, otherwise https
+                if (url.includes('localhost') || url.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/)) {
+                    url = 'http://' + url;
+                } else {
+                    url = 'https://' + url;
+                }
+            }
+            // Remove trailing slash
+            url = url.replace(/\/$/, "");
+
             chrome.storage.local.set({ serverUrl: url, username: user, apiKey: key }, () => {
                 config = { serverUrl: url, username: user, apiKey: key };
                 isDataLoaded = false;
@@ -49,7 +61,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // --- BOARD CREATION LISTENERS (Fixed placement) ---
+    // --- BOARD CREATION LISTENERS ---
     const createContainer = document.getElementById('createBoardContainer');
     const toggleBtn = document.getElementById('toggleCreateBoard');
     const createBtn = document.getElementById('createBoardBtn');
@@ -94,7 +106,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         } catch(e) {
             console.error(e);
-            alert("Error connecting to server");
+            alert("Error connecting to server. Check URL and API Key.");
         } finally {
             createBtn.disabled = false;
             createBtn.innerText = "Add";
@@ -183,11 +195,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
         } catch (e) {
-            select.innerHTML = '<option value="">Default (Boards failed)</option>';
+            select.innerHTML = '<option value="">Default (Connection Failed)</option>';
         }
     }
 
-    function renderImages(imageDataList) { // Note: variable name change to imply objects
+    function renderImages(imageDataList) { 
         const grid = document.getElementById('grid');
         const filterCheckbox = document.getElementById('filterSmall');
         const minSize = 150; 
@@ -203,13 +215,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         grid.innerHTML = ''; 
 
         imageDataList.forEach(imgData => {
-            const imgUrl = imgData.url; // Extract URL
+            const imgUrl = imgData.url; 
             
             const div = document.createElement('div');
             div.className = 'img-card';
             div.style.display = 'none'; 
             
-            // Added <div class="res-badge">
             div.innerHTML = `
                 <div class="check-badge"></div>
                 <div class="res-badge">${imgData.width > 0 ? `${imgData.width} × ${imgData.height}` : ''}</div>
@@ -221,11 +232,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const badge = div.querySelector('.res-badge');
             
             img.onload = () => {
-                // If dimensions were 0 (CSS bg), update them now that it's loaded
                 const w = img.naturalWidth;
                 const h = img.naturalHeight;
                 
-                // Update badge if it was empty
                 if (badge.innerText === '') {
                     badge.innerText = `${w} × ${h}`;
                 }
@@ -247,7 +256,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 updateCount();
             };
             
-            // ... rest of error handling and click listeners remains the same ...
             img.onerror = () => { div.remove(); };
             
             div.addEventListener('click', () => {
@@ -348,6 +356,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     imageUrl: imageUrl,
                     link: pageData.url,
                     boardIds: boardId ? [boardId] : [],
+                    // Note: Server uses the token to determine owner, so 'ownerId' here is just metadata
                     ownerId: config.username,
                     tags: tags
                 };
