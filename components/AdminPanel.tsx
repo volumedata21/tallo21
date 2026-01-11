@@ -13,7 +13,12 @@ interface AdminPanelProps {
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, currentUser, onUpdate }) => {
   const [activeTab, setActiveTab] = useState<'users' | 'invites'>('users');
-  const [settings, setSettings] = useState<SystemSettings>({ maxUploadSize: 'Loading...', maxUsers: 10, isServerOpen: true });
+  const [settings, setSettings] = useState<SystemSettings>({
+    maxUploadSize: 'Loading...',
+    maxUsers: 10,
+    isServerOpen: true,
+    ssrfWhitelist: '' // <--- Add default
+  });
   const [invites, setInvites] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -155,9 +160,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                   {isSaving && <span className="text-xs text-slate-500 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Saving...</span>}
                 </div>
 
+                <div className="pt-6 border-t border-slate-800">
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
+                    Allowed Local Hosts (SSRF Whitelist)
+                  </label>
+                  <p className="text-xs text-slate-400 mb-3">
+                    By default, Tallo blocks connections to local IPs (like 192.168.x.x) for security.
+                    Add specific IPs or domains here to allow scraping from them.
+                  </p>
+                  <input
+                    type="text"
+                    placeholder="e.g. 192.168.1.50, my-nas.local"
+                    value={settings.ssrfWhitelist || ''}
+                    onChange={e => setSettings({ ...settings, ssrfWhitelist: e.target.value })}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-500 outline-none"
+                  />
+                </div>
+
                 <div className="flex flex-col sm:flex-row sm:items-end gap-4">
                   <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    
+
                     {/* Max Upload Size */}
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-slate-400">Max Upload Size</label>
@@ -248,75 +270,76 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                         const canDelete = !isSelf && !isRoot;
 
                         return (
-                        <tr key={user.id} className="hover:bg-slate-800/30 transition-colors group">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-full bg-slate-800 overflow-hidden shrink-0 border border-slate-700">
-                                <div className="w-full h-full bg-gradient-to-br from-teal-900 to-slate-900 flex items-center justify-center text-teal-400 text-xs font-bold">
-                                  {user.username.substring(0, 2).toUpperCase()}
+                          <tr key={user.id} className="hover:bg-slate-800/30 transition-colors group">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-full bg-slate-800 overflow-hidden shrink-0 border border-slate-700">
+                                  <div className="w-full h-full bg-gradient-to-br from-teal-900 to-slate-900 flex items-center justify-center text-teal-400 text-xs font-bold">
+                                    {user.username.substring(0, 2).toUpperCase()}
+                                  </div>
                                 </div>
-                              </div>
-                              <div>
-                                <div className="font-medium text-white text-sm">
-                                    {user.username} 
+                                <div>
+                                  <div className="font-medium text-white text-sm">
+                                    {user.username}
                                     {isSelf && <span className="ml-2 text-[10px] bg-teal-500/20 text-teal-400 px-1.5 py-0.5 rounded">YOU</span>}
+                                  </div>
+                                  <div className="text-xs text-slate-500">{user.email || 'No email'}</div>
                                 </div>
-                                <div className="text-xs text-slate-500">{user.email || 'No email'}</div>
                               </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${user.role === 'admin' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
-                              {user.role}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-slate-300">
-                            {editingQuotaId === user.id ? (
-                              <div className="flex items-center gap-2 animate-in fade-in">
-                                <input
-                                  autoFocus
-                                  value={tempQuota}
-                                  onChange={e => setTempQuota(e.target.value)}
-                                  className="w-24 bg-slate-950 border border-teal-500 rounded px-2 py-1 text-xs text-white outline-none shadow-[0_0_10px_rgba(20,184,166,0.2)]"
-                                />
-                                <button onClick={() => saveQuota(user.id)} className="p-1 bg-teal-500/20 text-teal-500 rounded hover:bg-teal-500 hover:text-white transition"><Check size={14} /></button>
-                                <button onClick={() => setEditingQuotaId(null)} className="p-1 bg-red-500/20 text-red-500 rounded hover:bg-red-500 hover:text-white transition"><X size={14} /></button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2 group/quota cursor-pointer" onClick={() => { setEditingQuotaId(user.id); setTempQuota(user.maxQuota || '20GB'); }}>
-                                <div className="w-full max-w-[100px] h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                  <div className="h-full bg-teal-500/50 w-1/2"></div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${user.role === 'admin' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+                                {user.role}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-slate-300">
+                              {editingQuotaId === user.id ? (
+                                <div className="flex items-center gap-2 animate-in fade-in">
+                                  <input
+                                    autoFocus
+                                    value={tempQuota}
+                                    onChange={e => setTempQuota(e.target.value)}
+                                    className="w-24 bg-slate-950 border border-teal-500 rounded px-2 py-1 text-xs text-white outline-none shadow-[0_0_10px_rgba(20,184,166,0.2)]"
+                                  />
+                                  <button onClick={() => saveQuota(user.id)} className="p-1 bg-teal-500/20 text-teal-500 rounded hover:bg-teal-500 hover:text-white transition"><Check size={14} /></button>
+                                  <button onClick={() => setEditingQuotaId(null)} className="p-1 bg-red-500/20 text-red-500 rounded hover:bg-red-500 hover:text-white transition"><X size={14} /></button>
                                 </div>
-                                <span className="text-xs font-mono">{user.usedQuota} <span className="text-slate-500">/</span> <span className="text-white">{user.maxQuota}</span></span>
-                                <Settings size={12} className="text-slate-600 opacity-0 group-hover/quota:opacity-100 transition-opacity" />
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <button
-                                onClick={() => handleGenerateResetLink(user.id, user.username)}
-                                className="p-2 text-slate-500 hover:text-teal-400 hover:bg-teal-500/10 rounded-lg transition-all"
-                                title="Generate Password Reset Link"
-                              >
-                                <Key size={16} />
-                              </button>
-                              
-                              {canDelete ? (
+                              ) : (
+                                <div className="flex items-center gap-2 group/quota cursor-pointer" onClick={() => { setEditingQuotaId(user.id); setTempQuota(user.maxQuota || '20GB'); }}>
+                                  <div className="w-full max-w-[100px] h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                    <div className="h-full bg-teal-500/50 w-1/2"></div>
+                                  </div>
+                                  <span className="text-xs font-mono">{user.usedQuota} <span className="text-slate-500">/</span> <span className="text-white">{user.maxQuota}</span></span>
+                                  <Settings size={12} className="text-slate-600 opacity-0 group-hover/quota:opacity-100 transition-opacity" />
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex items-center justify-end gap-1">
                                 <button
+                                  onClick={() => handleGenerateResetLink(user.id, user.username)}
+                                  className="p-2 text-slate-500 hover:text-teal-400 hover:bg-teal-500/10 rounded-lg transition-all"
+                                  title="Generate Password Reset Link"
+                                >
+                                  <Key size={16} />
+                                </button>
+
+                                {canDelete ? (
+                                  <button
                                     onClick={() => handleDeleteUser(user.id)}
                                     className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
                                     title="Delete User"
-                                >
+                                  >
                                     <Trash2 size={16} />
-                                </button>
-                              ) : (
-                                <div className="w-8 h-8"></div> // Empty spacer
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}) : (
+                                  </button>
+                                ) : (
+                                  <div className="w-8 h-8"></div> // Empty spacer
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      }) : (
                         <tr>
                           <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
                             <div className="flex flex-col items-center gap-2">

@@ -67,6 +67,7 @@ export interface SystemSettings {
   maxUploadSize: string;
   maxUsers: number; // For limiting signups
   isServerOpen: boolean;
+  ssrfWhitelist?: string;
 }
 
 export type SortOption = 'newest' | 'oldest' | 'az' | 'za' | 'random';
