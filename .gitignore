@@ -44,9 +44,7 @@ data/tallo.db
 data/images/
 data/thumbnails/
 server/data/
-test-data/tallo.db
-test-data/images/
-test-data/thumbnails/
+test-data/
 
 # =====================
 # Docker
