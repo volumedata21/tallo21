@@ -118,6 +118,71 @@ const updateUserQuota = async (userId: string) => {
     }
 };
 
+// --- SSRF SECURITY HELPER (Defined Once) ---
+const isSafeUrl = async (urlString: string): Promise<boolean> => {
+    try {
+        const url = new URL(urlString);
+        
+        // 1. Block non-http protocols
+        if (!['http:', 'https:'].includes(url.protocol)) return false;
+
+        // 2. CHECK WHITELIST FIRST (Allow Admin overrides)
+        const settings = await get("SELECT ssrfWhitelist FROM settings WHERE id = 'default'");
+        if (settings && settings.ssrfWhitelist) {
+            const allowedHosts = settings.ssrfWhitelist.split(',').map((h: string) => h.trim());
+            if (allowedHosts.includes(url.hostname)) {
+                return true; // Explicitly allowed by admin
+            }
+        }
+
+        // 3. Resolve hostname to IP
+        const { address } = await dns.lookup(url.hostname);
+
+        // 4. Block Private / Internal IP Ranges
+        const parts = address.split('.').map(Number);
+        if (address === '::1') return false; 
+        
+        // IPv4 Private Ranges
+        if (parts[0] === 127) return false; // Loopback
+        if (parts[0] === 10) return false;  // Private Class A
+        if (parts[0] === 169 && parts[1] === 254) return false; // AWS Metadata
+        if (parts[0] === 192 && parts[1] === 168) return false; // Private Class C
+        if (parts[0] === 172 && (parts[1] >= 16 && parts[1] <= 31)) return false; // Private Class B
+        if (parts[0] === 0) return false; // 0.0.0.0
+
+        return true;
+    } catch (e) {
+        return false;
+    }
+};
+
+// --- RATE LIMITER HELPER (NEW) ---
+const rateLimitMap = new Map<string, { count: number, resetTime: number }>();
+
+const rateLimiter = (req: any, res: any, next: any) => {
+    const ip = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000; // 15 minutes
+    const maxRequests = 100; // Max 100 requests per 15 mins
+
+    let record = rateLimitMap.get(ip);
+    
+    // Reset if window passed
+    if (!record || now > record.resetTime) {
+        record = { count: 0, resetTime: now + windowMs };
+    }
+
+    record.count++;
+    rateLimitMap.set(ip, record);
+
+    if (record.count > maxRequests) {
+        console.warn(`Rate limit exceeded for IP: ${ip}`);
+        return res.status(429).json({ error: "Too many requests, please try again later." });
+    }
+
+    next();
+};
+
 // --- AUTH MIDDLEWARE (FIXED) ---
 const requireAuth = async (req: any, res: any, next: any) => {
     // ONLY check the token
@@ -356,7 +421,8 @@ app.post('/api/setup', async (req, res) => {
     res.json(user);
 });
 
-app.post('/api/login', async (req, res) => {
+// FIX: Added Rate Limiter to Login
+app.post('/api/login', rateLimiter, async (req, res) => {
     const { username, password } = req.body;
     const user = await get("SELECT * FROM users WHERE username = ?", [username]);
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
@@ -374,7 +440,8 @@ app.post('/api/login', async (req, res) => {
     res.json({ ...userInfo, token: sessionToken }); 
 });
 
-app.post('/api/register', async (req, res) => {
+// FIX: Added Rate Limiter to Register
+app.post('/api/register', rateLimiter, async (req, res) => {
     const { username, password, email, inviteCode } = req.body;
     try {
         const settings = await get("SELECT maxUsers FROM settings WHERE id = 'default'");
@@ -785,6 +852,7 @@ app.put('/api/users/:id', requireAuth, async (req, res) => {
     res.json(await get("SELECT id, username, email, role, avatarSeed, maxQuota, homePagePreference FROM users WHERE id = ?", [req.params.id]));
 });
 
+// FIX: Added Token Rotation Logic
 app.put('/api/users/:id/password', requireAuth, async (req, res) => {
     const { currentPass, newPass } = req.body;
     if (!currentPass || !newPass) return res.status(400).json({ error: "Missing password fields" });
@@ -796,7 +864,11 @@ app.put('/api/users/:id/password', requireAuth, async (req, res) => {
             if (!match) return res.status(401).json({ error: "Current password is incorrect" });
         }
         const hashedPassword = await bcrypt.hash(newPass, 10);
-        await run("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, req.params.id]);
+        
+        // FIX: Token Rotation - Kick out other sessions
+        const newToken = uuidv4();
+        
+        await run("UPDATE users SET password = ?, apiToken = ? WHERE id = ?", [hashedPassword, newToken, req.params.id]);
         res.json({ success: true });
     } catch (e) { res.status(500).json({ error: "Internal server error" }); }
 });
@@ -959,44 +1031,6 @@ app.post('/api/upload', requireAuth, upload.single('file'), async (req: any, res
         res.json({ url: `/images/${folder}/${filename}` });
     }
 });
-
-// --- SSRF SECURITY HELPER (Enhanced) ---
-const isSafeUrl = async (urlString: string): Promise<boolean> => {
-    try {
-        const url = new URL(urlString);
-        
-        // 1. Block non-http protocols
-        if (!['http:', 'https:'].includes(url.protocol)) return false;
-
-        // 2. CHECK WHITELIST FIRST (Allow Admin overrides)
-        const settings = await get("SELECT ssrfWhitelist FROM settings WHERE id = 'default'");
-        if (settings && settings.ssrfWhitelist) {
-            const allowedHosts = settings.ssrfWhitelist.split(',').map((h: string) => h.trim());
-            if (allowedHosts.includes(url.hostname)) {
-                return true; // Explicitly allowed by admin
-            }
-        }
-
-        // 3. Resolve hostname to IP
-        const { address } = await dns.lookup(url.hostname);
-
-        // 4. Block Private / Internal IP Ranges
-        const parts = address.split('.').map(Number);
-        if (address === '::1') return false; 
-        
-        // IPv4 Private Ranges
-        if (parts[0] === 127) return false; // Loopback
-        if (parts[0] === 10) return false;  // Private Class A
-        if (parts[0] === 169 && parts[1] === 254) return false; // AWS Metadata
-        if (parts[0] === 192 && parts[1] === 168) return false; // Private Class C
-        if (parts[0] === 172 && (parts[1] >= 16 && parts[1] <= 31)) return false; // Private Class B
-        if (parts[0] === 0) return false; // 0.0.0.0
-
-        return true;
-    } catch (e) {
-        return false;
-    }
-};
 
 app.post('/api/scrape', requireAuth, async (req, res) => {
     try {
@@ -1162,11 +1196,15 @@ if (fs.existsSync(FRONTEND_PATH)) {
 
 // --- SERVER STARTUP ---
 const startServer = async () => {
-    // 1. Run migrations first
+    // 1. Enable WAL Mode for better concurrency
+    await run("PRAGMA journal_mode = WAL;"); 
+    console.log("Database set to WAL mode");
+
+    // 2. Run migrations
     await runMigrations();
-    // 2. Ensure default data
+    // 3. Ensure default data
     await ensureDefaultData();
-    // 3. Start listening
+    // 4. Start listening
     app.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
 };
 
