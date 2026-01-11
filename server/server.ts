@@ -10,6 +10,7 @@ import sharp from 'sharp';
 import { JSDOM } from 'jsdom';
 // @ts-ignore
 import bcrypt from 'bcryptjs';
+import dns from 'dns/promises'; // Native Node.js DNS module
 
 const app = express();
 // Use Environment Port if available, default to 3001
@@ -262,7 +263,8 @@ const runMigrations = async () => {
             { id: 12, name: 'add_api_token_to_users', sql: "ALTER TABLE users ADD COLUMN apiToken TEXT DEFAULT NULL" },
             { id: 13, name: 'add_server_open_setting', sql: "ALTER TABLE settings ADD COLUMN isServerOpen INTEGER DEFAULT 1" },
             { id: 14, name: 'add_unlisted_visibility', sql: "UPDATE boards SET visibility = 'private' WHERE visibility IS NULL" },
-            { id: 15, name: 'add_home_page_pref', sql: "ALTER TABLE users ADD COLUMN homePagePreference TEXT DEFAULT 'all'" }
+            { id: 15, name: 'add_home_page_pref', sql: "ALTER TABLE users ADD COLUMN homePagePreference TEXT DEFAULT 'all'" },
+            { id: 17, name: 'add_ssrf_whitelist_to_settings', sql: "ALTER TABLE settings ADD COLUMN ssrfWhitelist TEXT DEFAULT ''" }
         ];
 
         for (const m of migrations) {
@@ -838,8 +840,9 @@ app.get('/api/settings', requireAuth, async (req, res) => { res.json(await get("
 app.post('/api/settings', requireAuth, async (req, res) => { 
     try {
         const isOpen = req.body.isServerOpen ? 1 : 0;
-        await run("UPDATE settings SET maxUploadSize = ?, maxUsers = ?, isServerOpen = ? WHERE id = 'default'", 
-            [req.body.maxUploadSize, req.body.maxUsers, isOpen]
+        // Added ssrfWhitelist to the update
+        await run("UPDATE settings SET maxUploadSize = ?, maxUsers = ?, isServerOpen = ?, ssrfWhitelist = ? WHERE id = 'default'", 
+            [req.body.maxUploadSize, req.body.maxUsers, isOpen, req.body.ssrfWhitelist || '']
         ); 
         res.json({ success: true }); 
     } catch (e: any) {
@@ -957,10 +960,55 @@ app.post('/api/upload', requireAuth, upload.single('file'), async (req: any, res
     }
 });
 
+// --- SSRF SECURITY HELPER (Enhanced) ---
+const isSafeUrl = async (urlString: string): Promise<boolean> => {
+    try {
+        const url = new URL(urlString);
+        
+        // 1. Block non-http protocols
+        if (!['http:', 'https:'].includes(url.protocol)) return false;
+
+        // 2. CHECK WHITELIST FIRST (Allow Admin overrides)
+        const settings = await get("SELECT ssrfWhitelist FROM settings WHERE id = 'default'");
+        if (settings && settings.ssrfWhitelist) {
+            const allowedHosts = settings.ssrfWhitelist.split(',').map((h: string) => h.trim());
+            if (allowedHosts.includes(url.hostname)) {
+                return true; // Explicitly allowed by admin
+            }
+        }
+
+        // 3. Resolve hostname to IP
+        const { address } = await dns.lookup(url.hostname);
+
+        // 4. Block Private / Internal IP Ranges
+        const parts = address.split('.').map(Number);
+        if (address === '::1') return false; 
+        
+        // IPv4 Private Ranges
+        if (parts[0] === 127) return false; // Loopback
+        if (parts[0] === 10) return false;  // Private Class A
+        if (parts[0] === 169 && parts[1] === 254) return false; // AWS Metadata
+        if (parts[0] === 192 && parts[1] === 168) return false; // Private Class C
+        if (parts[0] === 172 && (parts[1] >= 16 && parts[1] <= 31)) return false; // Private Class B
+        if (parts[0] === 0) return false; // 0.0.0.0
+
+        return true;
+    } catch (e) {
+        return false;
+    }
+};
+
 app.post('/api/scrape', requireAuth, async (req, res) => {
     try {
         const { url } = req.body;
         if (!url) return res.status(400).json({ error: 'URL required' });
+
+        // --- SECURITY FIX START ---
+        const isSafe = await isSafeUrl(url);
+        if (!isSafe) {
+            console.warn(`Blocked SSRF attempt to: ${url}`);
+            return res.status(400).json({ error: 'Forbidden URL' });
+        }
 
         console.log(`Scraping: ${url}`);
         const extractedImages = new Set<string>();
