@@ -39,6 +39,10 @@ Tallo is Spanish for stem. Think of this as an app for growing your ideas. The i
 - Make your instance public or private
 - Make boards public or private
 - Add users to your instance
+- Web Extension / Add-on
+
+### Web Extensions
+Tallo does have a web extension. It is currently available for [Firefox](https://addons.mozilla.org/en-US/firefox/addon/tallo-saver/) and Chrome. For Chrome you'll have to download the files in the 'Tallo-extensions' folder and install manually. When adding your server you can get your API key in your profile settings/security tab. The Tallo web extension/add-on allows for greater flexibility in adding images. Sites that aren't available through the normal URL uploader will typically work with the web extension. 
 
 ### AI Coding
 Tallo is mostly done in AI with my very basic knowledge of Docker, HTML, CSS, and Javascript/Typescript. I can typically make smaller updates but the project does rely on AI for most bigger updates. The entire project is open source and I'm hopeful actual developers will review this project. This is very much a learning project for me to be able to code my own apps.
