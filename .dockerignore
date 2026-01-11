@@ -26,9 +26,7 @@ coverage
 data/images
 data/tallo.db
 server/data
-test-data/images
-test-data/tallo.db
-test-data/thumbnails
+test-data/
 
 # =====================
 # Environment & secrets
