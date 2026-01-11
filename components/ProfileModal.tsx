@@ -118,7 +118,21 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, use
     };
 
     const handleGenerateKey = async () => {
+        // 1. Ask server for new token
         const token = await dataService.generateApiToken(user.id);
+        
+        // 2. FIX: Update local storage IMMEDIATELY so the app doesn't get locked out
+        const stored = localStorage.getItem('tallo_user');
+        if (stored) {
+            const userData = JSON.parse(stored);
+            userData.token = token; // Update session to match new API key
+            // Update fallback fields if they exist
+            if(userData.apiToken) userData.apiToken = token; 
+            
+            localStorage.setItem('tallo_user', JSON.stringify(userData));
+        }
+
+        // 3. Now it is safe to refresh the app data
         onUpdate();
         setGeneratedToken(token);
         setShowKeyConfirm(false);
