@@ -34,6 +34,32 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'x-api-token', 'x-user-id']
 }));
 
+// --- RATE LIMITER HELPER (Defined Once Here) ---
+const rateLimitMap = new Map<string, { count: number, resetTime: number }>();
+
+const rateLimiter = (req: any, res: any, next: any) => {
+    const ip = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000; // 15 minutes
+    const maxRequests = 100; // Max 100 requests per 15 mins
+
+    let record = rateLimitMap.get(ip);
+    
+    if (!record || now > record.resetTime) {
+        record = { count: 0, resetTime: now + windowMs };
+    }
+
+    record.count++;
+    rateLimitMap.set(ip, record);
+
+    if (record.count > maxRequests) {
+        console.warn(`Rate limit exceeded for IP: ${ip}`);
+        return res.status(429).json({ error: "Too many requests, please try again later." });
+    }
+
+    next();
+};
+
 app.use(express.json());
 
 // Serve Static Files
@@ -154,33 +180,6 @@ const isSafeUrl = async (urlString: string): Promise<boolean> => {
     } catch (e) {
         return false;
     }
-};
-
-// --- RATE LIMITER HELPER (NEW) ---
-const rateLimitMap = new Map<string, { count: number, resetTime: number }>();
-
-const rateLimiter = (req: any, res: any, next: any) => {
-    const ip = req.ip || req.connection.remoteAddress;
-    const now = Date.now();
-    const windowMs = 15 * 60 * 1000; // 15 minutes
-    const maxRequests = 100; // Max 100 requests per 15 mins
-
-    let record = rateLimitMap.get(ip);
-    
-    // Reset if window passed
-    if (!record || now > record.resetTime) {
-        record = { count: 0, resetTime: now + windowMs };
-    }
-
-    record.count++;
-    rateLimitMap.set(ip, record);
-
-    if (record.count > maxRequests) {
-        console.warn(`Rate limit exceeded for IP: ${ip}`);
-        return res.status(429).json({ error: "Too many requests, please try again later." });
-    }
-
-    next();
 };
 
 // --- AUTH MIDDLEWARE (FIXED) ---
@@ -421,7 +420,7 @@ app.post('/api/setup', async (req, res) => {
     res.json(user);
 });
 
-// FIX: Added Rate Limiter to Login
+// FIX: Added Rate Limiter + Token Reuse to Login
 app.post('/api/login', rateLimiter, async (req, res) => {
     const { username, password } = req.body;
     const user = await get("SELECT * FROM users WHERE username = ?", [username]);
@@ -431,13 +430,17 @@ app.post('/api/login', rateLimiter, async (req, res) => {
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
-    const sessionToken = uuidv4(); 
-    // Save it to the user's apiToken column (or a new session column)
-    await run("UPDATE users SET apiToken = ? WHERE id = ?", [sessionToken, user.id]);
+    // --- FIX START: Reuse existing token if present ---
+    let token = user.apiToken;
+    if (!token) {
+        token = uuidv4();
+        await run("UPDATE users SET apiToken = ? WHERE id = ?", [token, user.id]);
+    }
+    // --- FIX END ---
 
     const { password: _, ...userInfo } = user;
     // Send the token to the client
-    res.json({ ...userInfo, token: sessionToken }); 
+    res.json({ ...userInfo, token: token }); 
 });
 
 // FIX: Added Rate Limiter to Register

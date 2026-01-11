@@ -15,7 +15,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const stored = await chrome.storage.local.get(['serverUrl', 'username', 'apiKey']);
     if (stored.serverUrl && stored.username && stored.apiKey) {
         config = stored;
-        // Check if user navigated since last open
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if(tab && tab.url !== pageData.url) {
             isDataLoaded = false;
@@ -34,11 +33,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     document.getElementById('saveSettings').addEventListener('click', () => {
-        const url = document.getElementById('serverUrl').value.replace(/\/$/, "");
+        let url = document.getElementById('serverUrl').value.trim();
         const user = document.getElementById('username').value.trim();
         const key = document.getElementById('apiKey').value.trim();
 
         if(url && user && key) {
+            // FIX: Protocol Enforcer (Auto-add http/https)
+            if (!/^https?:\/\//i.test(url)) {
+                if (url.includes('localhost') || url.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/)) {
+                    url = 'http://' + url;
+                } else {
+                    url = 'https://' + url;
+                }
+            }
+            // Remove trailing slash
+            url = url.replace(/\/$/, "");
+
             chrome.storage.local.set({ serverUrl: url, username: user, apiKey: key }, () => {
                 config = { serverUrl: url, username: user, apiKey: key };
                 isDataLoaded = false;
@@ -49,7 +59,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    // --- BOARD CREATION LISTENERS (Fixed placement) ---
+    // --- BOARD CREATION ---
     const createContainer = document.getElementById('createBoardContainer');
     const toggleBtn = document.getElementById('toggleCreateBoard');
     const createBtn = document.getElementById('createBoardBtn');
@@ -94,7 +104,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         } catch(e) {
             console.error(e);
-            alert("Error connecting to server");
+            alert("Error connecting to server.");
         } finally {
             createBtn.disabled = false;
             createBtn.innerText = "Add";
@@ -121,7 +131,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 1. Fetch Boards 
         fetchBoards();
 
-        // 2. Scrape Page (Via Content Script)
+        // 2. Scrape Page
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         if(!tab) return;
         
@@ -129,7 +139,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         pageData.title = tab.title;
         document.getElementById('pinTitle').value = tab.title;
 
-        // Send message to content script
         try {
             const response = await sendMessageToTab(tab.id, { action: "SCRAPE_IMAGES" });
             
@@ -141,7 +150,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         } catch (e) {
             console.error(e);
-            document.getElementById('loading').innerText = "Refresh the page and try again.";
+            document.getElementById('loading').innerText = "Refresh page & try again.";
         }
     }
 
@@ -183,11 +192,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             });
         } catch (e) {
-            select.innerHTML = '<option value="">Default (Boards failed)</option>';
+            select.innerHTML = '<option value="">Default (Connection Failed)</option>';
         }
     }
 
-    function renderImages(imageDataList) { // Note: variable name change to imply objects
+    function renderImages(imageDataList) { 
         const grid = document.getElementById('grid');
         const filterCheckbox = document.getElementById('filterSmall');
         const minSize = 150; 
@@ -195,7 +204,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.getElementById('loading').style.display = 'none';
         
         if (!imageDataList || imageDataList.length === 0) {
-            grid.innerHTML = '<p class="status">No images found on this page.</p>';
+            grid.innerHTML = '<p class="status">No images found.</p>';
             return;
         }
 
@@ -203,13 +212,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         grid.innerHTML = ''; 
 
         imageDataList.forEach(imgData => {
-            const imgUrl = imgData.url; // Extract URL
+            const imgUrl = imgData.url; 
             
             const div = document.createElement('div');
             div.className = 'img-card';
-            div.style.display = 'none'; 
             
-            // Added <div class="res-badge">
             div.innerHTML = `
                 <div class="check-badge"></div>
                 <div class="res-badge">${imgData.width > 0 ? `${imgData.width} × ${imgData.height}` : ''}</div>
@@ -221,33 +228,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             const badge = div.querySelector('.res-badge');
             
             img.onload = () => {
-                // If dimensions were 0 (CSS bg), update them now that it's loaded
                 const w = img.naturalWidth;
                 const h = img.naturalHeight;
-                
-                // Update badge if it was empty
-                if (badge.innerText === '') {
-                    badge.innerText = `${w} × ${h}`;
-                }
+                if (badge.innerText === '') badge.innerText = `${w} × ${h}`;
 
                 const isSmall = w < minSize || h < minSize;
-                const filterOn = filterCheckbox.checked;
-
                 div.querySelector('.img-loader').style.display = 'none';
                 img.classList.add('loaded');
-
                 div.dataset.small = isSmall ? "true" : "false";
 
-                if (isSmall && filterOn) {
-                    div.style.display = 'none';
-                } else {
-                    div.style.display = 'block';
-                }
+                if (isSmall && filterCheckbox.checked) div.style.display = 'none';
+                else div.style.display = 'block';
                 
                 updateCount();
             };
             
-            // ... rest of error handling and click listeners remains the same ...
             img.onerror = () => { div.remove(); };
             
             div.addEventListener('click', () => {
@@ -265,8 +260,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         filterCheckbox.addEventListener('change', () => {
-            const cards = document.querySelectorAll('.img-card');
-            cards.forEach(card => {
+            document.querySelectorAll('.img-card').forEach(card => {
                 if (card.dataset.small === "true") {
                     card.style.display = filterCheckbox.checked ? 'none' : 'block';
                     if(filterCheckbox.checked && card.classList.contains('selected')) {
@@ -278,7 +272,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
             updateCount();
         });
-        
         updateCount();
     }
 
@@ -300,26 +293,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 selectedImages.delete(img);
             }
         });
-        
         updateCount();
     });
 
     function updateCount() {
         const count = selectedImages.size;
-        const selectBtn = document.getElementById('selectAll');
-        const visibleCards = Array.from(document.querySelectorAll('.img-card')).filter(c => c.style.display !== 'none');
-        const selectedVisible = visibleCards.filter(c => c.classList.contains('selected')).length;
-        
-        if (visibleCards.length > 0 && selectedVisible === visibleCards.length) {
-            selectBtn.innerText = "Deselect All";
-        } else {
-            selectBtn.innerText = "Select All";
-        }
-
         document.getElementById('count').innerText = `(${count})`;
+        
         const btn = document.getElementById('savePin');
         btn.innerText = count > 0 ? `Save ${count} Stem${count !== 1 ? 's' : ''}` : 'Save Stems';
         btn.disabled = count === 0;
+        
+        const selectBtn = document.getElementById('selectAll');
+        const visibleCards = Array.from(document.querySelectorAll('.img-card')).filter(c => c.style.display !== 'none');
+        const selectedVisible = visibleCards.filter(c => c.classList.contains('selected')).length;
+        selectBtn.innerText = (visibleCards.length > 0 && selectedVisible === visibleCards.length) ? "Deselect All" : "Select All";
     }
 
     // --- SAVE LOGIC ---
@@ -379,8 +367,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             btn.innerText = "Retry Failed";
         }
     });
-
-    // --- HELPERS ---
 
     function switchView(viewName) {
         Object.values(views).forEach(el => el.classList.add('hidden'));
