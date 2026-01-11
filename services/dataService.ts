@@ -8,8 +8,10 @@ const getHeaders = () => {
   const user = stored ? JSON.parse(stored) : null;
   return {
     'Content-Type': 'application/json',
-    'x-api-token': user ? user.token : '', // Security Token
-    'x-user-id': user ? user.id : ''       // ID Fallback
+    // FIX: Send the secure token instead of just the ID
+    'x-api-token': user ? user.token : '', 
+    // Fallback ID (optional but harmless to keep)
+    'x-user-id': user ? user.id : '' 
   };
 };
 
@@ -536,9 +538,9 @@ export const dataService = {
 
     const res = await fetch(`${API_URL}/upload`, {
       method: 'POST',
-      // FIX: Manually send x-api-token here since FormData doesn't use getHeaders()
       headers: {
-        'x-api-token': user ? user.token : '',
+        // FIX: Ensure token is sent here too!
+        'x-api-token': user ? user.token : '', 
         'x-user-id': user ? user.id : ''
       },
       body: formData
