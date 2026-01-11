@@ -7,6 +7,7 @@ Thumbs.db
 *.swo
 .vscode/
 .idea/
+*.zip
 
 # =====================
 # Node dependencies
@@ -60,3 +61,4 @@ docker-compose.override.yml
 # Misc
 # =====================
 coverage/
+tallo-extensions/Archivo.zip
