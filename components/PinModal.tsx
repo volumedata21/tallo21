@@ -33,6 +33,9 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   const [isCopying, setIsCopying] = useState(false);
   const [viewingUrl, setViewingUrl] = useState('');
   
+  // FIX: Local state for immediate cover button feedback
+  const [activeHeroUrl, setActiveHeroUrl] = useState('');
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [locationResults, setLocationResults] = useState<LocationData[]>([]);
@@ -55,7 +58,11 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
             setIsEditingLocation(false);
             setSearchQuery('');
             setLocationResults([]);
+            
+            // Set viewing AND active hero state
             setViewingUrl(pin.imageUrl);
+            setActiveHeroUrl(pin.imageUrl);
+            
             setIsDrawerOpen(false);
             setIsAddingBoard(false);
             
@@ -109,29 +116,49 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
   const getAllImages = () => [pin.imageUrl, ...(pin.gallery || [])];
   const galleryImages = getAllImages();
   
-  const handleNextImage = (e: React.MouseEvent) => {
-      e.stopPropagation();
+  // FIX: Helper for cycling images (Used by Click and Touch)
+  const cycleImage = (direction: 'next' | 'prev') => {
       const images = getAllImages();
       const idx = images.indexOf(viewingUrl);
-      const nextIdx = (idx + 1) % images.length;
-      setViewingUrl(images[nextIdx]);
+      if (idx === -1) return;
+
+      let newIdx;
+      if (direction === 'next') {
+          newIdx = (idx + 1) % images.length;
+      } else {
+          newIdx = (idx - 1 + images.length) % images.length;
+      }
+      setViewingUrl(images[newIdx]);
+  };
+
+  const handleNextImage = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      cycleImage('next');
   };
 
   const handlePrevImage = (e: React.MouseEvent) => {
       e.stopPropagation();
-      const images = getAllImages();
-      const idx = images.indexOf(viewingUrl);
-      const prevIdx = (idx - 1 + images.length) % images.length;
-      setViewingUrl(images[prevIdx]);
+      cycleImage('prev');
   };
 
+  // FIX: Updated Touch Handler for Mobile Gallery
   const handleTouchStart = (e: React.TouchEvent) => { touchStartRef.current = e.touches[0].clientX; };
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (touchStartRef.current === null) return;
     const touchEnd = e.changedTouches[0].clientX;
     const diff = touchStartRef.current - touchEnd;
-    if (diff > 50) handleNext();
-    else if (diff < -50) handlePrev();
+    
+    if (Math.abs(diff) > 50) { // Threshold
+        if (galleryImages.length > 1) {
+            // Priority: Cycle Images within the gallery
+            if (diff > 0) cycleImage('next'); // Swipe Left -> Next Image
+            else cycleImage('prev');          // Swipe Right -> Prev Image
+        } else {
+            // Fallback: Cycle through Pins if it's a single image
+            if (diff > 0) handleNext();
+            else handlePrev();
+        }
+    }
     touchStartRef.current = null;
   };
 
@@ -174,13 +201,20 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
       await dataService.toggleFavorite(pin.id);
   };
 
+  // FIX: Updated to use local state for instant feedback
   const handleSetAsCover = async () => {
-      if (viewingUrl === pin.imageUrl) return;
-      const oldHero = pin.imageUrl;
+      if (viewingUrl === activeHeroUrl) return;
+      
+      const oldHero = activeHeroUrl; 
       const newHero = viewingUrl;
+      
+      // Update local state IMMEDIATELY
+      setActiveHeroUrl(newHero);
+
       const currentGallery = pin.gallery || [];
       const newGallery = currentGallery.filter(url => url !== newHero);
       newGallery.push(oldHero);
+      
       await dataService.updatePin(pin.id, { imageUrl: newHero, gallery: newGallery });
       onUpdate();
   };
@@ -284,7 +318,7 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
         );
     }
 
-    const isMainImage = viewingUrl === pin.imageUrl;
+    const isMainImage = viewingUrl === activeHeroUrl; // Check against local state
     
     if (isMainImage && pin.link) {
         const ytMatch = pin.link.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
@@ -320,8 +354,10 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
     );
   };
 
+  // FIX: Compare viewing URL to local active hero state
+  const isCover = viewingUrl === activeHeroUrl;
+
   return (
-    // FIX: w-full and overflow-x-hidden on container to prevent right side cutoff
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 sm:bg-slate-950/95 sm:backdrop-blur-md sm:p-8 overflow-x-hidden" onClick={handleClose}>
        {hasPrev && (
            <button onClick={(e) => { e.stopPropagation(); handlePrev(); }} className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-slate-800/50 hover:bg-slate-700 text-white transition hidden md:flex z-50">
@@ -345,11 +381,21 @@ export const PinModal: React.FC<PinModalProps> = ({ pin, onClose, collections, b
                  <button onClick={handleToggleFavorite} className={`p-2.5 backdrop-blur rounded-full transition-colors ${isFavorite ? 'bg-red-500/80 hover:bg-red-500 text-white' : 'bg-black/40 hover:bg-black/80 text-white'}`} title="Like">
                      <Heart size={20} fill={isFavorite ? "currentColor" : "none"} />
                  </button>
-                 {viewingUrl !== pin.imageUrl && (
-                      <button onClick={handleSetAsCover} className="px-4 py-2 bg-black/40 hover:bg-teal-600 backdrop-blur text-white text-xs font-bold rounded-full transition-colors flex items-center gap-2">
-                        <ImageIcon size={14} /> Cover
-                      </button>
-                  )}
+                 
+                 {/* Premium Cover Button */}
+                 <button 
+                    onClick={isCover ? undefined : handleSetAsCover} 
+                    className={`
+                        px-4 py-2 backdrop-blur-md text-xs font-bold rounded-full transition-all duration-300 flex items-center gap-2 border
+                        ${isCover 
+                            ? 'bg-gradient-to-r from-teal-700 to-emerald-950 text-white border-teal-400/50 shadow-[0_0_15px_rgba(20,184,166,0.4)] cursor-default scale-105' 
+                            : 'bg-black/40 text-slate-200 border-white/10 hover:bg-white/10 hover:border-white/20 hover:text-white hover:shadow-[0_0_10px_rgba(255,255,255,0.1)]'
+                        }
+                    `}
+                 >
+                    {isCover ? <Check size={14} strokeWidth={3} /> : <ImageIcon size={14} />} 
+                    {isCover ? 'Cover' : 'Set Cover'}
+                 </button>
              </div>
 
              {!showInfo && (
