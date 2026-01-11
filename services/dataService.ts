@@ -8,7 +8,8 @@ const getHeaders = () => {
   const user = stored ? JSON.parse(stored) : null;
   return {
     'Content-Type': 'application/json',
-    'x-api-token': user ? user.token : '' // Send the token!
+    'x-api-token': user ? user.token : '', // Security Token
+    'x-user-id': user ? user.id : ''       // ID Fallback
   };
 };
 
@@ -21,7 +22,6 @@ export const dataService = {
     return data.isSetup;
   },
 
-  // FIX: Added this method so App.tsx can check if login is required
   getServerStatus: async (): Promise<{ isSetup: boolean, isServerOpen: boolean }> => {
     const res = await fetch(`${API_URL}/system/status`);
     return res.json();
@@ -67,7 +67,6 @@ export const dataService = {
   },
 
   getUserById: async (id: string): Promise<User> => {
-    // Authenticated to allow seeing private details if needed
     const res = await fetch(`${API_URL}/users/${id}`, {
       headers: getHeaders()
     });
@@ -151,7 +150,7 @@ export const dataService = {
   // --- COLLECTIONS ---
   getCollections: async (userId: string): Promise<Collection[]> => {
     const res = await fetch(`${API_URL}/collections?userId=${userId}`, {
-      headers: getHeaders() // FIX: Added headers so owner is recognized
+      headers: getHeaders()
     });
     return res.json();
   },
@@ -194,7 +193,7 @@ export const dataService = {
   // --- BOARDS ---
   getBoards: async (userId: string): Promise<Board[]> => {
     const res = await fetch(`${API_URL}/boards?userId=${userId}`, {
-      headers: getHeaders() // FIX: Added headers so owner is recognized
+      headers: getHeaders()
     });
     return res.json();
   },
@@ -258,14 +257,14 @@ export const dataService = {
     params.append('limit', '50');
 
     const res = await fetch(`${API_URL}/pins?${params.toString()}`, {
-      headers: getHeaders() // FIX: Added headers
+      headers: getHeaders()
     });
     return res.json();
   },
 
   getAllPins: async (): Promise<Pin[]> => {
     const res = await fetch(`${API_URL}/pins`, {
-      headers: getHeaders() // FIX: Added headers so trending tags sees private content
+      headers: getHeaders()
     });
     return res.json();
   },
@@ -380,21 +379,18 @@ export const dataService = {
       return data.features.map((item: any) => {
         const p = item.properties;
         
-        // FIX: Prioritize House Number + Street construction
         let displayName = p.name;
         
         if (!displayName) {
             if (p.housenumber && p.street) {
-                // If we have "123" and "Main St", combine them
                 displayName = `${p.housenumber} ${p.street}`;
             } else {
-                // Fallbacks
                 displayName = p.street || p.city || p.country || 'Unknown Location';
             }
         }
 
         const addressParts = [
-          p.street !== displayName ? p.street : null, // Avoid repeating street if it's the main name
+          p.street !== displayName ? p.street : null, 
           p.city || p.town || p.village, 
           p.state, 
           p.country
@@ -524,7 +520,7 @@ export const dataService = {
   restorePins: async (pins: Pin[]) => { },
 
   async getPublicProfile(userId: string) {
-    const headers = getHeaders(); // FIX: Used 'getHeaders()' correctly
+    const headers = getHeaders();
     const response = await fetch(`${API_URL}/users/${userId}/public`, { headers });
     if (!response.ok) throw new Error("Failed to load profile");
     return response.json();
@@ -540,7 +536,9 @@ export const dataService = {
 
     const res = await fetch(`${API_URL}/upload`, {
       method: 'POST',
+      // FIX: Manually send x-api-token here since FormData doesn't use getHeaders()
       headers: {
+        'x-api-token': user ? user.token : '',
         'x-user-id': user ? user.id : ''
       },
       body: formData
@@ -567,23 +565,52 @@ export const dataService = {
   },
 
   swapHeroImage: async (id: string, newUrl: string) => {
-    // 1. Fetch current state to get the old URL and Gallery
     const pin = await dataService.getPin(id);
     const oldUrl = pin.imageUrl;
     let gallery = pin.gallery || [];
 
-    // 2. Remove the NEW hero image from the gallery (avoid duplication)
     gallery = gallery.filter(img => img !== newUrl);
 
-    // 3. Add the OLD hero image to the gallery (preserve it)
     if (oldUrl && oldUrl !== newUrl) {
         gallery.push(oldUrl);
     }
 
-    // 4. Send the update
     await dataService.updatePin(id, { 
         imageUrl: newUrl, 
         gallery: gallery 
     });
+  },
+
+  // --- DISCOVERY / RSS FEEDS ---
+  getFeeds: async (): Promise<any[]> => {
+    const res = await fetch(`${API_URL}/feeds`, {
+      headers: getHeaders()
+    });
+    return res.json();
+  },
+
+  addFeed: async (url: string): Promise<{ success: boolean, name: string }> => {
+    const res = await fetch(`${API_URL}/feeds`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ url })
+    });
+    if (!res.ok) throw new Error("Failed to add feed");
+    return res.json();
+  },
+
+  deleteFeed: async (id: string) => {
+    await fetch(`${API_URL}/feeds/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+  },
+
+  getDiscoveryItems: async (): Promise<any[]> => {
+    const res = await fetch(`${API_URL}/discovery`, {
+      headers: getHeaders()
+    });
+    if (!res.ok) return [];
+    return res.json();
   }
 };
