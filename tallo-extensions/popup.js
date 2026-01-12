@@ -32,6 +32,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         if(config.serverUrl) switchView('main');
     });
 
+    // --- REFRESH LISTENER ---
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+        const btn = document.getElementById('refreshBtn');
+        
+        // Visual feedback (spin animation)
+        btn.style.transition = 'transform 0.5s ease';
+        btn.style.transform = 'rotate(360deg)';
+        setTimeout(() => btn.style.transform = 'none', 500);
+
+        // Force reload
+        isDataLoaded = false;
+        showMain();
+    });
+
     document.getElementById('saveSettings').addEventListener('click', () => {
         let url = document.getElementById('serverUrl').value.trim();
         const user = document.getElementById('username').value.trim();
