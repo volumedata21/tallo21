@@ -8,20 +8,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 function scrapeImages() {
-    const uniqueImages = new Map(); // Use Map to store url -> dimensions
+    const uniqueImages = new Map();
+
+    // Helper: Check if element is visible
+    const isVisible = (el) => {
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && 
+               style.visibility !== 'hidden' && 
+               style.opacity !== '0' && 
+               el.offsetParent !== null; // Standard check for "connected to render tree"
+    };
 
     // 1. Get standard <img> tags
     const imgTags = document.querySelectorAll('img');
     imgTags.forEach(img => {
+        // FIX: Ignore hidden images (prevents stale SPA content)
+        if (!isVisible(img)) return;
+
         const rawSrc = img.currentSrc || img.src;
         if (!rawSrc) return;
 
         try {
-            // FIX: Convert relative paths to absolute URLs
             const src = new URL(rawSrc, document.baseURI).href;
-            
             if (src.startsWith('http')) {
-                // Only store if not already present or if this one is larger
                 if (!uniqueImages.has(src)) {
                     uniqueImages.set(src, { 
                         width: img.naturalWidth, 
@@ -29,33 +39,31 @@ function scrapeImages() {
                     });
                 }
             }
-        } catch (e) { /* Ignore invalid */ }
+        } catch (e) { }
     });
 
     // 2. Get CSS Background Images
     const allElements = document.querySelectorAll('div, span, section, a');
     allElements.forEach(el => {
+        // FIX: Ignore hidden elements
+        if (!isVisible(el)) return;
+
         const style = window.getComputedStyle(el);
         const bg = style.backgroundImage;
         
         if (bg && bg !== 'none' && bg.startsWith('url(')) {
-            // Remove 'url("' and '")'
             const rawUrl = bg.slice(4, -1).replace(/["']/g, ""); 
-            
             try {
-                // FIX: Convert relative paths here too
                 const url = new URL(rawUrl, document.baseURI).href;
-                
                 if (url.startsWith('http')) {
                     if (!uniqueImages.has(url)) {
                         uniqueImages.set(url, { width: 0, height: 0 });
                     }
                 }
-            } catch (e) { /* Ignore invalid */ }
+            } catch (e) { }
         }
     });
 
-    // Convert Map to array of objects
     return Array.from(uniqueImages.entries()).map(([url, dims]) => ({
         url: url,
         width: dims.width,
