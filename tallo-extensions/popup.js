@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         settings: document.getElementById('settings-view'),
         main: document.getElementById('main-view')
     };
-    
+
     // State
     let config = { serverUrl: '', username: '', apiKey: '' };
     let pageData = { title: '', url: '' };
@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (stored.serverUrl && stored.username && stored.apiKey) {
         config = stored;
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if(tab && tab.url !== pageData.url) {
+        if (tab && tab.url !== pageData.url) {
             isDataLoaded = false;
         }
         showMain();
@@ -25,17 +25,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // --- NAVIGATION ---
-    
+
     document.getElementById('settingsBtn').addEventListener('click', () => switchView('settings'));
-    
+
     document.getElementById('cancelSettings').addEventListener('click', () => {
-        if(config.serverUrl) switchView('main');
+        if (config.serverUrl) switchView('main');
     });
 
     // --- REFRESH LISTENER ---
     document.getElementById('refreshBtn').addEventListener('click', () => {
         const btn = document.getElementById('refreshBtn');
-        
+
         // Visual feedback (spin animation)
         btn.style.transition = 'transform 0.5s ease';
         btn.style.transform = 'rotate(360deg)';
@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const user = document.getElementById('username').value.trim();
         const key = document.getElementById('apiKey').value.trim();
 
-        if(url && user && key) {
+        if (url && user && key) {
             // FIX: Protocol Enforcer (Auto-add http/https)
             if (!/^https?:\/\//i.test(url)) {
                 if (url.includes('localhost') || url.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/)) {
@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     toggleBtn.addEventListener('click', () => {
         createContainer.classList.toggle('hidden');
-        if(!createContainer.classList.contains('hidden')) {
+        if (!createContainer.classList.contains('hidden')) {
             newBoardInput.focus();
             toggleBtn.innerText = "Cancel";
         } else {
@@ -91,7 +91,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     createBtn.addEventListener('click', async () => {
         const title = newBoardInput.value.trim();
-        if(!title) return;
+        if (!title) return;
 
         createBtn.disabled = true;
         createBtn.innerText = "...";
@@ -99,14 +99,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
             const res = await fetch(`${config.serverUrl}/api/boards`, {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
-                    'x-api-token': config.apiKey 
+                    'x-api-token': config.apiKey
                 },
                 body: JSON.stringify({ title: title })
             });
 
-            if(res.ok) {
+            if (res.ok) {
                 const newBoard = await res.json();
                 await fetchBoards();
                 document.getElementById('boardSelect').value = newBoard.id;
@@ -116,7 +116,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 alert("Failed to create board");
             }
-        } catch(e) {
+        } catch (e) {
             console.error(e);
             alert("Error connecting to server.");
         } finally {
@@ -131,7 +131,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         switchView('main');
 
         if (isDataLoaded && document.getElementById('grid').hasChildNodes()) {
-            return; 
+            return;
         }
 
         // Reset UI
@@ -147,15 +147,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // 2. Scrape Page
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if(!tab) return;
-        
+        if (!tab) return;
+
         pageData.url = tab.url;
         pageData.title = tab.title;
         document.getElementById('pinTitle').value = tab.title;
 
         try {
             const response = await sendMessageToTab(tab.id, { action: "SCRAPE_IMAGES" });
-            
+
             if (response && response.images) {
                 renderImages(response.images);
                 isDataLoaded = true;
@@ -186,19 +186,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             const res = await fetch(`${config.serverUrl}/api/boards`, {
                 headers: { 'x-api-token': config.apiKey }
             });
-            
-            if(res.status === 401) throw new Error("Auth Error");
-            
+
+            if (res.status === 401) throw new Error("Auth Error");
+
             const boards = await res.json();
             select.innerHTML = '';
-            
+
             const defaultOpt = document.createElement('option');
-            defaultOpt.value = ""; 
+            defaultOpt.value = "";
             defaultOpt.innerText = "New Stems (Default)";
             select.appendChild(defaultOpt);
 
             boards.forEach(b => {
-                if(b.title !== 'New Stems') {
+                if (b.title !== 'New Stems') {
                     const opt = document.createElement('option');
                     opt.value = b.id;
                     opt.innerText = b.title;
@@ -210,57 +210,81 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function renderImages(imageDataList) { 
+    function renderImages(imageDataList) {
         const grid = document.getElementById('grid');
         const filterCheckbox = document.getElementById('filterSmall');
-        const minSize = 150; 
-        
+        const minSize = 150;
+
         document.getElementById('loading').style.display = 'none';
-        
+
         if (!imageDataList || imageDataList.length === 0) {
             grid.innerHTML = '<p class="status">No images found.</p>';
             return;
         }
 
         document.getElementById('controls').classList.remove('hidden');
-        grid.innerHTML = ''; 
+        grid.innerHTML = '';
 
         imageDataList.forEach(imgData => {
-            const imgUrl = imgData.url; 
-            
+            const imgUrl = imgData.url;
+
             const div = document.createElement('div');
             div.className = 'img-card';
-            
+
             div.innerHTML = `
                 <div class="check-badge"></div>
                 <div class="res-badge">${imgData.width > 0 ? `${imgData.width} × ${imgData.height}` : ''}</div>
                 <div class="img-loader"></div>
                 <img src="${imgUrl}" />
             `;
-            
+
             const img = div.querySelector('img');
             const badge = div.querySelector('.res-badge');
-            
+
             img.onload = () => {
                 const w = img.naturalWidth;
                 const h = img.naturalHeight;
-                if (badge.innerText === '') badge.innerText = `${w} × ${h}`;
+
+                if (badge.innerText === '') {
+                    badge.innerText = `${w} × ${h}`;
+                }
+
+                // --- RESOLUTION COLOR LOGIC ---
+                // Reset classes
+                badge.className = 'res-badge';
+
+                // 1. Critical Low: Both < 250 OR Any Dimension < 75
+                if ((w < 250 && h < 250) || w < 75 || h < 75) {
+                    badge.classList.add('red');
+                }
+                // 2. Warning Low: Both < 500
+                else if (w < 500 && h < 500) {
+                    badge.classList.add('yellow');
+                }
+                // ------------------------------
 
                 const isSmall = w < minSize || h < minSize;
+                // Note: minSize is 150, so "red" images might be hidden by filterSmall 
+                // unless the user unchecks "Hide small"
+
                 div.querySelector('.img-loader').style.display = 'none';
                 img.classList.add('loaded');
+
                 div.dataset.small = isSmall ? "true" : "false";
 
-                if (isSmall && filterCheckbox.checked) div.style.display = 'none';
-                else div.style.display = 'block';
-                
+                if (isSmall && filterCheckbox.checked) {
+                    div.style.display = 'none';
+                } else {
+                    div.style.display = 'block';
+                }
+
                 updateCount();
             };
-            
+
             img.onerror = () => { div.remove(); };
-            
+
             div.addEventListener('click', () => {
-                if(selectedImages.has(imgUrl)) {
+                if (selectedImages.has(imgUrl)) {
                     selectedImages.delete(imgUrl);
                     div.classList.remove('selected');
                 } else {
@@ -269,7 +293,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 updateCount();
             });
-            
+
             grid.appendChild(div);
         });
 
@@ -277,7 +301,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.querySelectorAll('.img-card').forEach(card => {
                 if (card.dataset.small === "true") {
                     card.style.display = filterCheckbox.checked ? 'none' : 'block';
-                    if(filterCheckbox.checked && card.classList.contains('selected')) {
+                    if (filterCheckbox.checked && card.classList.contains('selected')) {
                         card.classList.remove('selected');
                         const url = card.querySelector('img').src;
                         selectedImages.delete(url);
@@ -295,11 +319,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const cards = Array.from(document.querySelectorAll('.img-card')).filter(c => c.style.display !== 'none');
         const total = cards.length;
         const selectedCount = cards.filter(c => c.classList.contains('selected')).length;
-        const shouldSelectAll = selectedCount < total; 
-        
+        const shouldSelectAll = selectedCount < total;
+
         cards.forEach(card => {
             const img = card.querySelector('img').src;
-            if(shouldSelectAll) {
+            if (shouldSelectAll) {
                 card.classList.add('selected');
                 selectedImages.add(img);
             } else {
@@ -313,11 +337,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     function updateCount() {
         const count = selectedImages.size;
         document.getElementById('count').innerText = `(${count})`;
-        
+
         const btn = document.getElementById('savePin');
         btn.innerText = count > 0 ? `Save ${count} Stem${count !== 1 ? 's' : ''}` : 'Save Stems';
         btn.disabled = count === 0;
-        
+
         const selectBtn = document.getElementById('selectAll');
         const visibleCards = Array.from(document.querySelectorAll('.img-card')).filter(c => c.style.display !== 'none');
         const selectedVisible = visibleCards.filter(c => c.classList.contains('selected')).length;
@@ -327,7 +351,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- SAVE LOGIC ---
 
     document.getElementById('savePin').addEventListener('click', async () => {
-        if(selectedImages.size === 0) return;
+        if (selectedImages.size === 0) return;
 
         const btn = document.getElementById('savePin');
         const msg = document.getElementById('message');
@@ -338,7 +362,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         btn.disabled = true;
         btn.innerText = "Saving...";
-        
+
         let saved = 0;
         let errors = 0;
 
@@ -356,27 +380,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 const res = await fetch(`${config.serverUrl}/api/pins`, {
                     method: 'POST',
-                    headers: { 
+                    headers: {
                         'Content-Type': 'application/json',
-                        'x-api-token': config.apiKey 
+                        'x-api-token': config.apiKey
                     },
                     body: JSON.stringify(payload)
                 });
 
-                if(res.ok) saved++;
+                if (res.ok) saved++;
                 else errors++;
             } catch (e) {
                 errors++;
             }
         }
 
-        if(errors === 0) {
+        if (errors === 0) {
             msg.innerText = "All saved successfully!";
-            msg.style.color = "#2dd4bf"; 
+            msg.style.color = "#2dd4bf";
             setTimeout(() => window.close(), 1200);
         } else {
             msg.innerText = `Saved ${saved}, Failed ${errors}.`;
-            msg.style.color = "#f87171"; 
+            msg.style.color = "#f87171";
             btn.disabled = false;
             btn.innerText = "Retry Failed";
         }
@@ -385,8 +409,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     function switchView(viewName) {
         Object.values(views).forEach(el => el.classList.add('hidden'));
         views[viewName].classList.remove('hidden');
-        
-        if(viewName === 'settings') {
+
+        if (viewName === 'settings') {
             document.getElementById('serverUrl').value = config.serverUrl || '';
             document.getElementById('username').value = config.username || '';
             document.getElementById('apiKey').value = config.apiKey || '';
