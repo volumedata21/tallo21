@@ -82,7 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
 
     const handleLogoClick = () => {
-        onFilterChange({ type: 'all', id: '' });
+        onFilterChange({ type: 'created', id: '' });
         if (window.innerWidth < 768) onCloseMobile();
     };
 
@@ -120,7 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                 {/* Logo Area */}
                 <div className={`h-20 flex items-center shrink-0 transition-all ${isOpen ? 'px-6 justify-start' : 'px-0 justify-center'}`}>
-                    <button onClick={handleLogoClick} className="flex items-center gap-3 group" title="Reset Filters">
+                    <button onClick={handleLogoClick} className="flex items-center gap-3 group">
                         <div className="w-9 h-9 bg-teal-600 rounded-lg flex items-center justify-center shadow-lg shadow-teal-600/20 group-hover:bg-teal-500 transition-all">
                             <ChevronsUp className="text-white w-5 h-5" strokeWidth={2} />
                         </div>
