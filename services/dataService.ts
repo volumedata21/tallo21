@@ -424,11 +424,26 @@ export const dataService = {
     return Object.entries(tagCounts).sort(([, a], [, b]) => b - a).slice(0, 8).map(([t]) => t);
   },
 
+  getTrashStats: async (): Promise<{ count: number, size: string }> => {
+    const res = await fetch(`${API_URL}/admin/trash-stats`, {
+      headers: getHeaders()
+    });
+    return res.json();
+  },
+
   getAllTags: async () => {
     const pins = await dataService.getAllPins();
     const tags = new Set<string>();
     pins.forEach(p => p.tags.forEach(t => tags.add(t)));
     return Array.from(tags).sort();
+  },
+
+  emptyTrash: async () => {
+    const res = await fetch(`${API_URL}/admin/empty-trash`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return res.json();
   },
 
   getSystemSettings: async (): Promise<SystemSettings> => {
