@@ -44,7 +44,7 @@ const rateLimiter = (req: any, res: any, next: any) => {
     const maxRequests = 100; // Max 100 requests per 15 mins
 
     let record = rateLimitMap.get(ip);
-    
+
     if (!record || now > record.resetTime) {
         record = { count: 0, resetTime: now + windowMs };
     }
@@ -103,6 +103,61 @@ const formatBytes = (bytes: number) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+// --- HELPER: PERMANENTLY DELETE FILES ---
+// FIX: Changed 'pin: Pin' to 'pin: any' to allow raw DB rows (where gallery is a string)
+const permanentDeletePin = async (pin: any) => {
+    try {
+        const filesToDelete = new Set<string>();
+
+        // 1. Gather all file paths
+        if (pin.imageUrl) filesToDelete.add(pin.imageUrl);
+        if (pin.thumbnail) filesToDelete.add(pin.thumbnail);
+
+        if (pin.gallery) {
+            try {
+                // FIX: Handle both string (DB raw) and array (Parsed)
+                let gallery = pin.gallery;
+                if (typeof gallery === 'string') {
+                    gallery = JSON.parse(gallery);
+                }
+                
+                if (Array.isArray(gallery)) {
+                    gallery.forEach((url: any) => filesToDelete.add(String(url)));
+                }
+            } catch { }
+        }
+
+        // 2. Delete them from disk
+        for (const url of filesToDelete) {
+            if (!url) continue;
+
+            // Convert URL to File Path
+            let filePath = '';
+            if (url.startsWith('/images/')) {
+                filePath = path.join(IMAGES_DIR, url.replace('/images/', ''));
+            } else if (url.startsWith('/thumbnails/')) {
+                filePath = path.join(THUMBNAILS_DIR, url.replace('/thumbnails/', ''));
+            }
+
+            // Unlink (Delete)
+            if (filePath && fs.existsSync(filePath)) {
+                await fs.promises.unlink(filePath);
+                console.log(`Deleted file: ${filePath}`);
+            }
+        }
+
+        // 3. Remove from Database
+        await run("DELETE FROM pins WHERE id = ?", [pin.id]);
+
+        // 4. Clean up relationships
+        await run("DELETE FROM pin_boards WHERE pinId = ?", [pin.id]);
+        await run("DELETE FROM favorites WHERE pinId = ?", [pin.id]);
+
+    } catch (e) {
+        console.error(`Failed to delete pin ${pin.id}:`, e);
+    }
+};
+
 const updateUserQuota = async (userId: string) => {
     try {
         const pins = await all("SELECT imageUrl, thumbnail, gallery FROM pins WHERE ownerId = ? AND deletedAt IS NULL", [userId]);
@@ -132,7 +187,7 @@ const updateUserQuota = async (userId: string) => {
                 try {
                     const g = JSON.parse(pin.gallery);
                     if (Array.isArray(g)) g.forEach(addFile);
-                } catch {}
+                } catch { }
             }
         }
 
@@ -148,7 +203,7 @@ const updateUserQuota = async (userId: string) => {
 const isSafeUrl = async (urlString: string): Promise<boolean> => {
     try {
         const url = new URL(urlString);
-        
+
         // 1. Block non-http protocols
         if (!['http:', 'https:'].includes(url.protocol)) return false;
 
@@ -166,8 +221,8 @@ const isSafeUrl = async (urlString: string): Promise<boolean> => {
 
         // 4. Block Private / Internal IP Ranges
         const parts = address.split('.').map(Number);
-        if (address === '::1') return false; 
-        
+        if (address === '::1') return false;
+
         // IPv4 Private Ranges
         if (parts[0] === 127) return false; // Loopback
         if (parts[0] === 10) return false;  // Private Class A
@@ -185,8 +240,8 @@ const isSafeUrl = async (urlString: string): Promise<boolean> => {
 // --- AUTH MIDDLEWARE (FIXED) ---
 const requireAuth = async (req: any, res: any, next: any) => {
     // ONLY check the token
-    const token = req.headers['x-api-token']; 
-    
+    const token = req.headers['x-api-token'];
+
     if (!token) {
         // Fallback: If no token, check if they are trying to access via old method and warn
         if (req.headers['x-user-id']) {
@@ -196,7 +251,7 @@ const requireAuth = async (req: any, res: any, next: any) => {
     }
 
     const user = await get("SELECT * FROM users WHERE apiToken = ?", [token]);
-    
+
     if (user) {
         req.user = user;
         return next();
@@ -392,9 +447,9 @@ app.get('/api/system/status', async (req, res) => {
     const settings = await get("SELECT isServerOpen FROM settings WHERE id = 'default'");
     const isServerOpen = settings ? settings.isServerOpen === 1 : true;
 
-    res.json({ 
+    res.json({
         isSetup: userCount.count > 0,
-        isServerOpen: isServerOpen 
+        isServerOpen: isServerOpen
     });
 });
 
@@ -440,7 +495,7 @@ app.post('/api/login', rateLimiter, async (req, res) => {
 
     const { password: _, ...userInfo } = user;
     // Send the token to the client
-    res.json({ ...userInfo, token: token }); 
+    res.json({ ...userInfo, token: token });
 });
 
 // FIX: Added Rate Limiter to Register
@@ -512,12 +567,12 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
             conditions.push("pb.boardId = ?");
             params.push(boardId);
 
-        // --- FIX START: Add Collection Filtering ---
+            // --- FIX START: Add Collection Filtering ---
         } else if (collectionId) {
             // Join pins -> pin_boards -> boards to check the collectionId
             sql += ` JOIN pin_boards pb ON pins.id = pb.pinId 
                      JOIN boards b ON pb.boardId = b.id `;
-            
+
             conditions.push("b.collectionId = ?");
             params.push(collectionId);
 
@@ -567,8 +622,8 @@ app.get('/api/pins', gatekeeper, async (req: any, res) => {
         }
 
         if (tag) {
-             conditions.push("pins.tags LIKE ?");
-             params.push(`%${tag}%`);
+            conditions.push("pins.tags LIKE ?");
+            params.push(`%${tag}%`);
         }
 
         if (conditions.length > 0) {
@@ -636,7 +691,7 @@ app.post('/api/pins', requireAuth, async (req: any, res: any) => {
         await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [ownerId, id, boardId, Date.now()]);
     }
     await updateUserQuota(ownerId);
-    
+
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
 
@@ -650,13 +705,13 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
     if (updates.imageUrl) {
         fields.push("thumbnail = ?");
         values.push(null);
-    } 
+    }
 
     Object.keys(updates).forEach(key => {
         if (key === 'id' || key === 'boardIds' || key === 'favorite') return;
-        
+
         // FIX: Skip thumbnail here so we don't overwrite the null we set above
-        if (key === 'thumbnail') return; 
+        if (key === 'thumbnail') return;
 
         let val = updates[key];
         if (['gallery', 'tags', 'location'].includes(key)) val = JSON.stringify(val);
@@ -668,9 +723,9 @@ app.put('/api/pins/:id', requireAuth, async (req, res) => {
         values.push(id);
         await run(`UPDATE pins SET ${fields.join(', ')} WHERE id = ?`, values);
     }
-    
+
     const pinCheck = await get("SELECT ownerId FROM pins WHERE id = ?", [id]);
-    if(pinCheck) await updateUserQuota(pinCheck.ownerId);
+    if (pinCheck) await updateUserQuota(pinCheck.ownerId);
 
     res.json(parsePin(await get("SELECT * FROM pins WHERE id = ?", [id])));
 });
@@ -688,17 +743,88 @@ app.delete('/api/pins/:id', requireAuth, async (req: any, res: any) => {
     res.json({ success: true });
 });
 
-app.post('/api/pins/restore', requireAuth, async (req: any, res) => { 
-    await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [req.body.id]); 
+app.post('/api/pins/restore', requireAuth, async (req: any, res) => {
+    await run("UPDATE pins SET deletedAt = NULL WHERE id = ?", [req.body.id]);
     await updateUserQuota(req.user.id);
-    res.json({ success: true }); 
+    res.json({ success: true });
 });
 
-app.post('/api/pins/bulk-delete', requireAuth, async (req: any, res) => { 
-    const ids = req.body.ids; 
-    await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${ids.map(() => '?').join(',')})`, [Date.now(), ...ids]); 
+app.post('/api/pins/bulk-delete', requireAuth, async (req: any, res) => {
+    const ids = req.body.ids;
+    await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${ids.map(() => '?').join(',')})`, [Date.now(), ...ids]);
     await updateUserQuota(req.user.id);
-    res.json({ success: true }); 
+    res.json({ success: true });
+});
+
+// --- ADMIN: GET TRASH STATS ---
+app.get('/api/admin/trash-stats', requireAuth, async (req: any, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: "Admins only" });
+
+    try {
+        const deletedPins = await all("SELECT * FROM pins WHERE deletedAt IS NOT NULL");
+        let totalBytes = 0;
+        const processedFiles = new Set<string>();
+
+        const addFileSize = (url: string) => {
+            if (!url || processedFiles.has(url)) return;
+            processedFiles.add(url);
+
+            let filePath = '';
+            if (url.startsWith('/images/')) {
+                filePath = path.join(IMAGES_DIR, url.replace('/images/', ''));
+            } else if (url.startsWith('/thumbnails/')) {
+                filePath = path.join(THUMBNAILS_DIR, url.replace('/thumbnails/', ''));
+            }
+
+            if (filePath && fs.existsSync(filePath)) {
+                totalBytes += fs.statSync(filePath).size;
+            }
+        };
+
+        for (const pin of deletedPins) {
+            addFileSize(pin.imageUrl);
+            addFileSize(pin.thumbnail);
+            if (pin.gallery) {
+                try {
+                    const g = JSON.parse(pin.gallery);
+                    if (Array.isArray(g)) g.forEach((u: string) => addFileSize(u));
+                } catch {}
+            }
+        }
+
+        res.json({ 
+            count: deletedPins.length, 
+            size: formatBytes(totalBytes) 
+        });
+    } catch (e) {
+        res.status(500).json({ error: "Failed to calc stats" });
+    }
+});
+
+app.delete('/api/admin/empty-trash', requireAuth, async (req: any, res) => {
+    if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: "Admins only" });
+    }
+
+    try {
+        // Find ALL deleted pins
+        const deletedPins = await all("SELECT * FROM pins WHERE deletedAt IS NOT NULL");
+        
+        console.log(`Admin Emptying Trash: ${deletedPins.length} items...`);
+        
+        for (const pin of deletedPins) {
+            await permanentDeletePin(pin);
+        }
+
+        // Recalculate quotas
+        const affectedUsers = new Set(deletedPins.map(p => p.ownerId));
+        for (const uid of affectedUsers) await updateUserQuota(uid);
+
+        res.json({ success: true, count: deletedPins.length });
+    } catch (e) {
+        console.error("Empty trash failed:", e);
+        res.status(500).json({ error: "Failed to empty trash" });
+    }
 });
 
 app.get('/api/users/:id/public', gatekeeper, async (req: any, res) => {
@@ -795,7 +921,7 @@ app.post('/api/pins/merge', requireAuth, async (req: any, res) => {
     await run("UPDATE pins SET gallery = ? WHERE id = ?", [JSON.stringify(newGallery), targetId]);
     const sourceIds = sourcePins.map(p => p.id);
     await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${sourceIds.map(() => '?').join(',')})`, [Date.now(), ...sourceIds]);
-    
+
     await updateUserQuota(req.user.id);
 
     res.json({ success: true, mergedPinId: targetId });
@@ -805,10 +931,10 @@ app.post('/api/pins/ungroup', requireAuth, async (req: any, res) => {
     const { id } = req.body;
     const pin = await get("SELECT * FROM pins WHERE id = ?", [id]);
     if (!pin) return res.status(404).json({ error: "Pin not found" });
-    
+
     const gallery: string[] = JSON.parse(pin.gallery || '[]');
     if (gallery.length === 0) return res.json({ success: true });
-    
+
     for (const imgUrl of gallery) {
         const newId = uuidv4();
         await run(
@@ -819,7 +945,7 @@ app.post('/api/pins/ungroup', requireAuth, async (req: any, res) => {
         await run("INSERT INTO pin_boards (userId, pinId, boardId, createdAt) VALUES (?, ?, ?, ?)", [pin.ownerId, newId, NEW_STEMS_ID, Date.now()]);
     }
     await run("UPDATE pins SET gallery = ? WHERE id = ?", ['[]', id]);
-    
+
     await updateUserQuota(req.user.id);
 
     res.json({ success: true });
@@ -867,10 +993,10 @@ app.put('/api/users/:id/password', requireAuth, async (req, res) => {
             if (!match) return res.status(401).json({ error: "Current password is incorrect" });
         }
         const hashedPassword = await bcrypt.hash(newPass, 10);
-        
+
         // FIX: Token Rotation - Kick out other sessions
         const newToken = uuidv4();
-        
+
         await run("UPDATE users SET password = ?, apiToken = ? WHERE id = ?", [hashedPassword, newToken, req.params.id]);
         res.json({ success: true });
     } catch (e) { res.status(500).json({ error: "Internal server error" }); }
@@ -912,14 +1038,14 @@ app.delete('/api/users/:id', requireAuth, async (req, res) => {
 app.get('/api/settings', requireAuth, async (req, res) => { res.json(await get("SELECT * FROM settings WHERE id = 'default'") || { maxUploadSize: '50MB', maxUsers: 10 }); });
 
 // FIX: Added try/catch to debug errors
-app.post('/api/settings', requireAuth, async (req, res) => { 
+app.post('/api/settings', requireAuth, async (req, res) => {
     try {
         const isOpen = req.body.isServerOpen ? 1 : 0;
         // Added ssrfWhitelist to the update
-        await run("UPDATE settings SET maxUploadSize = ?, maxUsers = ?, isServerOpen = ?, ssrfWhitelist = ? WHERE id = 'default'", 
+        await run("UPDATE settings SET maxUploadSize = ?, maxUsers = ?, isServerOpen = ?, ssrfWhitelist = ? WHERE id = 'default'",
             [req.body.maxUploadSize, req.body.maxUsers, isOpen, req.body.ssrfWhitelist || '']
-        ); 
-        res.json({ success: true }); 
+        );
+        res.json({ success: true });
     } catch (e: any) {
         console.error("Settings Update Failed:", e);
         res.status(500).json({ error: e.message });
@@ -1200,13 +1326,39 @@ if (fs.existsSync(FRONTEND_PATH)) {
 // --- SERVER STARTUP ---
 const startServer = async () => {
     // 1. Enable WAL Mode for better concurrency
-    await run("PRAGMA journal_mode = WAL;"); 
+    await run("PRAGMA journal_mode = WAL;");
     console.log("Database set to WAL mode");
 
     // 2. Run migrations
     await runMigrations();
     // 3. Ensure default data
     await ensureDefaultData();
+
+    // --- SCHEDULED TASK: AUTO-DELETE OLD TRASH ---
+    const cleanupTrash = async () => {
+        console.log("Running Trash Cleanup...");
+        const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+
+        // Find pins deleted more than 7 days ago
+        const oldPins = await all("SELECT * FROM pins WHERE deletedAt IS NOT NULL AND deletedAt < ?", [sevenDaysAgo]);
+
+        if (oldPins.length > 0) {
+            console.log(`Found ${oldPins.length} items to permanently delete.`);
+            for (const pin of oldPins) {
+                await permanentDeletePin(pin);
+            }
+            // Recalculate quotas for everyone affected
+            const affectedUsers = new Set(oldPins.map(p => p.ownerId));
+            for (const uid of affectedUsers) await updateUserQuota(uid);
+        }
+    };
+
+    // Run once on startup
+    await cleanupTrash();
+
+    // Run every 24 hours
+    setInterval(cleanupTrash, 24 * 60 * 60 * 1000);
+
     // 4. Start listening
     app.listen(PORT, '0.0.0.0', () => console.log(`Server running on ${PORT}`));
 };
