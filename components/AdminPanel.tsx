@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, SystemSettings } from '../types';
 import { dataService } from '../services/dataService';
-import { X, Trash2, Users, HardDrive, Settings, Ticket, Copy, Check, Search, ArrowUpDown, Loader2, Save, Key, RefreshCw } from 'lucide-react';
+import { X, Trash2, Users, HardDrive, Settings, Ticket, Copy, Check, Search, ArrowUpDown, Loader2, Save, Key, RefreshCw, AlertTriangle } from 'lucide-react';
 
 interface AdminPanelProps {
   isOpen: boolean;
   onClose: () => void;
   users: User[];
-  currentUser: User | null; // <--- NEW: Added to prevent self-deletion
+  currentUser: User | null;
   onUpdate: () => void;
 }
 
@@ -17,11 +17,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
     maxUploadSize: 'Loading...',
     maxUsers: 10,
     isServerOpen: true,
-    ssrfWhitelist: '' // <--- Add default
+    ssrfWhitelist: ''
   });
   const [invites, setInvites] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Empty Trash State
+  const [isEmptyingTrash, setIsEmptyingTrash] = useState(false);
+  // NEW: Trash Stats
+  const [trashStats, setTrashStats] = useState({ count: 0, size: '0 Bytes' });
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -47,12 +52,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [settingsData, invitesData] = await Promise.all([
+      // FIX: Added getTrashStats to the loading promise
+      // @ts-ignore
+      const [settingsData, invitesData, trashData] = await Promise.all([
         dataService.getSystemSettings(),
-        dataService.getInvites()
+        dataService.getInvites(),
+        dataService.getTrashStats()
       ]);
       setSettings(settingsData);
       setInvites(invitesData);
+      setTrashStats(trashData);
     } catch (e) { console.error(e); }
     setIsLoading(false);
   };
@@ -93,6 +102,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
     setIsSaving(false);
   };
 
+  const handleEmptyTrash = async () => {
+      if(confirm(`Permanently delete ${trashStats.count} items (${trashStats.size})? This cannot be undone.`)) {
+          setIsEmptyingTrash(true);
+          try {
+              // @ts-ignore
+              const res = await dataService.emptyTrash();
+              alert(`Trash emptied. ${res.count} items permanently deleted.`);
+              onUpdate();
+              loadData(); // Refresh stats
+          } catch(e) {
+              alert("Failed to empty trash.");
+          } finally {
+              setIsEmptyingTrash(false);
+          }
+      }
+  };
+
   const saveQuota = async (id: string) => {
     await dataService.updateUserQuota(id, tempQuota);
     setEditingQuotaId(null);
@@ -113,7 +139,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
 
   if (!isOpen) return null;
 
-  // Logic: "Require Login" is the opposite of "isServerOpen"
   const requireLogin = !settings.isServerOpen;
 
   return (
@@ -165,8 +190,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                     Allowed Local Hosts (SSRF Whitelist)
                   </label>
                   <p className="text-xs text-slate-400 mb-3">
-                    By default, Tallo blocks connections to local IPs (like 192.168.x.x) for security.
-                    Add specific IPs or domains here to allow scraping from them.
+                    By default, Tallo blocks connections to local IPs. Add allowed IPs here (comma separated).
                   </p>
                   <input
                     type="text"
@@ -177,10 +201,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                   />
                 </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-end gap-4 mt-4">
                   <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-4">
-
-                    {/* Max Upload Size */}
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-slate-400">Max Upload Size</label>
                       <div className="relative">
@@ -196,7 +218,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                       </div>
                     </div>
 
-                    {/* Max User Limit */}
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-slate-400">Max User Limit</label>
                       <input
@@ -207,7 +228,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                       />
                     </div>
 
-                    {/* Public Access / Require Login - UPDATED UI */}
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-slate-400">Public Access</label>
                       <div className="flex items-center justify-between bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 h-[42px]">
@@ -220,12 +240,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                         </button>
                       </div>
                     </div>
-
                   </div>
                   <button onClick={handleSettingsSave} disabled={isSaving} className="bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white px-5 py-2 rounded-lg font-medium transition flex items-center justify-center gap-2 min-w-[120px] h-[42px]">
                     {isSaving ? <Loader2 size={18} className="animate-spin" /> : <><Save size={18} /> Save</>}
                   </button>
                 </div>
+              </section>
+
+              {/* Maintenance Section */}
+              <section className="bg-slate-800/30 p-5 rounded-xl border border-slate-800">
+                  <div className="flex items-center justify-between">
+                      <div>
+                          <h3 className="text-sm font-semibold text-red-400 uppercase tracking-wider flex items-center gap-2">
+                              <Trash2 size={16} /> Maintenance
+                          </h3>
+                          {/* FIX: Shows current status of trash */}
+                          <div className="flex items-center gap-3 mt-2">
+                              <div className="text-xs bg-slate-900 border border-slate-700 px-2 py-1 rounded text-slate-300">
+                                  Deleted Files: <span className="text-white font-mono font-bold">{trashStats.count}</span>
+                              </div>
+                              <div className="text-xs bg-slate-900 border border-slate-700 px-2 py-1 rounded text-slate-300">
+                                  Reclaimable Space: <span className="text-white font-mono font-bold">{trashStats.size}</span>
+                              </div>
+                          </div>
+                      </div>
+                      <button 
+                          onClick={handleEmptyTrash} 
+                          disabled={isEmptyingTrash || trashStats.count === 0}
+                          className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                          {isEmptyingTrash ? <Loader2 size={14} className="animate-spin"/> : <Trash2 size={14} />}
+                          Empty Trash
+                      </button>
+                  </div>
               </section>
 
               {/* Users Toolbar */}
@@ -264,7 +311,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                     </thead>
                     <tbody className="divide-y divide-slate-800/50">
                       {filteredUsers.length > 0 ? filteredUsers.map(user => {
-                        // PREVENT SELF DELETION
                         const isSelf = currentUser && user.id === currentUser.id;
                         const isRoot = user.id === 'u1';
                         const canDelete = !isSelf && !isRoot;
@@ -333,7 +379,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                                     <Trash2 size={16} />
                                   </button>
                                 ) : (
-                                  <div className="w-8 h-8"></div> // Empty spacer
+                                  <div className="w-8 h-8"></div>
                                 )}
                               </div>
                             </td>
@@ -356,8 +402,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
             </>
           ) : (
             <div className="space-y-6">
-              {/* ... (INVITES TAB REMAINS UNCHANGED) ... */}
-              {/* Generate Invite */}
+              {/* Invites Tab Content (Same as before) */}
               <div className="bg-gradient-to-br from-teal-900/20 to-slate-900 border border-teal-900/50 p-6 rounded-xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 p-32 bg-teal-500/5 blur-[100px] rounded-full pointer-events-none"></div>
 
@@ -388,7 +433,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                 </div>
               </div>
 
-              {/* New Invite Display */}
               {newInvite && (
                 <div className="bg-teal-950/30 border border-teal-500/30 p-6 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-6 animate-in fade-in slide-in-from-top-2 shadow-lg shadow-teal-900/10">
                   <div className="flex gap-4">
@@ -405,7 +449,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
                 </div>
               )}
 
-              {/* Invites List */}
               <div className="space-y-3">
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest pl-1">Active Invites</h3>
                 <div className="border border-slate-800 rounded-xl overflow-hidden">
@@ -460,7 +503,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, users, 
           )}
         </div>
 
-        {/* Reset Link Modal/Overlay */}
         {resetLink && (
           <div className="absolute inset-0 z-50 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in">
             <div className="bg-slate-950 border border-teal-500/50 p-6 rounded-2xl max-w-lg w-full shadow-2xl shadow-teal-900/20">
