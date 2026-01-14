@@ -84,6 +84,16 @@ db.serialize(() => {
         createdAt INTEGER
     )`);
 
+    // Discovery Feeds
+    db.run(`CREATE TABLE IF NOT EXISTS feeds (
+        id TEXT PRIMARY KEY,
+        userId TEXT,
+        url TEXT,
+        name TEXT,
+        type TEXT, -- 'pinterest', 'rss', etc.
+        createdAt INTEGER
+    )`);
+
     // Favorites (User-Specific)
     db.run(`CREATE TABLE IF NOT EXISTS favorites (
         userId TEXT,
