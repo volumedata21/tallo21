@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
+import { MasonryGrid } from './components/MasonryGrid';
 import { PinCard } from './components/PinCard';
 import { AdminPanel } from './components/AdminPanel';
 import { PinModal } from './components/PinModal';
@@ -146,7 +147,6 @@ function App() {
     });
 
     const [toast, setToast] = useState<{ message: string, onUndo: () => void } | null>(null);
-    const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1200);
     const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const sortRef = useRef<HTMLDivElement>(null);
 
@@ -243,11 +243,7 @@ function App() {
         }
     };
 
-    useEffect(() => {
-        const handleResize = () => setWindowWidth(window.innerWidth);
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
+
 
     const refreshData = async (reset = false, searchOverride?: string) => {
         // Allow if guest AND server open
@@ -490,44 +486,6 @@ function App() {
         </button>
     );
 
-    const getMasonryColumns = () => {
-        const isMobile = windowWidth < 768;
-        let sidebarWidth = 0;
-        if (!isMobile) {
-            sidebarWidth = isSidebarOpen ? 256 : 80;
-        }
-
-        const availableWidth = windowWidth - sidebarWidth;
-        let colCount = 2;
-        if (availableWidth >= 1600) colCount = 5;
-        else if (availableWidth >= 1100) colCount = 4;
-        else if (availableWidth >= 800) colCount = 3;
-        else if (availableWidth < 320) colCount = 1;
-        else if (availableWidth < 800) colCount = 2; // Forces 2 columns on most phones
-
-        const columns: Pin[][] = Array.from({ length: colCount }, () => []);
-        const colHeights = new Array(colCount).fill(0);
-
-        pins.forEach((pin) => {
-            let minHeight = colHeights[0];
-            let minColIndex = 0;
-            for (let i = 1; i < colCount; i++) {
-                if (colHeights[i] < minHeight) {
-                    minHeight = colHeights[i];
-                    minColIndex = i;
-                }
-            }
-            columns[minColIndex].push(pin);
-            const aspectRatio = typeof pin.aspectRatio === 'number' ? pin.aspectRatio : 1;
-            const estimatedHeight = (1 / aspectRatio) + 0.2;
-            colHeights[minColIndex] += estimatedHeight;
-        });
-
-        return columns;
-    };
-
-    const masonryColumns = getMasonryColumns();
-
     if (!currentUser && !isServerOpen) {
         if (isLoading) {
             return (
@@ -755,42 +713,22 @@ function App() {
                                         </div>
                                     </div>
 
-                                    {pins.length === 0 ? (
-                                        <div className="flex flex-col items-center justify-center py-20 text-slate-500">
-                                            <div className="w-20 h-20 bg-slate-900 rounded-full flex items-center justify-center mb-4">
-                                                <Plus size={40} className="text-slate-700" />
-                                            </div>
-                                            <h3 className="text-xl font-bold text-slate-300 mb-2">No Stems Found</h3>
-                                            <p className="mb-6">{searchQuery ? `No results for "${searchQuery}"` : 'Upload an image to get started.'}</p>
-                                            {currentUser && <button onClick={() => { window.history.pushState({ modal: 'create' }, ''); setIsCreateOpen(true); }} className="px-6 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-full font-medium transition">Add Stem</button>}
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <div className="flex gap-2 sm:gap-4 justify-center mx-auto max-w-[2400px]">
-                                                {masonryColumns.map((colPins, colIndex) => (
-                                                    <div key={colIndex} className="flex-1 flex flex-col gap-4 min-w-0">
-                                                        {colPins.map(pin => (
-                                                            <PinCard
-                                                                key={pin.id}
-                                                                pin={pin}
-                                                                settings={userSettings}
-                                                                onClick={handlePinClick}
-                                                                onUserClick={handleOpenProfile}
-                                                                isSelectionMode={isSelectionMode}
-                                                                isSelected={selectedPinIds.includes(pin.id)}
-                                                                onToggleSelection={toggleSelection}
-                                                            />
-                                                        ))}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            {isFetchingMore && (
-                                                <div className="w-full py-8 flex justify-center text-teal-500">
-                                                    <Loader2 className="animate-spin w-8 h-8" />
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
+                                    <MasonryGrid
+                                        pins={pins}
+                                        searchQuery={searchQuery}
+                                        isSidebarOpen={isSidebarOpen}
+                                        settings={userSettings}
+                                        isFetchingMore={isFetchingMore}
+                                        isSelectionMode={isSelectionMode}
+                                        selectedPinIds={selectedPinIds}
+                                        onToggleSelection={toggleSelection}
+                                        onPinClick={handlePinClick}
+                                        onUserClick={handleOpenProfile}
+                                        onCreatePin={() => {
+                                            window.history.pushState({ modal: 'create' }, '');
+                                            setIsCreateOpen(true);
+                                        }}
+                                    />
                                 </div>
                             </>
                         )}
