@@ -11,6 +11,9 @@ import { JSDOM } from 'jsdom';
 // @ts-ignore
 import bcrypt from 'bcryptjs';
 import dns from 'dns/promises'; // Native Node.js DNS module
+import Parser from 'rss-parser';
+
+const parser = new Parser();
 
 const app = express();
 // Use Environment Port if available, default to 3001
@@ -304,13 +307,26 @@ const parsePin = (pin: any): Pin => {
     };
 };
 
+// --- FIXED IMAGE PROCESSOR ---
 const processExternalImage = async (url: string) => {
-    if (!url || !url.startsWith('http')) return { url, thumbnail: null };
+    if (!url || !url.startsWith('http')) return { url, thumbnail: null, aspectRatio: 1 };
+
+    // FIX: Force safe URL if downloading from Pinterest
+    if (url.includes('pinimg.com')) {
+        url = url.replace('/originals/', '/736x/').replace('/236x/', '/736x/');
+    }
 
     try {
         console.log(`Downloading external image: ${url}`);
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Failed to fetch ${url}`);
+        // FIX: Add Anti-Bot headers to the download request
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Referer': '', // Important!
+            }
+        });
+        
+        if (!response.ok) throw new Error(`Failed to fetch ${url}: ${response.status}`);
 
         const arrayBuffer = await response.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
@@ -338,15 +354,24 @@ const processExternalImage = async (url: string) => {
 
         await fs.promises.writeFile(originalPath, buffer);
 
+        // FIX: Calculate Aspect Ratio while we have the buffer
+        let aspectRatio = 1;
+        if (!isVideo) {
+            try {
+                const metadata = await sharp(buffer).metadata();
+                if (metadata.width && metadata.height) {
+                    aspectRatio = metadata.width / metadata.height;
+                }
+            } catch (e) { console.warn("Could not calculate aspect ratio"); }
+        }
+
         if (isVideo) {
-            return { url: `/images/${folder}/${filename}`, thumbnail: null };
+            return { url: `/images/${folder}/${filename}`, thumbnail: null, aspectRatio: 1 };
         }
 
         const thumbFilename = `${id}.webp`;
         const thumbPath = path.join(thumbDir, thumbFilename);
 
-        // FIX: Removed duplicate sharp call. 
-        // passing { animated: true } handles both static and animated images correctly.
         await sharp(buffer, { animated: true })
             .resize(600, null, { withoutEnlargement: true, fit: 'inside' })
             .webp({ quality: 80 })
@@ -354,11 +379,12 @@ const processExternalImage = async (url: string) => {
 
         return {
             url: `/images/${folder}/${filename}`,
-            thumbnail: `/thumbnails/${folder}/${thumbFilename}`
+            thumbnail: `/thumbnails/${folder}/${thumbFilename}`,
+            aspectRatio // Return the calculated ratio
         };
     } catch (e) {
         console.error("Error processing external image:", e);
-        return { url, thumbnail: null };
+        return { url, thumbnail: null, aspectRatio: 1 };
     }
 };
 
@@ -671,17 +697,21 @@ app.post('/api/pins', requireAuth, async (req: any, res: any) => {
 
     let finalImageUrl = pin.imageUrl;
     let finalThumbnail = pin.thumbnail;
+    // Default to passed aspect ratio or 1
+    let aspectRatio = pin.aspectRatio || 1;
 
     if (pin.imageUrl && pin.imageUrl.startsWith('http')) {
         const processed = await processExternalImage(pin.imageUrl);
         finalImageUrl = processed.url;
         if (processed.thumbnail) finalThumbnail = processed.thumbnail;
+        // FIX: Use the calculated aspect ratio from the downloaded image
+        if (processed.aspectRatio) aspectRatio = processed.aspectRatio;
     }
 
     await run(
         `INSERT INTO pins (id, title, description, imageUrl, thumbnail, gallery, boardIds, link, location, aspectRatio, tags, ownerId, createdAt, favorite, deletedAt) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), '[]', pin.link, JSON.stringify(pin.location || null), pin.aspectRatio, JSON.stringify(pin.tags || []),
+        [id, pin.title, pin.description, finalImageUrl, finalThumbnail || null, JSON.stringify(pin.gallery || []), '[]', pin.link, JSON.stringify(pin.location || null), aspectRatio, JSON.stringify(pin.tags || []),
             ownerId, // Force ownerId
             Date.now(), 0, null]
     );
@@ -1103,6 +1133,115 @@ app.post('/api/boards', requireAuth, async (req: any, res) => {
     res.json(await get("SELECT * FROM boards WHERE id = ?", [id]));
 });
 
+// --- DISCOVERY / RSS FEEDS ---
+
+// Get user's subscriptions
+app.get('/api/feeds', requireAuth, async (req: any, res) => {
+    try {
+        const feeds = await all("SELECT * FROM feeds WHERE userId = ?", [req.user.id]);
+        res.json(feeds);
+    } catch (e) {
+        res.status(500).json({ error: "Failed to fetch feeds" });
+    }
+});
+
+// Subscribe to a new feed
+app.post('/api/feeds', requireAuth, async (req: any, res) => {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: "URL required" });
+
+    try {
+        // 1. Validate: Try to parse it to make sure it's a real RSS feed
+        const feedData = await parser.parseURL(url);
+        
+        // 2. Save to DB
+        const id = uuidv4();
+        const name = feedData.title || 'Unknown Feed';
+        
+        await run(
+            "INSERT INTO feeds (id, userId, url, name, type, createdAt) VALUES (?, ?, ?, ?, ?, ?)",
+            [id, req.user.id, url, name, 'rss', Date.now()]
+        );
+
+        res.json({ success: true, name });
+    } catch (e) {
+        console.error("Feed Error:", e);
+        res.status(400).json({ error: "Could not validate RSS feed. Check the URL." });
+    }
+});
+
+// Unsubscribe
+app.delete('/api/feeds/:id', requireAuth, async (req: any, res) => {
+    await run("DELETE FROM feeds WHERE id = ? AND userId = ?", [req.params.id, req.user.id]);
+    res.json({ success: true });
+});
+
+// --- DISCOVERY AGGREGATOR ---
+app.get('/api/discovery', requireAuth, async (req: any, res) => {
+    try {
+        // 1. Get user's subscriptions
+        const feeds = await all("SELECT * FROM feeds WHERE userId = ?", [req.user.id]);
+        
+        if (feeds.length === 0) return res.json([]);
+
+        // 2. Fetch all feeds in parallel
+        const promises = feeds.map(async (feed: any) => {
+            try {
+                const feedData = await parser.parseURL(feed.url);
+                
+                // 3. Process items
+                return feedData.items.map((item: any) => {
+                    let imageUrl = null;
+
+                    // Strategy A: Check 'enclosure' (Standard RSS)
+                    if (item.enclosure && item.enclosure.url) {
+                        imageUrl = item.enclosure.url;
+                    }
+                    // Strategy B: Pinterest puts images in 'content' or 'description' HTML
+                    else if (item['content:encoded'] || item.content || item.description) {
+                        const html = item['content:encoded'] || item.content || item.description;
+                        // Extract src="..."
+                        const match = html.match(/src="([^"]+)"/);
+                        if (match && match[1]) {
+                            imageUrl = match[1];
+                            // Pinterest often serves small thumbnails in RSS. 
+                            // Hack: Replace '/236x/' with '/originals/' to get HD quality
+                            imageUrl = imageUrl.replace('/236x/', '/originals/');
+                        }
+                    }
+
+                    if (!imageUrl) return null;
+
+                    return {
+                        id: item.guid || item.link || Math.random().toString(),
+                        title: item.title || 'Untitled',
+                        link: item.link,
+                        imageUrl: imageUrl,
+                        feedName: feed.name,
+                        pubDate: item.pubDate ? new Date(item.pubDate).getTime() : Date.now()
+                    };
+                });
+            } catch (e) {
+                console.error(`Failed to parse feed ${feed.url}`, e);
+                return []; // Ignore failed feeds
+            }
+        });
+
+        const results = await Promise.all(promises);
+        
+        // 4. Flatten & Sort by Date (Newest First)
+        const allItems = results.flat()
+            .filter(i => i !== null)
+            .sort((a, b) => b.pubDate - a.pubDate);
+
+        res.json(allItems);
+
+    } catch (e) {
+        console.error("Discovery Error:", e);
+        res.status(500).json({ error: "Failed to load discovery feed" });
+    }
+});
+
 app.delete('/api/boards/:id', requireAuth, async (req, res) => { await run("DELETE FROM boards WHERE id = ?", [req.params.id]); res.json({ success: true }); });
 app.put('/api/boards/:id', requireAuth, async (req, res) => {
     if (req.body.title !== undefined) await run("UPDATE boards SET title = ? WHERE id = ?", [req.body.title, req.params.id]);
@@ -1301,6 +1440,139 @@ app.post('/api/admin/regenerate-thumbnails', requireAuth, async (req, res) => {
     } catch (e) {
         console.error(e);
         res.status(500).json({ error: "Regeneration failed" });
+    }
+});
+
+// --- DISCOVERY CACHE ---
+let discoveryCache: { timestamp: number, items: any[] } = { timestamp: 0, items: [] };
+
+// --- DISCOVERY AGGREGATOR ---
+app.get('/api/discovery', requireAuth, async (req: any, res) => {
+    // 1. CACHE CHECK
+    const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+    const now = Date.now();
+    if (discoveryCache.items.length > 0 && (now - discoveryCache.timestamp < CACHE_DURATION)) {
+        console.log("Serving Discovery from Cache");
+        return res.json(discoveryCache.items);
+    }
+
+    try {
+        // 2. Fetch from Feeds
+        const feeds = await all("SELECT * FROM feeds WHERE userId = ?", [req.user.id]);
+        
+        if (feeds.length === 0) return res.json([]);
+
+        // Helper to convert Pinterest CDN URLs to the "Safe" (Public) variant
+        const getSafeImageUrl = (url: string) => {
+            if (!url) return null;
+            if (url.includes('pinimg.com')) {
+                return url.replace('/originals/', '/736x/').replace('/236x/', '/736x/');
+            }
+            return url;
+        };
+
+        const promises = feeds.map(async (feed: any) => {
+            try {
+                const feedData = await parser.parseURL(feed.url);
+                return feedData.items.map((item: any) => {
+                    let imageUrl = null;
+
+                    // Strategy A: Check 'enclosure' (Standard RSS)
+                    if (item.enclosure && item.enclosure.url) {
+                        imageUrl = item.enclosure.url;
+                    }
+                    // Strategy B: Pinterest HTML parsing
+                    else if (item['content:encoded'] || item.content || item.description) {
+                        const html = item['content:encoded'] || item.content || item.description;
+                        // Extract src="..."
+                        const match = html.match(/src="([^"]+)"/);
+                        if (match && match[1]) {
+                            imageUrl = match[1];
+                        }
+                    }
+
+                    imageUrl = getSafeImageUrl(imageUrl);
+                    if (!imageUrl) return null;
+
+                    return {
+                        id: item.guid || item.link || Math.random().toString(),
+                        title: item.title || 'Untitled',
+                        link: item.link,
+                        imageUrl: imageUrl, // Now guaranteed to be the "Safe" URL
+                        feedName: feed.name,
+                        pubDate: item.pubDate ? new Date(item.pubDate).getTime() : Date.now()
+                    };
+                });
+            } catch (e) {
+                console.error(`Failed to parse feed ${feed.url}`, e);
+                return []; // Ignore failed feeds
+            }
+        });
+
+        const results = await Promise.all(promises);
+        
+        // 3. Flatten & Sort
+        const allItems = results.flat()
+            .filter(i => i !== null)
+            .sort((a, b) => b.pubDate - a.pubDate);
+
+        // 4. UPDATE CACHE
+        discoveryCache = { timestamp: Date.now(), items: allItems };
+
+        res.json(allItems);
+
+    } catch (e) {
+        console.error("Discovery Error:", e);
+        res.status(500).json({ error: "Failed to load discovery feed" });
+    }
+});
+
+// --- PROXY FOR EXTERNAL IMAGES ---
+app.get('/api/proxy', async (req: any, res) => {
+    let { url } = req.query;
+    if (!url || typeof url !== 'string') return res.status(400).send("URL required");
+
+    // FAILSAFE: If the frontend somehow requests an /original/, force-fix it here too.
+    if (url.includes('pinimg.com') && url.includes('/originals/')) {
+        url = url.replace('/originals/', '/736x/');
+    }
+
+    // Security Check
+    const safe = await isSafeUrl(url);
+    if (!safe) return res.status(403).send("Blocked");
+
+    try {
+        const response = await fetch(url, {
+            headers: {
+                // Mimic a standard browser request
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                // IMPORTANT: Pinterest strictly blocks requests with an invalid Referer.
+                // Sending NO Referer mimics a direct link open, which is allowed.
+                'Referer': '', 
+            }
+        });
+
+        if (!response.ok) {
+            console.error(`Proxy Fetch Error: ${response.status} for ${url}`);
+            if (response.status === 403) {
+                return res.status(403).send("Pinterest blocked this image variant.");
+            }
+            throw new Error(`Upstream error: ${response.status}`);
+        }
+
+        const contentType = response.headers.get('content-type');
+        if (contentType) res.setHeader('Content-Type', contentType);
+        
+        // Cache for 1 year (immutable) to prevent re-fetching
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+
+        const arrayBuffer = await response.arrayBuffer();
+        res.send(Buffer.from(arrayBuffer));
+
+    } catch (e: any) {
+        console.error("Proxy error:", e.message);
+        res.status(500).send("Failed to load image");
     }
 });
 

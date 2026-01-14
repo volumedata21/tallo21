@@ -142,6 +142,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 </button>
                             </li>
                             <li>
+                                {/* --- NEW: DISCOVERY BUTTON --- */}
+                                <button onClick={() => handleFilterClick('discovery', '')} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group ${activeFilter.type === 'discovery' ? 'bg-orange-500/10 text-orange-500' : 'text-slate-400 hover:text-white hover:bg-slate-900'} ${!isOpen ? 'justify-center' : ''}`} title="Discovery">
+                                    <Activity size={20} strokeWidth={1.5} />
+                                    <span className={`font-medium text-sm transition-all duration-200 ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>Discovery</span>
+                                </button>
+                            </li>
+                            <li>
                                 <button onClick={() => handleFilterClick('created', currentUser.id)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all group ${activeFilter.type === 'created' ? 'bg-teal-500/10 text-teal-500' : 'text-slate-400 hover:text-white hover:bg-slate-900'} ${!isOpen ? 'justify-center' : ''}`} title="Mis Tallos">
                                     <UserIcon size={20} strokeWidth={1.5} />
                                     <span className={`font-medium text-sm transition-all duration-200 ${!isOpen ? 'w-0 opacity-0 overflow-hidden hidden' : 'block'}`}>Mis Tallos</span>
