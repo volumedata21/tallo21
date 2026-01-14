@@ -6,6 +6,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { PinModal } from './components/PinModal';
 import { CreatePinModal } from './components/CreatePinModal';
 import { MapView } from './components/MapView';
+import { DiscoveryView } from './components/DiscoveryView';
 import { BulkActionBar } from './components/BulkActionBar';
 import { LoginScreen } from './components/LoginScreen';
 import { ProfileModal } from './components/ProfileModal';
@@ -253,6 +254,10 @@ function App() {
     const refreshData = async (reset = false, searchOverride?: string) => {
         // Allow if guest AND server open
         if (!currentUser && !isServerOpen) return;
+        if (activeFilter.type === 'discovery') {
+            setIsLoading(false);
+            return;
+        }
 
         const targetPage = reset ? 1 : page;
         const currentUserId = currentUser ? currentUser.id : '';
@@ -641,6 +646,13 @@ function App() {
                                     setActiveFilter({ type: 'board', id: boardId });
                                 }}
                             />
+
+                        ) : activeFilter.type === 'discovery' ? ( 
+                            // --- NEW: DISCOVERY VIEW ---
+                            <DiscoveryView onSave={() => {
+                                // Optional: Refresh sidebar counts if you add that later
+                            }} />
+                            
                         ) : viewMode === 'map' ? (
                             <div className="w-full h-[calc(100vh-80px)] relative z-0">
                                 <MapView pins={pins} onPinClick={(pin) => {
