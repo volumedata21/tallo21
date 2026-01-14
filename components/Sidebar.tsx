@@ -219,7 +219,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                                     <button onClick={() => handleFilterClick('board', board.id)} className={`w-full flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm transition-colors ${activeFilter.type === 'board' && activeFilter.id === board.id ? 'text-teal-400' : 'text-slate-500 hover:text-slate-300'}`}>
                                                         <Folder size={14} />
                                                         <span className="truncate pr-2">{board.title}</span>
-                                                        <div className="ml-auto scale-75">{getVisibilityIcon(board.visibility)}</div>
+                                                        <div className="ml-auto scale-100">{getVisibilityIcon(board.visibility)}</div>
                                                     </button>
                                                 </li>
                                             ))}
