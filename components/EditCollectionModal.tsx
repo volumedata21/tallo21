@@ -11,8 +11,6 @@ interface EditCollectionModalProps {
 }
 
 export const EditCollectionModal: React.FC<EditCollectionModalProps> = ({ collection, onClose, onUpdate }) => {
-    // We moved this state FROM App.tsx TO here. 
-    // Now App.tsx doesn't need to care about the text inside the input!
     const [title, setTitle] = useState(collection.title);
 
     const handleSave = async () => {
