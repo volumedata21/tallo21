@@ -15,5 +15,9 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - OIDC_ISSUER=https://id.rico.red  # <-- Your Pocket-ID URL
+      - OIDC_CLIENT_ID=fb276d00-7076-475b-b38e-626d2115024f            # <-- From Pocket-ID
+      - OIDC_CLIENT_SECRET=JTGgt7949j19GE9EnFPP58VxBMV8yqJT     # <-- From Pocket-ID
+      - OIDC_REDIRECT_URI=https://pin-test.rico.red/api/auth/oidc/callback # <-- Must match EXACTLY what is in Pocket-ID
       
     restart: no

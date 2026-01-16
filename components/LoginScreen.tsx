@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { dataService } from '../services/dataService';
 import { User } from '../types';
-import { Loader2, ArrowRight, ChevronsUp, Ticket } from 'lucide-react';
+import { Loader2, ArrowRight, ChevronsUp, Ticket, Globe } from 'lucide-react';
 
 interface LoginScreenProps {
   onLogin: (user: User) => void;
@@ -13,6 +13,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // --- OIDC State ---
+  const [oidcEnabled, setOidcEnabled] = useState(false);
+  useEffect(() => {
+      fetch('/api/auth/oidc/status')
+          .then(res => res.json())
+          .then(data => setOidcEnabled(data.enabled))
+          .catch(() => setOidcEnabled(false));
+  }, []);
 
   // Form State
   const [username, setUsername] = useState('');
@@ -97,6 +106,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
               {isSetupMode ? 'Initialize your admin workspace.' : isRegistering ? 'Enter your invite code to create an account.' : 'Enter your credentials to access the grid.'}
             </p>
           </div>
+
+          {/* --- OIDC Button --- */}
+          {oidcEnabled && !isSetupMode && (
+            <div className="mb-6 animate-in fade-in slide-in-from-top-4 duration-500">
+                <a 
+                    href="/api/auth/oidc/login"
+                    className="w-full flex items-center justify-center gap-2 bg-slate-800/80 hover:bg-slate-700/80 text-white font-medium py-3 rounded-xl transition-all border border-slate-700 hover:border-slate-600 mb-4 backdrop-blur-sm group"
+                >
+                    <Globe size={18} className="text-teal-500 group-hover:scale-110 transition-transform" />
+                    <span>Continue with Single Sign-On</span>
+                </a>
+                <div className="relative flex py-2 items-center">
+                    <div className="flex-grow border-t border-slate-800"></div>
+                    <span className="flex-shrink mx-4 text-slate-600 text-xs uppercase font-bold tracking-widest">Or</span>
+                    <div className="flex-grow border-t border-slate-800"></div>
+                </div>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
             

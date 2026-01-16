@@ -4,6 +4,12 @@ services:
     container_name: tallo
     volumes:
       - ./data:/data
+# FOR USING OIDC AUTHENTICATION ---------
+#    environment:
+#      - OIDC_ISSUER=https://auth.your-domain.com  # <-- Your Pocket-ID URL
+#      - OIDC_CLIENT_ID=your_client_id             # <-- From Pocket-ID
+#      - OIDC_CLIENT_SECRET=your_client_secret     # <-- From Pocket-ID
+ #     - OIDC_REDIRECT_URI=https://tallo.your-domain.com/api/auth/oidc/callback # <-- Must match EXACTLY what is in Pocket-ID
     ports:
       - 5521:3000
     restart: unless-stopped

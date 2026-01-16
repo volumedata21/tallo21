@@ -152,6 +152,36 @@ function App() {
 
     // --- EFFECTS ---
 
+    // Listen for OIDC Login Token in URL
+    // --- NEW: OIDC Token Handler ---
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('token');
+            if (token) {
+                // 1. Clean URL immediately so token doesn't sit in browser history
+                const url = new URL(window.location.href);
+                url.searchParams.delete('token');
+                window.history.replaceState({}, '', url.toString());
+
+                // 2. Verify token with server
+                fetch('/api/users/current', {
+                    headers: { 'x-api-token': token }
+                })
+                .then(res => res.json())
+                .then(user => {
+                    if (user && user.id) {
+                        // 3. Save session (Logs the user in)
+                        localStorage.setItem('tallo_user', JSON.stringify({ ...user, token }));
+                        setCurrentUser(user);
+                        // Note: The existing useEffect below will see 'currentUser' change and load your pins automatically.
+                    }
+                })
+                .catch(err => console.error("OIDC Login Error", err));
+            }
+        }
+    }, []);
+
     useEffect(() => {
         // Only run effects if user is logged in OR server is open
         if (currentUser || isServerOpen) {
