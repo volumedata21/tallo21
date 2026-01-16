@@ -62,3 +62,4 @@ docker-compose.override.yml
 # =====================
 coverage/
 tallo-extensions/Archivo.zip
+compose.dev.yaml
