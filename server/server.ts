@@ -12,6 +12,8 @@ import { JSDOM } from 'jsdom';
 import bcrypt from 'bcryptjs';
 import dns from 'dns/promises'; // Native Node.js DNS module
 import Parser from 'rss-parser';
+import cookieParser from 'cookie-parser';
+import { Issuer, generators } from 'openid-client';
 
 const parser = new Parser();
 
@@ -64,6 +66,7 @@ const rateLimiter = (req: any, res: any, next: any) => {
 };
 
 app.use(express.json());
+app.use(cookieParser());
 
 // Serve Static Files
 app.use('/images', express.static(IMAGES_DIR));
@@ -409,8 +412,10 @@ const runMigrations = async () => {
             { id: 13, name: 'add_server_open_setting', sql: "ALTER TABLE settings ADD COLUMN isServerOpen INTEGER DEFAULT 1" },
             { id: 14, name: 'add_unlisted_visibility', sql: "UPDATE boards SET visibility = 'private' WHERE visibility IS NULL" },
             { id: 15, name: 'add_home_page_pref', sql: "ALTER TABLE users ADD COLUMN homePagePreference TEXT DEFAULT 'all'" },
-            { id: 17, name: 'add_ssrf_whitelist_to_settings', sql: "ALTER TABLE settings ADD COLUMN ssrfWhitelist TEXT DEFAULT ''" }
-        ];
+            { id: 17, name: 'add_ssrf_whitelist_to_settings', sql: "ALTER TABLE settings ADD COLUMN ssrfWhitelist TEXT DEFAULT ''" },
+            { id: 18, name: 'add_oidc_id_to_users', sql: "ALTER TABLE users ADD COLUMN oidcId TEXT DEFAULT NULL" },
+            { id: 19, name: 'add_oidc_provider_to_users', sql: "ALTER TABLE users ADD COLUMN oidcProvider TEXT DEFAULT NULL" }
+];
 
         for (const m of migrations) {
             const exists = await get("SELECT * FROM migrations WHERE id = ?", [m.id]);
@@ -450,6 +455,106 @@ const ensureDefaultData = async () => {
 
 // --- ROUTES ---
 
+// --- OIDC CONFIGURATION ---
+let oidcClient: any = null;
+const OIDC_ISSUER = process.env.OIDC_ISSUER;
+const OIDC_CLIENT_ID = process.env.OIDC_CLIENT_ID;
+const OIDC_CLIENT_SECRET = process.env.OIDC_CLIENT_SECRET;
+const OIDC_REDIRECT_URI = process.env.OIDC_REDIRECT_URI || 'http://localhost:3001/api/auth/oidc/callback';
+
+const setupOIDC = async () => {
+    if (!OIDC_ISSUER || !OIDC_CLIENT_ID || !OIDC_CLIENT_SECRET) {
+        console.log("OIDC is not configured (missing env vars). Skipping.");
+        return;
+    }
+    try {
+        const issuer = await Issuer.discover(OIDC_ISSUER);
+        oidcClient = new issuer.Client({
+            client_id: OIDC_CLIENT_ID,
+            client_secret: OIDC_CLIENT_SECRET,
+            redirect_uris: [OIDC_REDIRECT_URI],
+            response_types: ['code'],
+        });
+        console.log(`OIDC configured for issuer: ${OIDC_ISSUER}`);
+    } catch (e) {
+        console.error("Failed to initialize OIDC:", e);
+    }
+};
+
+app.get('/api/auth/oidc/callback', async (req, res) => {
+    if (!oidcClient) return res.status(500).json({ error: "OIDC not configured" });
+    
+    try {
+        const params = oidcClient.callbackParams(req);
+        const state = req.cookies.oidc_state;
+        const nonce = req.cookies.oidc_nonce;
+
+        if (!state) return res.status(400).send("State cookie missing or expired");
+
+        const tokenSet = await oidcClient.callback(OIDC_REDIRECT_URI, params, { state, nonce });
+        const userInfo = await oidcClient.userinfo(tokenSet.access_token!);
+
+        // Extract info
+        const email = userInfo.email || null;
+        const sub = userInfo.sub; // The unique ID from the provider
+        const username = userInfo.preferred_username || userInfo.name || (email ? email.split('@')[0] : 'User');
+
+        if (!sub) return res.status(400).send("Provider did not return a user ID");
+
+        // 1. Try to find user by OIDC ID (Already linked)
+        let user = await get("SELECT * FROM users WHERE oidcId = ? AND oidcProvider = ?", [sub, OIDC_ISSUER]);
+
+        // 2. Try to find by Email (Link by Email)
+        if (!user && email) {
+            user = await get("SELECT * FROM users WHERE email = ?", [email]);
+        }
+
+        // 3. Try to find by Username (Link by Username - helpful for 'admin')
+        if (!user) {
+            user = await get("SELECT * FROM users WHERE lower(username) = lower(?)", [username]);
+        }
+
+        // 4. If found, LINK the account
+        if (user) {
+            await run("UPDATE users SET oidcId = ?, oidcProvider = ? WHERE id = ?", [sub, OIDC_ISSUER, user.id]);
+        }
+
+        // 5. If NOT found, CREATE new account
+        if (!user) {
+            // Check user limit first
+            const settings = await get("SELECT maxUsers FROM settings WHERE id = 'default'");
+            const count = await get("SELECT COUNT(*) as count FROM users");
+            if (settings && settings.maxUsers && count.count >= settings.maxUsers) {
+                return res.status(403).send("User limit reached.");
+            }
+
+            const id = uuidv4();
+            await run(
+                `INSERT INTO users (id, username, email, password, role, usedQuota, maxQuota, createdAt, avatarSeed, oidcId, oidcProvider) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [id, username, email, null, 'user', '0GB', '20GB', Date.now(), username, sub, OIDC_ISSUER]
+            );
+            user = await get("SELECT * FROM users WHERE id = ?", [id]);
+        }
+
+        // 6. Generate Login Token
+        let token = user.apiToken;
+        if (!token) {
+            token = uuidv4();
+            await run("UPDATE users SET apiToken = ? WHERE id = ?", [token, user.id]);
+        }
+
+        // Clear cookies and redirect to home with token
+        res.clearCookie('oidc_state');
+        res.clearCookie('oidc_nonce');
+        res.redirect(`/?token=${token}`);
+
+    } catch (e: any) {
+        console.error("OIDC Error:", e);
+        res.status(500).send("Authentication failed: " + e.message);
+    }
+});
+
 app.get('/api/avatars', async (req, res) => {
     try {
         const files = await fs.promises.readdir(AVATARS_DIR);
@@ -467,6 +572,102 @@ app.get('/api/avatars/image/:filename', (req, res) => {
 });
 
 // --- AUTH & SYSTEM ---
+
+// --- PASTE THIS NEW BLOCK ---
+
+app.get('/api/auth/oidc/status', (req, res) => {
+    res.json({ enabled: !!oidcClient });
+});
+
+app.get('/api/auth/oidc/login', async (req, res) => {
+    if (!oidcClient) return res.status(500).json({ error: "OIDC not configured" });
+
+    const nonce = generators.nonce();
+    const state = generators.state();
+
+    res.cookie('oidc_state', state, { httpOnly: true, maxAge: 300000 });
+    res.cookie('oidc_nonce', nonce, { httpOnly: true, maxAge: 300000 });
+
+    const authUrl = oidcClient.authorizationUrl({
+        scope: 'openid email profile',
+        state,
+        nonce,
+    });
+
+    res.redirect(authUrl);
+});
+
+app.get('/api/auth/oidc/callback', async (req, res) => {
+    if (!oidcClient) return res.status(500).json({ error: "OIDC not configured" });
+    
+    try {
+        const params = oidcClient.callbackParams(req);
+        const state = req.cookies.oidc_state;
+        const nonce = req.cookies.oidc_nonce;
+
+        if (!state) return res.status(400).send("State cookie missing or expired");
+
+        const tokenSet = await oidcClient.callback(OIDC_REDIRECT_URI, params, { state, nonce });
+        const userInfo = await oidcClient.userinfo(tokenSet.access_token!);
+
+        const email = userInfo.email || null;
+        const sub = userInfo.sub;
+        const username = userInfo.preferred_username || userInfo.name || (email ? email.split('@')[0] : 'User');
+
+        if (!sub) return res.status(400).send("OIDC Provider did not return subject ID (sub)");
+
+        // 1. Find existing user by OIDC ID
+        let user = await get("SELECT * FROM users WHERE oidcId = ? AND oidcProvider = ?", [sub, OIDC_ISSUER]);
+
+        // 2. Fallback: Find by Email
+        if (!user && email) {
+            user = await get("SELECT * FROM users WHERE email = ?", [email]);
+        }
+
+        // 3. Fallback: Find by Username (e.g. 'admin')
+        if (!user) {
+            user = await get("SELECT * FROM users WHERE lower(username) = lower(?)", [username]);
+        }
+
+        // Link Account
+        if (user) {
+            await run("UPDATE users SET oidcId = ?, oidcProvider = ? WHERE id = ?", [sub, OIDC_ISSUER, user.id]);
+        }
+
+        // Create New User
+        if (!user) {
+            const settings = await get("SELECT maxUsers FROM settings WHERE id = 'default'");
+            const userCount = await get("SELECT COUNT(*) as count FROM users");
+            if (settings && settings.maxUsers && userCount.count >= settings.maxUsers) {
+                return res.status(403).send("User limit reached on this server.");
+            }
+
+            const id = uuidv4();
+            await run(
+                `INSERT INTO users (id, username, email, password, role, usedQuota, maxQuota, createdAt, avatarSeed, oidcId, oidcProvider) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [id, username, email, null, 'user', '0GB', '20GB', Date.now(), username, sub, OIDC_ISSUER]
+            );
+            user = await get("SELECT * FROM users WHERE id = ?", [id]);
+        }
+
+        // Issue Token
+        let token = user.apiToken;
+        if (!token) {
+            token = uuidv4();
+            await run("UPDATE users SET apiToken = ? WHERE id = ?", [token, user.id]);
+        }
+
+        res.clearCookie('oidc_state');
+        res.clearCookie('oidc_nonce');
+        res.redirect(`/?token=${token}`);
+
+    } catch (e: any) {
+        console.error("OIDC Callback Error:", e);
+        res.status(500).send("Authentication failed: " + e.message);
+    }
+});
+// ----------------------------
 
 app.get('/api/system/status', async (req, res) => {
     const userCount = await get("SELECT COUNT(*) as count FROM users");
@@ -1605,6 +1806,7 @@ const startServer = async () => {
     await runMigrations();
     // 3. Ensure default data
     await ensureDefaultData();
+    await setupOIDC();
 
     // --- SCHEDULED TASK: AUTO-DELETE OLD TRASH ---
     const cleanupTrash = async () => {
