@@ -1149,10 +1149,20 @@ app.post('/api/pins/merge', requireAuth, async (req: any, res) => {
         try { const g = JSON.parse(p.gallery || '[]'); sourceImages.push(...g); } catch (e) { }
     });
     const newGallery = Array.from(new Set([...targetGallery, ...sourceImages]));
-    await run("UPDATE pins SET gallery = ? WHERE id = ?", [JSON.stringify(newGallery), targetId]);
-    const sourceIds = sourcePins.map(p => p.id);
-    await run(`UPDATE pins SET deletedAt = ? WHERE id IN (${sourceIds.map(() => '?').join(',')})`, [Date.now(), ...sourceIds]);
+    
+    // --- FIX: Define sourceIds here ---
+    const sourceIds = sourcePins.map(p => p.id); 
 
+    await run("UPDATE pins SET gallery = ? WHERE id = ?", [JSON.stringify(newGallery), targetId]);
+    
+    // Now sourceIds is defined for this query
+    await run(`
+    UPDATE pins 
+    SET deletedAt = ?, imageUrl = NULL, thumbnail = NULL, gallery = '[]' 
+    WHERE id IN (${sourceIds.map(() => '?').join(',')})
+    `, [Date.now(), ...sourceIds]);
+
+    // Recalculate quota for the user
     await updateUserQuota(req.user.id);
 
     res.json({ success: true, mergedPinId: targetId });
@@ -1233,7 +1243,13 @@ app.put('/api/users/:id/password', requireAuth, async (req, res) => {
     } catch (e) { res.status(500).json({ error: "Internal server error" }); }
 });
 
-app.post('/api/users/:id/token', requireAuth, async (req, res) => {
+// FIX: Added ': any' to req so TypeScript allows accessing req.user
+app.post('/api/users/:id/token', requireAuth, async (req: any, res) => {
+    // SECURITY FIX: Only allow Admin or the user themselves
+    if (req.user.role !== 'admin' && req.user.id !== req.params.id) {
+        return res.status(403).json({ error: "Forbidden" });
+    }
+
     const userId = req.params.id;
     const token = 'sk_' + uuidv4().replace(/-/g, '');
     await run("UPDATE users SET apiToken = ? WHERE id = ?", [token, userId]);
